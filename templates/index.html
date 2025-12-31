@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NHL Betting Analyzer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .analyze-button {
+            display: block;
+            width: 300px;
+            margin: 0 auto 30px;
+            padding: 18px 40px;
+            font-size: 1.2em;
+            font-weight: bold;
+            color: white;
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            border-radius: 50px;
+            cursor: pointer;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            transition: all 0.3s ease;
+        }
+
+        .analyze-button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.4);
+        }
+
+        .analyze-button:active {
+            transform: translateY(0);
+        }
+
+        .analyze-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .loading {
+            text-align: center;
+            color: white;
+            font-size: 1.2em;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .loading.show {
+            display: block;
+        }
+
+        .results {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .results-header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 3px solid #667eea;
+        }
+
+        .results-header h2 {
+            color: #333;
+            font-size: 2em;
+            margin-bottom: 5px;
+        }
+
+        .game-count {
+            color: #666;
+            font-size: 1.1em;
+        }
+
+        .game-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-left: 5px solid #667eea;
+            transition: all 0.3s ease;
+        }
+
+        .game-card:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateX(5px);
+        }
+
+        .matchup {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .records {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 15px;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .team-record {
+            text-align: center;
+        }
+
+        .team-name {
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+
+        .record {
+            color: #666;
+            font-size: 0.95em;
+        }
+
+        .scores {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+        }
+
+        .team-score {
+            text-align: center;
+        }
+
+        .score-label {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 3px;
+        }
+
+        .score-value {
+            font-size: 1.5em;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .recommendation {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .recommendation-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+            margin-bottom: 5px;
+        }
+
+        .recommended-team {
+            font-size: 1.3em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .confidence {
+            font-size: 0.95em;
+            opacity: 0.9;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            margin: 20px 0;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .disclaimer {
+            text-align: center;
+            color: white;
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            font-size: 0.9em;
+        }
+
+        @media (max-width: 768px) {
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .analyze-button {
+                width: 100%;
+                max-width: 300px;
+            }
+
+            .records, .scores {
+                flex-direction: column;
+                gap: 10px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏒 NHL Betting Analyzer</h1>
+            <p>AI-Powered Game Analysis & Predictions</p>
+        </div>
+
+        <button class="analyze-button" id="analyzeBtn" onclick="analyzeGames()">
+            Analyze Today's Games
+        </button>
+
+        <div class="loading" id="loading">
+            <p>🔄 Analyzing games... This may take a moment...</p>
+        </div>
+
+        <div class="error" id="error"></div>
+
+        <div class="results" id="results"></div>
+
+        <div class="disclaimer">
+            <strong>⚠️ DISCLAIMER:</strong> This tool is for educational and entertainment purposes only. 
+            Always gamble responsibly and within your means. Past performance does not guarantee future results.
+        </div>
+    </div>
+
+    <script>
+        async function analyzeGames() {
+            const btn = document.getElementById('analyzeBtn');
+            const loading = document.getElementById('loading');
+            const results = document.getElementById('results');
+            const error = document.getElementById('error');
+
+            // Reset UI
+            btn.disabled = true;
+            loading.classList.add('show');
+            results.classList.remove('show');
+            error.classList.remove('show');
+
+            try {
+                const response = await fetch('/analyze');
+                const data = await response.json();
+
+                loading.classList.remove('show');
+
+                if (data.error) {
+                    error.textContent = data.error;
+                    error.classList.add('show');
+                    btn.disabled = false;
+                    return;
+                }
+
+                displayResults(data);
+                btn.disabled = false;
+
+            } catch (err) {
+                loading.classList.remove('show');
+                error.textContent = 'Error connecting to server. Make sure the Flask app is running.';
+                error.classList.add('show');
+                btn.disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            const resultsDiv = document.getElementById('results');
+            
+            let html = `
+                <div class="results-header">
+                    <h2>Betting Recommendations</h2>
+                    <p class="game-count">${data.date} • ${data.game_count} Games</p>
+                </div>
+            `;
+
+            data.games.forEach((game, index) => {
+                const isRecommendedHome = game.recommendation === game.home_team;
+                
+                html += `
+                    <div class="game-card">
+                        <div class="matchup">
+                            ${game.away_team} @ ${game.home_team}
+                        </div>
+                        
+                        <div class="records">
+                            <div class="team-record">
+                                <div class="team-name">${game.away_team}</div>
+                                <div class="record">${game.away_record}</div>
+                            </div>
+                            <div class="team-record">
+                                <div class="team-name">${game.home_team}</div>
+                                <div class="record">${game.home_record}</div>
+                            </div>
+                        </div>
+
+                        <div class="scores">
+                            <div class="team-score">
+                                <div class="score-label">${game.away_team}</div>
+                                <div class="score-value">${game.away_score}</div>
+                            </div>
+                            <div class="team-score">
+                                <div class="score-label">${game.home_team}</div>
+                                <div class="score-value">${game.home_score}</div>
+                            </div>
+                        </div>
+
+                        <div class="recommendation">
+                            <div class="recommendation-label">📊 RECOMMENDED BET</div>
+                            <div class="recommended-team">${game.recommendation}</div>
+                            <div class="confidence">Confidence: ${game.confidence}%</div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsDiv.innerHTML = html;
+            resultsDiv.classList.add('show');
+        }
+    </script>
+</body>
+</html>

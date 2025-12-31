@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""
+NHL Betting Analyzer Desktop Launcher
+This script starts the Flask server and opens the browser automatically.
+"""
+
+import subprocess
+import webbrowser
+import time
+import sys
+import os
+import signal
+
+def start_app():
+    """Start the Flask app and open browser"""
+    print("=" * 60)
+    print("NHL BETTING ANALYZER - DESKTOP APP")
+    print("=" * 60)
+    print("\n🚀 Starting server...")
+    
+    # Get the directory where this script is located
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    app_path = os.path.join(script_dir, 'app.py')
+    
+    # Start Flask server as a subprocess
+    try:
+        flask_process = subprocess.Popen(
+            [sys.executable, app_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            cwd=script_dir
+        )
+        
+        print("✅ Server starting...")
+        print("⏳ Waiting for server to be ready...")
+        
+        # Wait a bit for server to start
+        time.sleep(3)
+        
+        # Check if process is still running
+        if flask_process.poll() is not None:
+            print("❌ Server failed to start!")
+            print("\nMake sure you have Flask installed:")
+            print("   pip3 install flask")
+            sys.exit(1)
+        
+        print("✅ Server ready!")
+        print("🌐 Opening browser...")
+        
+        # Open browser
+        webbrowser.open('http://localhost:5000')
+        
+        print("\n" + "=" * 60)
+        print("✅ NHL Betting Analyzer is now running!")
+        print("=" * 60)
+        print("\nThe app should open in your browser automatically.")
+        print("If not, go to: http://localhost:5000")
+        print("\n⚠️  To stop the app:")
+        print("   - Close this window, OR")
+        print("   - Press CTRL+C")
+        print("=" * 60)
+        
+        # Keep the script running and handle shutdown
+        try:
+            flask_process.wait()
+        except KeyboardInterrupt:
+            print("\n\n🛑 Shutting down...")
+            flask_process.terminate()
+            flask_process.wait()
+            print("✅ Server stopped. Goodbye!")
+            
+    except FileNotFoundError:
+        print("❌ Error: Could not find app.py")
+        print(f"Make sure app.py is in: {script_dir}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ Error starting app: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    start_app()

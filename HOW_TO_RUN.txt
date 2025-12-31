@@ -1,0 +1,11 @@
+Open Terminal in apple intelligence
+
+Type:
+
+cd ~/Desktop/nhl-analyzer 
+python3 app.py
+
+
+In browser, open:
+
+http://127.0.0.1:5000
