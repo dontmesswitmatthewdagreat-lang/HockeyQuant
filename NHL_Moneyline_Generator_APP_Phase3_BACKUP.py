@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-NHL Moneyline Generator - Desktop Application (Phase 7)
-PyQt6 GUI wrapper for the full NHL betting analysis engine
+NHL Moneyline Generator - Phase 7: Head-to-Head Matchup History
+Full PyQt6 Desktop Application
 Includes: xG, goaltending, fatigue/travel, hot streaks, PP/PK, injuries, H2H
 """
 
@@ -15,8 +15,7 @@ import os
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTableWidget, QTableWidgetItem, QHeaderView,
-    QProgressBar, QFrame, QDateEdit, QMessageBox, QTextEdit, QSplitter,
-    QGroupBox, QScrollArea
+    QProgressBar, QDateEdit, QMessageBox
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QDate
 from PyQt6.QtGui import QFont, QColor
@@ -77,7 +76,7 @@ def get_nhl_seasons():
 
 
 # ============================================================================
-# ANALYZER CLASS (Full Phase 7 Logic)
+# NHL ANALYZER CLASS
 # ============================================================================
 
 class NHLAnalyzer:
@@ -195,7 +194,6 @@ class NHLAnalyzer:
             mult *= 1.01
             reasons.append("Well rested (+1%)")
 
-        # Travel analysis
         away_games = [g for g in recent_games if g['home_away'] == 'away']
         home_games = [g for g in recent_games if g['home_away'] == 'home']
         away_count = len(away_games)
@@ -206,10 +204,10 @@ class NHLAnalyzer:
             alternations = sum(1 for i in range(len(sorted_games) - 1) if sorted_games[i]['home_away'] != sorted_games[i+1]['home_away'])
             if alternations >= 2 and away_count >= 2:
                 mult *= 0.97
-                reasons.append(f"Choppy travel ({away_count}A/{home_count}H)")
+                reasons.append(f"Choppy travel")
             elif away_count >= 3 and alternations <= 1:
                 mult *= 0.98
-                reasons.append(f"Road trip {away_count} games")
+                reasons.append(f"Road trip")
             elif away_count == 2 and home_count >= 1:
                 mult *= 0.99
                 reasons.append(f"Mixed schedule")
@@ -264,16 +262,16 @@ class NHLAnalyzer:
 
         if form_diff >= 0.15:
             mult = 1.05
-            reasons.append(f"Hot (+{form_diff*100:.0f}%)")
+            reasons.append(f"Hot")
         elif form_diff >= 0.10:
             mult = 1.03
-            reasons.append(f"Warming (+{form_diff*100:.0f}%)")
+            reasons.append(f"Warming")
         elif form_diff <= -0.15:
             mult = 0.95
-            reasons.append(f"Cold ({form_diff*100:.0f}%)")
+            reasons.append(f"Cold")
         elif form_diff <= -0.10:
             mult = 0.97
-            reasons.append(f"Cooling ({form_diff*100:.0f}%)")
+            reasons.append(f"Cooling")
 
         gf_diff = recent_gf_pg - season_gf_pg
         if gf_diff >= 0.5:
@@ -295,7 +293,6 @@ class NHLAnalyzer:
         elif ga_diff >= 0.3:
             mult *= 0.99
 
-        # Consecutive streaks
         consec_w = consec_l = 0
         for g in last_10:
             if g['result'] == 'W':
@@ -537,7 +534,7 @@ class NHLAnalyzer:
         gd_bonus = avg_gd * 0.01
         multiplier = 1.0 + win_bonus + gd_bonus
         multiplier = max(0.94, min(1.06, multiplier))
-        summary = f"H2H {wins}-{total - wins} ({avg_gd:+.1f} GD)"
+        summary = f"{wins}-{total - wins} ({avg_gd:+.1f} GD)"
         return multiplier, summary, {'wins': wins, 'losses': total - wins, 'avg_gd': avg_gd}
 
     def get_team_xg(self, team_abbrev):
@@ -744,18 +741,19 @@ class LoadingWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("NHL Moneyline Generator")
-        self.setFixedSize(450, 220)
+        self.setFixedSize(500, 250)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(15)
 
         title = QLabel("NHL Moneyline Generator")
-        title.setFont(QFont("Arial", 20, QFont.Weight.Bold))
+        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
-        subtitle = QLabel("Phase 7: Full Analysis Engine")
-        subtitle.setFont(QFont("Arial", 11))
+        subtitle = QLabel("Phase 7: xG + Goaltending + Fatigue + Streaks + PP/PK + Injuries + H2H")
+        subtitle.setFont(QFont("Arial", 10))
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet("color: #666;")
         layout.addWidget(subtitle)
@@ -763,13 +761,14 @@ class LoadingWindow(QWidget):
         layout.addSpacing(20)
 
         self.status = QLabel("Initializing...")
-        self.status.setFont(QFont("Arial", 11))
+        self.status.setFont(QFont("Arial", 12))
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status)
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 0)
-        self.progress.setMinimumWidth(350)
+        self.progress.setMinimumWidth(400)
+        self.progress.setMinimumHeight(25)
         layout.addWidget(self.progress)
 
 
@@ -793,17 +792,17 @@ class MainWindow(QMainWindow):
 
     def init_ui(self):
         self.setWindowTitle("NHL Moneyline Generator - Phase 7")
-        self.setMinimumSize(1200, 800)
+        self.setMinimumSize(1300, 850)
 
         central = QWidget()
         self.setCentralWidget(central)
         layout = QVBoxLayout(central)
         layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setContentsMargins(25, 25, 25, 25)
 
         # Header
         header = QLabel("NHL Moneyline Generator")
-        header.setFont(QFont("Arial", 26, QFont.Weight.Bold))
+        header.setFont(QFont("Arial", 28, QFont.Weight.Bold))
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
 
@@ -813,30 +812,33 @@ class MainWindow(QMainWindow):
         subtitle.setStyleSheet("color: #666;")
         layout.addWidget(subtitle)
 
+        layout.addSpacing(10)
+
         # Controls
         controls = QHBoxLayout()
         date_label = QLabel("Game Date:")
-        date_label.setFont(QFont("Arial", 12))
+        date_label.setFont(QFont("Arial", 13))
         controls.addWidget(date_label)
 
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
-        self.date_edit.setFont(QFont("Arial", 12))
-        self.date_edit.setMinimumWidth(150)
+        self.date_edit.setFont(QFont("Arial", 13))
+        self.date_edit.setMinimumWidth(160)
+        self.date_edit.setMinimumHeight(35)
         controls.addWidget(self.date_edit)
 
         controls.addStretch()
 
         self.run_btn = QPushButton("Run Analysis")
-        self.run_btn.setFont(QFont("Arial", 13, QFont.Weight.Bold))
-        self.run_btn.setMinimumSize(160, 45)
+        self.run_btn.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.run_btn.setMinimumSize(180, 50)
         self.run_btn.setStyleSheet("""
             QPushButton {
                 background-color: #2563eb;
                 color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 8px;
             }
             QPushButton:hover { background-color: #1d4ed8; }
             QPushButton:disabled { background-color: #93c5fd; }
@@ -849,11 +851,11 @@ class MainWindow(QMainWindow):
         # Progress
         self.progress = QProgressBar()
         self.progress.setVisible(False)
-        self.progress.setMinimumHeight(28)
+        self.progress.setMinimumHeight(30)
         layout.addWidget(self.progress)
 
         self.status_label = QLabel("")
-        self.status_label.setFont(QFont("Arial", 10))
+        self.status_label.setFont(QFont("Arial", 11))
         self.status_label.setStyleSheet("color: #666;")
         layout.addWidget(self.status_label)
 
@@ -874,49 +876,61 @@ class MainWindow(QMainWindow):
             header_view.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
 
         self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setDefaultSectionSize(45)
         self.table.setStyleSheet("""
             QTableWidget {
                 gridline-color: #ddd;
-                font-size: 12px;
+                font-size: 13px;
             }
-            QTableWidget::item { padding: 10px; }
+            QTableWidget::item { padding: 12px; }
             QHeaderView::section {
-                background-color: #f3f4f6;
-                padding: 10px;
+                background-color: #1e3a5f;
+                color: white;
+                padding: 12px;
                 font-weight: bold;
-                border: 1px solid #ddd;
+                font-size: 12px;
+                border: none;
             }
         """)
         layout.addWidget(self.table)
 
         # Footer
         footer = QLabel("Data: MoneyPuck.com | Injuries: ESPN.com | Schedule: NHL API")
-        footer.setFont(QFont("Arial", 9))
+        footer.setFont(QFont("Arial", 10))
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet("color: #999;")
         layout.addWidget(footer)
 
     def run_analysis(self):
+        # Wait for previous worker to finish
+        if self.worker is not None and self.worker.isRunning():
+            self.status_label.setText("Analysis already running, please wait...")
+            return
+
         date = self.date_edit.date().toString("yyyy-MM-dd")
         self.run_btn.setEnabled(False)
         self.progress.setVisible(True)
         self.progress.setValue(0)
         self.table.setRowCount(0)
+        self.status_label.setText(f"Starting analysis for {date}...")
 
         self.worker = AnalysisWorker(self.analyzer, date)
         self.worker.progress.connect(self.update_progress)
         self.worker.result.connect(self.show_results)
         self.worker.error.connect(self.show_error)
+        self.worker.finished.connect(self.on_worker_finished)
         self.worker.start()
 
     def update_progress(self, value, status):
         self.progress.setValue(value)
         self.status_label.setText(status)
 
-    def show_results(self, results):
+    def on_worker_finished(self):
+        """Called when worker thread completes"""
         self.run_btn.setEnabled(True)
         self.progress.setVisible(False)
 
+    def show_results(self, results):
         if not results:
             self.status_label.setText("No games found or analysis failed")
             return
@@ -930,27 +944,29 @@ class MainWindow(QMainWindow):
             # Game
             game_item = QTableWidgetItem(f"{away['team']} @ {home['team']}")
             game_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            game_item.setFont(QFont("Arial", 12, QFont.Weight.Bold))
             self.table.setItem(row, 0, game_item)
 
             # Pick
             pick_item = QTableWidgetItem(r['pick'])
             pick_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            pick_item.setFont(QFont("Arial", 12, QFont.Weight.Bold))
+            pick_item.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+            pick_item.setForeground(QColor("#1e40af"))
             self.table.setItem(row, 1, pick_item)
 
             # Confidence
             diff = r['diff']
             if diff >= 10:
-                conf, color = "Strong", QColor("#22c55e")
+                conf, color = "STRONG", QColor("#16a34a")
             elif diff >= 5:
-                conf, color = "Moderate", QColor("#eab308")
+                conf, color = "Moderate", QColor("#ca8a04")
             else:
-                conf, color = "Close", QColor("#ef4444")
+                conf, color = "Close", QColor("#dc2626")
 
             conf_item = QTableWidgetItem(conf)
             conf_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             conf_item.setForeground(color)
-            conf_item.setFont(QFont("Arial", 11, QFont.Weight.Bold))
+            conf_item.setFont(QFont("Arial", 12, QFont.Weight.Bold))
             self.table.setItem(row, 2, conf_item)
 
             # Difference
@@ -1000,11 +1016,9 @@ class MainWindow(QMainWindow):
             factors_item = QTableWidgetItem(", ".join(factors) if factors else "-")
             self.table.setItem(row, 9, factors_item)
 
-        self.status_label.setText(f"Analysis complete: {len(results)} games")
+        self.status_label.setText(f"Analysis complete: {len(results)} games analyzed")
 
     def show_error(self, error):
-        self.run_btn.setEnabled(True)
-        self.progress.setVisible(False)
         self.status_label.setText(f"Error: {error}")
         QMessageBox.warning(self, "Error", error)
 
@@ -1021,15 +1035,16 @@ def main():
     loading = LoadingWindow()
     loading.show()
 
-    # Load data in background
+    # Load data in background - keep reference to prevent garbage collection
     loader = DataLoader()
     loader.status.connect(loading.status.setText)
+    app.loader = loader  # Keep reference
 
     def on_data_loaded(data):
         loading.close()
         window = MainWindow(data)
         window.show()
-        app.main_window = window
+        app.main_window = window  # Keep reference
 
     def on_error(error):
         loading.close()

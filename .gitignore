@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 injury_cache.json
+build/
+dist/
+*.spec
