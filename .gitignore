@@ -2,6 +2,9 @@
 __pycache__/
 *.pyc
 injury_cache.json
+goalie_ir_cache.json
 build/
 dist/
 *.spec
+icon.iconset/
+icon_original_converted.png

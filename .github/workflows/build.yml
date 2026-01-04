@@ -20,14 +20,18 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pyinstaller PyQt6 requests pandas beautifulsoup4
+        pip install pyinstaller PyQt6 requests pandas beautifulsoup4 pillow
+
+    - name: Convert icon to ICO format
+      run: |
+        python -c "from PIL import Image; img = Image.open('icon_original.png'); img.save('icon.ico', format='ICO', sizes=[(256, 256), (128, 128), (64, 64), (48, 48), (32, 32), (16, 16)])"
 
     - name: Build executable
       run: |
-        pyinstaller --onefile --windowed --name "NHL Moneyline Generator" NHL_Moneyline_Generator_APP_Phase3.py
+        pyinstaller --onefile --windowed --name "HockeyQuant" --icon=icon.ico NHL_Moneyline_Generator_APP_Phase3.py
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: NHL-Moneyline-Generator-Windows
-        path: dist/NHL Moneyline Generator.exe
+        name: HockeyQuant-Windows
+        path: dist/HockeyQuant.exe

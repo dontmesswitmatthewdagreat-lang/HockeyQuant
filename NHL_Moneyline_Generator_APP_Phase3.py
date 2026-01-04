@@ -92,6 +92,9 @@ class NHLAnalyzer:
         self._standings_cache = None
         self._schedule_cache = {}
         self._team_schedule_cache = {}
+        # Goalie IR tracking for 1-game delay after return
+        self._goalie_ir_cache = self._load_goalie_ir_cache()
+        self._recently_returned_goalies = {}  # Goalies who just came off IR
 
     def clear_runtime_caches(self):
         """Clear caches for a fresh analysis run"""
@@ -112,6 +115,26 @@ class NHLAnalyzer:
         try:
             with open(INJURY_CACHE_FILE, 'w') as f:
                 json.dump(self.injury_cache, f, indent=2)
+        except:
+            pass
+
+    def _load_goalie_ir_cache(self):
+        """Load previous goalie IR status to detect recently returned goalies"""
+        try:
+            cache_file = os.path.join(os.path.dirname(__file__), "goalie_ir_cache.json")
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}
+
+    def _save_goalie_ir_cache(self, current_goalies_on_ir):
+        """Save current goalie IR status for future comparison"""
+        try:
+            cache_file = os.path.join(os.path.dirname(__file__), "goalie_ir_cache.json")
+            with open(cache_file, 'w') as f:
+                json.dump(current_goalies_on_ir, f, indent=2)
         except:
             pass
 
@@ -401,6 +424,7 @@ class NHLAnalyzer:
             response = requests.get(url, headers=headers, timeout=15)
             soup = BeautifulSoup(response.text, 'html.parser')
             all_injuries = {}
+            current_goalies_on_ir = {}  # Track goalies currently on IR
             sections = soup.find_all('div', class_='ResponsiveTable')
             for section in sections:
                 team_span = section.find('span', class_='injuries__teamName')
@@ -414,16 +438,36 @@ class NHLAnalyzer:
                 if not table:
                     continue
                 players = []
+                goalies_on_ir = []
                 for row in table.find_all('tr')[1:]:
                     cells = row.find_all('td')
                     if len(cells) >= 2:
                         name = cells[0].get_text(strip=True)
                         pos = cells[1].get_text(strip=True)
-                        if pos != 'G' and name:
+                        if pos == 'G' and name:
+                            goalies_on_ir.append(name)
+                        elif name:
                             players.append(name)
                 if players:
                     all_injuries[team_abbrev] = players
                     self.injury_cache[team_abbrev] = {'injuries': players, 'timestamp': datetime.now().isoformat()}
+                if goalies_on_ir:
+                    current_goalies_on_ir[team_abbrev] = goalies_on_ir
+
+            # Detect goalies who just came off IR (were on IR before, not anymore)
+            self._recently_returned_goalies = {}
+            for team, prev_goalies in self._goalie_ir_cache.items():
+                current_ir = current_goalies_on_ir.get(team, [])
+                for goalie in prev_goalies:
+                    if goalie not in current_ir:
+                        # This goalie was on IR but is no longer - just returned
+                        if team not in self._recently_returned_goalies:
+                            self._recently_returned_goalies[team] = []
+                        self._recently_returned_goalies[team].append(goalie)
+
+            # Save current goalie IR status for next comparison
+            self._goalie_ir_cache = current_goalies_on_ir
+            self._save_goalie_ir_cache(current_goalies_on_ir)
             self._save_injury_cache()
             return all_injuries
         except:
@@ -589,7 +633,18 @@ class NHLAnalyzer:
         qualified = team_goalies[team_goalies['games_played'] >= 5]
         if qualified.empty:
             qualified = team_goalies
-        starter = qualified.nlargest(1, 'games_played').iloc[0]
+
+        # Get top 2 goalies by games played
+        top_goalies = qualified.nlargest(2, 'games_played')
+        starter = top_goalies.iloc[0]
+
+        # Check if starter just came off IR (1-game delay rule)
+        recently_returned = self._recently_returned_goalies.get(team_abbrev, [])
+        if recently_returned and starter['name'] in recently_returned:
+            # Starter just came off IR - use backup if available
+            if len(top_goalies) > 1:
+                starter = top_goalies.iloc[1]  # Use backup
+
         xGoals = float(starter['xGoals'])
         goals = float(starter['goals'])
         ongoal = float(starter['ongoal'])
@@ -629,12 +684,12 @@ class NHLAnalyzer:
         xg = self.get_team_xg(team_abbrev)
         xgf_pct = xg['xGoalsFor'] / (xg['xGoalsFor'] + xg['xGoalsAgainst']) if xg else 0.5
         gf_pct = gf / (gf + ga) if (gf + ga) > 0 else 0.5
-        off_quality = xgf_pct * 0.7 + gf_pct * 0.3
+        off_quality = xgf_pct * 0.8 + gf_pct * 0.2  # Increased xG weight from 0.7
 
         goalie = self.get_starting_goalie(team_abbrev)
         goalie_score = self.calculate_goalie_score(goalie)
 
-        base_score = off_quality * 35 + pts_pct * 25 + goalie_score * 30 + win_pct * 10
+        base_score = off_quality * 40 + pts_pct * 20 + goalie_score * 30 + win_pct * 10  # Increased off_quality, reduced pts_pct
 
         fatigue_mult, fatigue_sum = self.calculate_fatigue_penalty(team_abbrev, opponent_abbrev, is_away)
         streak_mult, streak_sum, _ = self.calculate_streak_multiplier(team_abbrev, stats)
@@ -785,20 +840,20 @@ class AnalysisWorker(QThread):
 class LoadingWindow(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("NHL Moneyline Generator")
+        self.setWindowTitle("HockeyQuant")
         self.setFixedSize(500, 250)
 
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.setSpacing(15)
 
-        title = QLabel("NHL Moneyline Generator")
-        title.setFont(QFont("Arial", 24, QFont.Weight.Bold))
+        title = QLabel("HockeyQuant")
+        title.setFont(QFont("Raleway Dots", 24, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         subtitle = QLabel("Phase 7: xG + Goaltending + Fatigue + Streaks + PP/PK + Injuries + H2H")
-        subtitle.setFont(QFont("Arial", 10))
+        subtitle.setFont(QFont("Raleway Dots", 10))
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
         subtitle.setStyleSheet("color: #666;")
         layout.addWidget(subtitle)
@@ -806,7 +861,7 @@ class LoadingWindow(QWidget):
         layout.addSpacing(20)
 
         self.status = QLabel("Initializing...")
-        self.status.setFont(QFont("Arial", 12))
+        self.status.setFont(QFont("Raleway Dots", 12))
         self.status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self.status)
 
@@ -836,7 +891,7 @@ class MainWindow(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle("NHL Moneyline Generator - Phase 7")
+        self.setWindowTitle("HockeyQuant")
         self.setMinimumSize(1300, 850)
 
         central = QWidget()
@@ -846,15 +901,15 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(25, 25, 25, 25)
 
         # Header
-        header = QLabel("NHL Moneyline Generator")
-        header.setFont(QFont("Arial", 28, QFont.Weight.Bold))
+        header = QLabel("HockeyQuant")
+        header.setFont(QFont("Raleway Dots", 28, QFont.Weight.Bold))
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(header)
 
-        subtitle = QLabel("Phase 7: xG + Goaltending + Fatigue + Streaks + PP/PK + Injuries + H2H")
-        subtitle.setFont(QFont("Arial", 11))
+        subtitle = QLabel("Version 7.0")
+        subtitle.setFont(QFont("Space Mono", 11))
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #666;")
+        subtitle.setStyleSheet("color: #600;")
         layout.addWidget(subtitle)
 
         layout.addSpacing(10)
@@ -862,21 +917,21 @@ class MainWindow(QMainWindow):
         # Controls
         controls = QHBoxLayout()
         date_label = QLabel("Game Date:")
-        date_label.setFont(QFont("Arial", 13))
+        date_label.setFont(QFont("Space Mono", 13))
         controls.addWidget(date_label)
 
         self.date_edit = QDateEdit()
         self.date_edit.setDate(QDate.currentDate())
         self.date_edit.setCalendarPopup(True)
-        self.date_edit.setFont(QFont("Arial", 13))
+        self.date_edit.setFont(QFont("Space Mono", 13))
         self.date_edit.setMinimumWidth(160)
         self.date_edit.setMinimumHeight(35)
         controls.addWidget(self.date_edit)
 
         controls.addStretch()
 
-        self.run_btn = QPushButton("Run Analysis")
-        self.run_btn.setFont(QFont("Arial", 14, QFont.Weight.Bold))
+        self.run_btn = QPushButton("Run HockeyQuant Model")
+        self.run_btn.setFont(QFont("Space Mono", 13, QFont.Weight.Bold))
         self.run_btn.setMinimumSize(180, 50)
         self.run_btn.setStyleSheet("""
             QPushButton {
@@ -908,10 +963,10 @@ class MainWindow(QMainWindow):
         self.table = QTableWidget()
         self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
-            "Game", "Pick", "Confidence", "Diff",
-            "Away Score", "Home Score",
+            "Matchup", "Pick", "Confidence", "Difference",
+            "Away Sum", "Home Sum",
             "Away Goalie", "Home Goalie",
-            "H2H", "Key Factors"
+            "Prev. 2yr", "Key Factors"
         ])
 
         header_view = self.table.horizontalHeader()
@@ -941,7 +996,7 @@ class MainWindow(QMainWindow):
 
         # Footer
         footer = QLabel("Data: MoneyPuck.com | Injuries: ESPN.com | Schedule: NHL API")
-        footer.setFont(QFont("Arial", 10))
+        footer.setFont(QFont("Space Mono", 10))
         footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
         footer.setStyleSheet("color: #999;")
         layout.addWidget(footer)
