@@ -46,6 +46,9 @@ class TeamAnalysis(BaseModel):
     goalie_sv_pct: float
     goalie_gaa: float
     backup_goalie: Optional[str]
+    backup_goalie_gsax: Optional[float] = 0.0
+    backup_goalie_sv_pct: Optional[float] = 0.900
+    backup_goalie_gaa: Optional[float] = 3.0
     fatigue: str
     fatigue_mult: float
     streak: str

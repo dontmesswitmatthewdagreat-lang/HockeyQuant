@@ -716,10 +716,11 @@ class NHLAnalyzer:
             goalie_overrides: Optional dict mapping team abbrev to goalie name
                               e.g., {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
         """
-        self.clear_runtime_caches()
-
-        # Pre-load injuries
-        self.data_loader.scrape_injuries()
+        # Only clear caches and re-scrape injuries on fresh analysis (no overrides)
+        # When recalculating with goalie overrides, use cached data for speed
+        if not goalie_overrides:
+            self.clear_runtime_caches()
+            self.data_loader.scrape_injuries()
 
         games = self.get_games_for_date(date_str)
         results = []
