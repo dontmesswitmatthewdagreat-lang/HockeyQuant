@@ -1,0 +1,152 @@
+.account-page {
+  padding: 2rem;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.account-loading {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  text-align: center;
+  padding: 4rem;
+}
+
+.account-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+}
+
+.account-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin: 0 0 1.5rem 0;
+}
+
+.account-success {
+  background: rgba(34, 197, 94, 0.15);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  border-radius: 6px;
+  color: #4ade80;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.account-error {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 6px;
+  color: #ef4444;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.account-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.account-form label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.account-form input,
+.account-form select {
+  background: #1a3550;
+  border: 1px solid #4a7090;
+  border-radius: 6px;
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  padding: 0.75rem 1rem;
+  transition: border-color 0.2s ease;
+}
+
+.account-form input:focus,
+.account-form select:focus {
+  outline: none;
+  border-color: #7eb8da;
+}
+
+.account-form input.disabled {
+  background: #0d1f30;
+  color: #5a7a90;
+  cursor: not-allowed;
+}
+
+.form-hint {
+  color: #5a7a90;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+}
+
+.save-button {
+  background: #2563eb;
+  border: none;
+  border-radius: 6px;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.95rem;
+  font-weight: bold;
+  padding: 0.85rem 1.5rem;
+  margin-top: 0.5rem;
+  transition: background 0.2s ease;
+}
+
+.save-button:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.save-button:disabled {
+  background: #93c5fd;
+  cursor: not-allowed;
+}
+
+.account-section {
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.section-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1rem;
+  font-weight: bold;
+  margin: 0 0 1rem 0;
+}
+
+.info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+}
+
+.info-label {
+  color: #5a7a90;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.info-value {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}

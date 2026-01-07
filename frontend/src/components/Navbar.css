@@ -49,3 +49,25 @@
   color: #4CAF50;
   background: rgba(76, 175, 80, 0.1);
 }
+
+.navbar-auth {
+  display: flex;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .navbar {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .navbar-links {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .navbar-auth {
+    order: 2;
+  }
+}
