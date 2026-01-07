@@ -183,6 +183,60 @@ async def get_team(abbrev: str):
     )
 
 
+@router.get("/teams/{abbrev}/goalies", response_model=List[GoalieStats])
+async def get_team_goalies(abbrev: str):
+    """
+    Get all available goalies for a team.
+
+    - **abbrev**: Team abbreviation (e.g., TOR, BOS, EDM)
+
+    Returns goalies sorted by games played (starter first).
+    """
+    abbrev = abbrev.upper()
+    if abbrev not in ALL_TEAMS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Team '{abbrev}' not found. Valid abbreviations: {', '.join(sorted(ALL_TEAMS))}"
+        )
+
+    data_loader = get_data_loader()
+    data_loader.load_all_data()
+
+    goalie_data = data_loader.goalie_data
+    if goalie_data is None:
+        raise HTTPException(status_code=500, detail="Failed to load goalie data")
+
+    team_goalies = goalie_data[goalie_data['team'] == abbrev]
+    if team_goalies.empty:
+        return []
+
+    # Sort by games played (most first)
+    team_goalies = team_goalies.sort_values('games_played', ascending=False)
+
+    goalies = []
+    for i, (_, goalie) in enumerate(team_goalies.iterrows()):
+        xGoals = float(goalie['xGoals'])
+        goals = float(goalie['goals'])
+        ongoal = float(goalie['ongoal'])
+        icetime = float(goalie['icetime'])
+        games = int(goalie['games_played'])
+
+        gsax = xGoals - goals
+        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
+        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
+
+        goalies.append(GoalieStats(
+            name=goalie['name'],
+            games_played=games,
+            gsax=round(gsax, 2),
+            sv_pct=round(sv_pct, 3),
+            gaa=round(gaa, 2),
+            is_starter=(i == 0),  # First goalie by GP is starter
+        ))
+
+    return goalies
+
+
 @router.get("/divisions")
 async def get_divisions():
     """Get NHL division structure"""

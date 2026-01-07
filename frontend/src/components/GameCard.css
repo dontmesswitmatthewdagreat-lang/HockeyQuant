@@ -1,0 +1,253 @@
+.game-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.25rem;
+  margin-bottom: 1rem;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.game-card.recalculating {
+  opacity: 0.6;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.75rem;
+}
+
+.matchup {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.1rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.confidence-badge {
+  padding: 0.35rem 1rem;
+  border-radius: 20px;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  font-weight: bold;
+  color: white;
+  min-width: 80px;
+  text-align: center;
+}
+
+.confidence-strong {
+  background: #16a34a;
+}
+
+.confidence-moderate {
+  background: #ca8a04;
+}
+
+.confidence-close {
+  background: #dc2626;
+}
+
+.card-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 0.75rem 0;
+}
+
+.scores-section {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 0;
+}
+
+.team-score {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 80px;
+}
+
+.team-score .label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  margin-bottom: 0.25rem;
+}
+
+.team-abbrev {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.25rem;
+  font-weight: bold;
+}
+
+.score {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 1rem;
+}
+
+.pick-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.pick-section .label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  margin-bottom: 0.25rem;
+}
+
+.pick-box {
+  background: rgba(76, 175, 80, 0.2);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  border-radius: 8px;
+  padding: 0.5rem 1.5rem;
+}
+
+.pick-team {
+  color: #4ade80;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: bold;
+}
+
+.diff {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  margin-top: 0.25rem;
+}
+
+/* Goalie Selection Section */
+.goalie-selection {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.goalie-label {
+  display: block;
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+  margin-bottom: 0.75rem;
+  text-align: center;
+}
+
+.goalie-dropdowns {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.goalie-select-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.team-label {
+  color: #5a7a90;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.7rem;
+}
+
+.goalie-select {
+  width: 100%;
+  background: #0d2137;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237eb8da' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+.goalie-select:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: #1a3550;
+}
+
+.goalie-select:focus {
+  outline: none;
+  border-color: #2563eb;
+}
+
+.goalie-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.goalie-select option {
+  background: #0d2137;
+  color: #ffffff;
+  padding: 0.5rem;
+}
+
+/* Info Boxes */
+.info-boxes {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.info-box {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.info-label {
+  display: block;
+  color: #5a7a90;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.65rem;
+  margin-bottom: 0.35rem;
+}
+
+.info-value {
+  display: block;
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .info-boxes {
+    grid-template-columns: 1fr;
+  }
+
+  .scores-section {
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .pick-section {
+    order: -1;
+    width: 100%;
+  }
+
+  .goalie-dropdowns {
+    flex-direction: column;
+  }
+}

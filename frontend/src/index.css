@@ -1,0 +1,84 @@
+/* HockeyQuant - Global Styles */
+
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+:root {
+  /* Color Palette - matches desktop app */
+  --bg-primary: #0a1929;
+  --bg-secondary: #0d2137;
+  --bg-card: rgba(255, 255, 255, 0.05);
+  --text-primary: #ffffff;
+  --text-secondary: #7eb8da;
+  --text-muted: #5a7a90;
+  --border-color: rgba(255, 255, 255, 0.1);
+  --accent-blue: #2563eb;
+  --accent-green: #4ade80;
+  --accent-red: #ef4444;
+  --accent-orange: #f97316;
+  --accent-yellow: #ffd700;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: 'Space Mono', monospace;
+  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  color: var(--text-primary);
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: color 0.2s ease;
+}
+
+a:hover {
+  color: var(--text-primary);
+}
+
+button {
+  font-family: 'Space Mono', monospace;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--text-muted);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Selection */
+::selection {
+  background: var(--accent-blue);
+  color: white;
+}

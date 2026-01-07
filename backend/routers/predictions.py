@@ -5,12 +5,29 @@ Endpoints for game predictions
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import date, datetime
 
 from services import NHLAnalyzer, get_data_loader
 
 router = APIRouter()
+
+
+# Pydantic models for API requests
+class GoalieOverridesRequest(BaseModel):
+    """Request body for predictions with custom goalie selections"""
+    goalie_overrides: Dict[str, str] = {}
+
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "goalie_overrides": {
+                    "TOR": "Joseph Woll",
+                    "MTL": "Sam Montembeault"
+                }
+            }
+        }
+
 
 # Pydantic models for API responses
 class GoalieInfo(BaseModel):
@@ -127,6 +144,61 @@ async def get_today_predictions():
     """Get predictions for today's games"""
     today = date.today().strftime("%Y-%m-%d")
     return await get_predictions(today)
+
+
+@router.post("/predictions/{date_str}", response_model=PredictionsResponse)
+async def get_predictions_with_goalies(date_str: str, request: GoalieOverridesRequest):
+    """
+    Get predictions for all games on a specific date with custom goalie selections.
+
+    - **date_str**: Date in YYYY-MM-DD format (e.g., 2025-01-06)
+    - **goalie_overrides**: Dict mapping team abbreviation to goalie name
+      - Example: {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
+      - Only include teams you want to override; others use auto-selected starter
+    """
+    # Validate date format
+    try:
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-01-06)"
+        )
+
+    analyzer = get_analyzer()
+    results = analyzer.analyze_date(date_str, goalie_overrides=request.goalie_overrides)
+
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No games found for {date_str}"
+        )
+
+    # Transform results to API response format
+    predictions = []
+    for r in results:
+        # Determine confidence level
+        if r['diff'] >= 10:
+            confidence = "STRONG"
+        elif r['diff'] >= 5:
+            confidence = "MODERATE"
+        else:
+            confidence = "CLOSE"
+
+        predictions.append(GamePrediction(
+            away=TeamAnalysis(**r['away']),
+            home=TeamAnalysis(**r['home']),
+            pick=r['pick'],
+            diff=round(r['diff'], 2),
+            confidence=confidence,
+            factors=r.get('factors', []),
+        ))
+
+    return PredictionsResponse(
+        date=date_str,
+        games_count=len(predictions),
+        predictions=predictions,
+    )
 
 
 @router.get("/games/{date_str}")

@@ -1,0 +1,264 @@
+.teams-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.75rem;
+  font-weight: bold;
+  margin: 0 0 2rem 0;
+  text-align: center;
+}
+
+.error-message {
+  text-align: center;
+  padding: 2rem;
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  margin-bottom: 2rem;
+}
+
+.error-message p {
+  color: #ef4444;
+  font-family: 'Space Mono', monospace;
+  margin: 0;
+}
+
+.teams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+}
+
+.division-group {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.25rem;
+}
+
+.division-title {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: bold;
+  margin: 0 0 1rem 0;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.division-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.team-button {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+}
+
+.team-button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.team-button.selected {
+  background: rgba(37, 99, 235, 0.2);
+  border-color: #2563eb;
+}
+
+.team-abbrev {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  font-weight: bold;
+  min-width: 40px;
+}
+
+.team-name {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.modal-content {
+  background: #0d2137;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 100%;
+  max-height: 80vh;
+  overflow-y: auto;
+  position: relative;
+}
+
+.modal-close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: none;
+  border: none;
+  color: #7eb8da;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  line-height: 1;
+  transition: color 0.2s ease;
+}
+
+.modal-close:hover {
+  color: #ffffff;
+}
+
+/* Team Details */
+.team-details {
+  color: #ffffff;
+}
+
+.details-title {
+  font-family: 'Space Mono', monospace;
+  font-size: 1.5rem;
+  font-weight: bold;
+  margin: 0 0 0.25rem 0;
+}
+
+.details-subtitle {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  margin: 0 0 1.5rem 0;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.stat-box {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  padding: 1rem;
+  text-align: center;
+}
+
+.stat-label {
+  display: block;
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  margin-bottom: 0.25rem;
+}
+
+.stat-value {
+  display: block;
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.1rem;
+  font-weight: bold;
+}
+
+.stat-value.positive {
+  color: #4ade80;
+}
+
+.stat-value.negative {
+  color: #ef4444;
+}
+
+.section-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1rem;
+  font-weight: bold;
+  margin: 1.5rem 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.goalies-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.goalie-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+}
+
+.goalie-name {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+}
+
+.goalie-stats {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.recent-form {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.injuries {
+  color: #f97316;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Responsive */
+@media (max-width: 650px) {
+  .stats-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .goalie-row {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .modal-content {
+    padding: 1.5rem;
+  }
+}

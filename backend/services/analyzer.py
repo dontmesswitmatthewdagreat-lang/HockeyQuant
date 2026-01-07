@@ -557,6 +557,45 @@ class NHLAnalyzer:
             'gaa': gaa
         }
 
+    def get_goalie_by_name(self, team_abbrev: str, goalie_name: str) -> Optional[Dict]:
+        """Get a specific goalie by name for a team"""
+        goalie_data = self.data_loader.goalie_data
+        if goalie_data is None:
+            return None
+
+        team_goalies = goalie_data[goalie_data['team'] == team_abbrev]
+        if team_goalies.empty:
+            return None
+
+        # Try exact match first
+        match = team_goalies[team_goalies['name'] == goalie_name]
+        if match.empty:
+            # Try case-insensitive partial match
+            goalie_lower = goalie_name.lower()
+            for _, g in team_goalies.iterrows():
+                if goalie_lower in g['name'].lower():
+                    match = team_goalies[team_goalies['name'] == g['name']]
+                    break
+
+        if match.empty:
+            return None
+
+        goalie = match.iloc[0]
+        xGoals = float(goalie['xGoals'])
+        goals = float(goalie['goals'])
+        ongoal = float(goalie['ongoal'])
+        icetime = float(goalie['icetime'])
+        gsax = xGoals - goals
+        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
+        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
+
+        return {
+            'name': goalie['name'],
+            'gsax': gsax,
+            'sv_pct': sv_pct,
+            'gaa': gaa
+        }
+
     def calculate_goalie_score(self, goalie: Optional[Dict]) -> float:
         """Calculate composite goalie score"""
         if not goalie:
@@ -566,8 +605,15 @@ class NHLAnalyzer:
         gaa_norm = max(0, min(1, 1 - (goalie['gaa'] - 2.0) / 2.0))
         return gsax_norm * 0.50 + sv_norm * 0.30 + gaa_norm * 0.20
 
-    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool) -> Optional[Dict]:
-        """Full team analysis returning score and all factors"""
+    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool, goalie_override: str = None) -> Optional[Dict]:
+        """Full team analysis returning score and all factors
+
+        Args:
+            team_abbrev: Team abbreviation
+            opponent_abbrev: Opponent team abbreviation
+            is_away: Whether the team is playing away
+            goalie_override: Optional goalie name to use instead of auto-selected starter
+        """
         stats = self.get_team_stats(team_abbrev)
         if not stats:
             return None
@@ -595,7 +641,15 @@ class NHLAnalyzer:
         ga_pct = ga / (gf + ga) if (gf + ga) > 0 else 0.5
         def_quality = (1 - xga_pct) * 0.8 + (1 - ga_pct) * 0.2
 
-        goalie = self.get_starting_goalie(team_abbrev)
+        # Use goalie override if provided, otherwise auto-select
+        if goalie_override:
+            goalie = self.get_goalie_by_name(team_abbrev, goalie_override)
+            if not goalie:
+                # Fall back to starter if override not found
+                goalie = self.get_starting_goalie(team_abbrev)
+        else:
+            goalie = self.get_starting_goalie(team_abbrev)
+
         backup_goalie = self.get_backup_goalie(team_abbrev)
         goalie_score = self.calculate_goalie_score(goalie)
 
@@ -654,8 +708,14 @@ class NHLAnalyzer:
             pass
         return games
 
-    def analyze_date(self, date_str: str) -> List[Dict]:
-        """Analyze all games for a given date"""
+    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None) -> List[Dict]:
+        """Analyze all games for a given date
+
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            goalie_overrides: Optional dict mapping team abbrev to goalie name
+                              e.g., {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
+        """
         self.clear_runtime_caches()
 
         # Pre-load injuries
@@ -663,11 +723,15 @@ class NHLAnalyzer:
 
         games = self.get_games_for_date(date_str)
         results = []
+        goalie_overrides = goalie_overrides or {}
 
         for game in games:
             try:
-                away_data = self.analyze_team(game['away'], game['home'], is_away=True)
-                home_data = self.analyze_team(game['home'], game['away'], is_away=False)
+                away_goalie = goalie_overrides.get(game['away'])
+                home_goalie = goalie_overrides.get(game['home'])
+
+                away_data = self.analyze_team(game['away'], game['home'], is_away=True, goalie_override=away_goalie)
+                home_data = self.analyze_team(game['home'], game['away'], is_away=False, goalie_override=home_goalie)
 
                 if away_data and home_data:
                     diff = home_data['final_score'] - away_data['final_score']
