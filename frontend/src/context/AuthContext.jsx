@@ -11,33 +11,46 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchProfile(session.user.id);
-      } else {
+    let subscription;
+
+    async function initAuth() {
+      try {
+        // Get initial session
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user ?? null);
+
+        if (session?.user) {
+          await fetchProfile(session.user.id);
+        } else {
+          setLoading(false);
+        }
+      } catch (err) {
+        console.error('Auth init error:', err);
         setLoading(false);
       }
-    }).catch((err) => {
-      console.error('Auth error:', err);
-      setLoading(false);
-    });
+    }
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+    initAuth();
+
+    // Listen for auth changes - with defensive check
+    try {
+      const authListener = supabase.auth.onAuthStateChange(async (event, session) => {
         setUser(session?.user ?? null);
         if (session?.user) {
           await fetchProfile(session.user.id);
         } else {
           setProfile(null);
+          setLoading(false);
         }
-        setLoading(false);
-      }
-    );
+      });
+      subscription = authListener?.data?.subscription;
+    } catch (err) {
+      console.error('Auth listener error:', err);
+    }
 
-    return () => subscription.unsubscribe();
+    return () => {
+      subscription?.unsubscribe();
+    };
   }, []);
 
   async function fetchProfile(userId) {
