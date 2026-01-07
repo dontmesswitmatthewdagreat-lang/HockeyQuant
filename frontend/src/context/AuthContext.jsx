@@ -19,6 +19,9 @@ export function AuthProvider({ children }) {
       } else {
         setLoading(false);
       }
+    }).catch((err) => {
+      console.error('Auth error:', err);
+      setLoading(false);
     });
 
     // Listen for auth changes
