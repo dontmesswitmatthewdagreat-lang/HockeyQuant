@@ -55,19 +55,12 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: { username }
+      }
     });
 
     if (error) throw error;
-
-    // Create profile after signup
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .insert([{ id: data.user.id, username }]);
-
-      if (profileError) throw profileError;
-    }
-
     return data;
   }
 
