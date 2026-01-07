@@ -12,6 +12,7 @@ export function AuthProvider({ children }) {
 
   useEffect(() => {
     let subscription;
+    let timeoutId;
 
     async function initAuth() {
       try {
@@ -30,7 +31,14 @@ export function AuthProvider({ children }) {
       }
     }
 
-    initAuth();
+    // Timeout fallback - if auth doesn't complete in 3 seconds, show login buttons anyway
+    timeoutId = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
+
+    initAuth().finally(() => {
+      clearTimeout(timeoutId);
+    });
 
     // Listen for auth changes - with defensive check
     try {
@@ -46,10 +54,12 @@ export function AuthProvider({ children }) {
       subscription = authListener?.data?.subscription;
     } catch (err) {
       console.error('Auth listener error:', err);
+      setLoading(false);
     }
 
     return () => {
       subscription?.unsubscribe();
+      clearTimeout(timeoutId);
     };
   }, []);
 
