@@ -35,15 +35,15 @@ function Navbar() {
         </Link>
       </div>
       <div className="navbar-auth">
-        {!loading && (
-          user ? (
-            <UserMenu />
-          ) : (
-            <div className="auth-links">
-              <Link to="/login" className="auth-link">Log In</Link>
-              <Link to="/signup" className="auth-link primary">Sign Up</Link>
-            </div>
-          )
+        {loading ? (
+          <span style={{color: '#7eb8da', fontSize: '0.85rem'}}>...</span>
+        ) : user ? (
+          <UserMenu />
+        ) : (
+          <div className="auth-links">
+            <Link to="/login" className="auth-link">Log In</Link>
+            <Link to="/signup" className="auth-link primary">Sign Up</Link>
+          </div>
         )}
       </div>
     </nav>
