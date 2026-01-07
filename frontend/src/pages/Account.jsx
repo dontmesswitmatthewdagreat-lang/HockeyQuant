@@ -35,7 +35,7 @@ function Account() {
     async function loadTeams() {
       try {
         const data = await fetchTeams();
-        setTeams(data.teams || []);
+        setTeams(Array.isArray(data) ? data : data.teams || []);
       } catch (err) {
         console.error('Failed to load teams:', err);
       }
