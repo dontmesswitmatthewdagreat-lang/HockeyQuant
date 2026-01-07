@@ -86,7 +86,18 @@ function Predictions() {
         } else {
           data = await fetchPredictions(date);
         }
-        setPredictions(data.predictions || []);
+        // Merge updated data while preserving original order
+        setPredictions((currentPredictions) => {
+          const updatedMap = {};
+          for (const pred of data.predictions || []) {
+            const key = `${pred.away.team}-${pred.home.team}`;
+            updatedMap[key] = pred;
+          }
+          return currentPredictions.map((pred) => {
+            const key = `${pred.away.team}-${pred.home.team}`;
+            return updatedMap[key] || pred;
+          });
+        });
       } catch (err) {
         console.error('Failed to recalculate:', err);
       } finally {
