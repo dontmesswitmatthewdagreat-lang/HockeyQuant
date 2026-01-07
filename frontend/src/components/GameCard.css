@@ -123,81 +123,62 @@
   margin-top: 0.25rem;
 }
 
-/* Goalie Selection Section */
-.goalie-selection {
+/* Goalie Box - Click to Toggle */
+.goalie-box {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
-  padding: 1rem;
+  padding: 0.75rem;
   margin-top: 1rem;
 }
 
-.goalie-label {
+.goalie-box.clickable {
+  border-color: rgba(147, 197, 253, 0.3);
+  background: rgba(147, 197, 253, 0.05);
+}
+
+.goalie-title {
   display: block;
   color: #7eb8da;
   font-family: 'Space Mono', monospace;
   font-size: 0.7rem;
-  margin-bottom: 0.75rem;
-  text-align: center;
+  margin-bottom: 0.5rem;
 }
 
-.goalie-dropdowns {
-  display: flex;
-  justify-content: space-between;
-  gap: 1rem;
-}
-
-.goalie-select-wrapper {
-  flex: 1;
+.goalie-lines {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
+  gap: 0.25rem;
 }
 
-.team-label {
+.goalie-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+}
+
+.goalie-line.has-backup {
+  cursor: pointer;
+}
+
+.goalie-line.has-backup:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.goalie-team {
   color: #5a7a90;
   font-family: 'Space Mono', monospace;
-  font-size: 0.7rem;
+  font-size: 0.75rem;
+  min-width: 40px;
 }
 
-.goalie-select {
-  width: 100%;
-  background: #0d2137;
+.goalie-name {
   color: #ffffff;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 6px;
-  padding: 0.5rem 0.75rem;
   font-family: 'Space Mono', monospace;
-  font-size: 0.8rem;
-  cursor: pointer;
-  transition: border-color 0.2s ease, background 0.2s ease;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%237eb8da' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.75rem center;
-  padding-right: 2rem;
-}
-
-.goalie-select:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.3);
-  background-color: #1a3550;
-}
-
-.goalie-select:focus {
-  outline: none;
-  border-color: #2563eb;
-}
-
-.goalie-select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.goalie-select option {
-  background: #0d2137;
-  color: #ffffff;
-  padding: 0.5rem;
+  font-size: 0.85rem;
 }
 
 /* Info Boxes */
@@ -245,9 +226,5 @@
   .pick-section {
     order: -1;
     width: 100%;
-  }
-
-  .goalie-dropdowns {
-    flex-direction: column;
   }
 }

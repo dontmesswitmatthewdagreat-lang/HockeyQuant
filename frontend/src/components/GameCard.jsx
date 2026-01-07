@@ -1,41 +1,12 @@
-import { useState, useEffect } from 'react';
-import { fetchTeamGoalies } from '../api';
+import { useState } from 'react';
 import './GameCard.css';
 
-function GameCard({ prediction, onGoalieChange, isRecalculating }) {
+function GameCard({ prediction, onGoalieToggle, isRecalculating }) {
   const { away, home, pick, diff, confidence, factors } = prediction;
 
-  const [awayGoalies, setAwayGoalies] = useState([]);
-  const [homeGoalies, setHomeGoalies] = useState([]);
-  const [selectedAwayGoalie, setSelectedAwayGoalie] = useState(away.goalie);
-  const [selectedHomeGoalie, setSelectedHomeGoalie] = useState(home.goalie);
-  const [loadingGoalies, setLoadingGoalies] = useState(true);
-
-  // Fetch goalies for both teams on mount
-  useEffect(() => {
-    async function loadGoalies() {
-      setLoadingGoalies(true);
-      try {
-        const [awayData, homeData] = await Promise.all([
-          fetchTeamGoalies(away.team),
-          fetchTeamGoalies(home.team),
-        ]);
-        setAwayGoalies(awayData);
-        setHomeGoalies(homeData);
-      } catch (err) {
-        console.error('Failed to load goalies:', err);
-      } finally {
-        setLoadingGoalies(false);
-      }
-    }
-    loadGoalies();
-  }, [away.team, home.team]);
-
-  // Update selected goalies when prediction changes (after recalculation)
-  useEffect(() => {
-    setSelectedAwayGoalie(away.goalie);
-    setSelectedHomeGoalie(home.goalie);
-  }, [away.goalie, home.goalie]);
+  // Track which team is using backup goalie
+  const [awayUsingBackup, setAwayUsingBackup] = useState(false);
+  const [homeUsingBackup, setHomeUsingBackup] = useState(false);
 
   const getConfidenceClass = () => {
     if (confidence === 'STRONG') return 'confidence-strong';
@@ -43,27 +14,52 @@ function GameCard({ prediction, onGoalieChange, isRecalculating }) {
     return 'confidence-close';
   };
 
-  const formatGoalieOption = (goalie) => {
-    const lastName = goalie.name?.split(' ').pop() || 'TBD';
-    const gsaxSign = goalie.gsax >= 0 ? '+' : '';
-    return `${lastName} (${gsaxSign}${goalie.gsax.toFixed(1)})`;
+  // Format goalie display: "LastName (+GSAX)" or "LastName * (+GSAX)" for backup
+  const formatGoalie = (name, gsax, isBackup = false) => {
+    const lastName = name?.split(' ').pop() || 'TBD';
+    const suffix = isBackup ? ' *' : '';
+    const gsaxSign = gsax >= 0 ? '+' : '';
+    return `${lastName}${suffix} (${gsaxSign}${gsax?.toFixed(1) || '0.0'})`;
   };
 
-  const handleAwayGoalieChange = (e) => {
-    const newGoalie = e.target.value;
-    setSelectedAwayGoalie(newGoalie);
-    if (onGoalieChange) {
-      onGoalieChange(away.team, newGoalie);
+  // Handle clicking on away goalie to toggle
+  const handleAwayGoalieClick = () => {
+    if (!away.backup_goalie) return; // No backup available
+
+    const newUsingBackup = !awayUsingBackup;
+    setAwayUsingBackup(newUsingBackup);
+
+    if (onGoalieToggle) {
+      // Pass the goalie name to use (backup if toggling on, starter if toggling off)
+      const goalieName = newUsingBackup ? away.backup_goalie : null;
+      onGoalieToggle(away.team, goalieName);
     }
   };
 
-  const handleHomeGoalieChange = (e) => {
-    const newGoalie = e.target.value;
-    setSelectedHomeGoalie(newGoalie);
-    if (onGoalieChange) {
-      onGoalieChange(home.team, newGoalie);
+  // Handle clicking on home goalie to toggle
+  const handleHomeGoalieClick = () => {
+    if (!home.backup_goalie) return; // No backup available
+
+    const newUsingBackup = !homeUsingBackup;
+    setHomeUsingBackup(newUsingBackup);
+
+    if (onGoalieToggle) {
+      const goalieName = newUsingBackup ? home.backup_goalie : null;
+      onGoalieToggle(home.team, goalieName);
     }
   };
+
+  // Determine which goalie to display for each team
+  const awayGoalieDisplay = awayUsingBackup && away.backup_goalie
+    ? { name: away.backup_goalie, gsax: away.backup_goalie_gsax }
+    : { name: away.goalie, gsax: away.goalie_gsax };
+
+  const homeGoalieDisplay = homeUsingBackup && home.backup_goalie
+    ? { name: home.backup_goalie, gsax: home.backup_goalie_gsax }
+    : { name: home.goalie, gsax: home.goalie_gsax };
+
+  // Check if any backups are available for click-to-swap functionality
+  const hasBackups = away.backup_goalie || home.backup_goalie;
 
   return (
     <div className={`game-card ${isRecalculating ? 'recalculating' : ''}`}>
@@ -100,48 +96,29 @@ function GameCard({ prediction, onGoalieChange, isRecalculating }) {
         </div>
       </div>
 
-      {/* Goalie Selection */}
-      <div className="goalie-selection">
-        <span className="goalie-label">STARTING GOALIES</span>
-        <div className="goalie-dropdowns">
-          <div className="goalie-select-wrapper">
-            <span className="team-label">{away.team}</span>
-            <select
-              className="goalie-select"
-              value={selectedAwayGoalie}
-              onChange={handleAwayGoalieChange}
-              disabled={loadingGoalies || isRecalculating}
-            >
-              {loadingGoalies ? (
-                <option>Loading...</option>
-              ) : (
-                awayGoalies.map((g) => (
-                  <option key={g.name} value={g.name}>
-                    {formatGoalieOption(g)}{g.is_starter ? ' ★' : ''}
-                  </option>
-                ))
-              )}
-            </select>
+      {/* Goalie Section - Click to Toggle */}
+      <div className={`goalie-box ${hasBackups ? 'clickable' : ''}`}>
+        <span className="goalie-title">
+          {hasBackups ? 'STARTERS (click to swap)' : 'PREDICTED STARTERS'}
+        </span>
+        <div className="goalie-lines">
+          <div
+            className={`goalie-line ${away.backup_goalie ? 'has-backup' : ''}`}
+            onClick={handleAwayGoalieClick}
+          >
+            <span className="goalie-team">{away.team}</span>
+            <span className="goalie-name">
+              {formatGoalie(awayGoalieDisplay.name, awayGoalieDisplay.gsax, awayUsingBackup)}
+            </span>
           </div>
-
-          <div className="goalie-select-wrapper">
-            <span className="team-label">{home.team}</span>
-            <select
-              className="goalie-select"
-              value={selectedHomeGoalie}
-              onChange={handleHomeGoalieChange}
-              disabled={loadingGoalies || isRecalculating}
-            >
-              {loadingGoalies ? (
-                <option>Loading...</option>
-              ) : (
-                homeGoalies.map((g) => (
-                  <option key={g.name} value={g.name}>
-                    {formatGoalieOption(g)}{g.is_starter ? ' ★' : ''}
-                  </option>
-                ))
-              )}
-            </select>
+          <div
+            className={`goalie-line ${home.backup_goalie ? 'has-backup' : ''}`}
+            onClick={handleHomeGoalieClick}
+          >
+            <span className="goalie-team">{home.team}</span>
+            <span className="goalie-name">
+              {formatGoalie(homeGoalieDisplay.name, homeGoalieDisplay.gsax, homeUsingBackup)}
+            </span>
           </div>
         </div>
       </div>

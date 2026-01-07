@@ -55,9 +55,15 @@ function Predictions() {
     loadPredictions(date);
   }
 
-  async function handleGoalieChange(team, goalieName) {
-    // Update local state immediately
-    const newOverrides = { ...goalieOverrides, [team]: goalieName };
+  // Handle goalie toggle - goalieName is null to use starter, or backup name to use backup
+  async function handleGoalieToggle(team, goalieName) {
+    // Update overrides - if goalieName is null, remove the override
+    const newOverrides = { ...goalieOverrides };
+    if (goalieName === null) {
+      delete newOverrides[team];
+    } else {
+      newOverrides[team] = goalieName;
+    }
     setGoalieOverrides(newOverrides);
 
     // Mark games involving this team as recalculating
@@ -67,21 +73,26 @@ function Predictions() {
     const affectedKeys = new Set(affectedGames.map((p) => `${p.away.team}-${p.home.team}`));
     setRecalculatingGames(affectedKeys);
 
-    // Debounce the API call (wait 500ms for user to finish selecting)
+    // Debounce the API call
     if (debounceTimer.current) {
       clearTimeout(debounceTimer.current);
     }
 
     debounceTimer.current = setTimeout(async () => {
       try {
-        const data = await fetchPredictionsWithGoalies(date, newOverrides);
+        let data;
+        if (Object.keys(newOverrides).length > 0) {
+          data = await fetchPredictionsWithGoalies(date, newOverrides);
+        } else {
+          data = await fetchPredictions(date);
+        }
         setPredictions(data.predictions || []);
       } catch (err) {
         console.error('Failed to recalculate:', err);
       } finally {
         setRecalculatingGames(new Set());
       }
-    }, 500);
+    }, 300);
   }
 
   return (
@@ -135,7 +146,7 @@ function Predictions() {
                   <GameCard
                     key={gameKey}
                     prediction={prediction}
-                    onGoalieChange={handleGoalieChange}
+                    onGoalieToggle={handleGoalieToggle}
                     isRecalculating={recalculatingGames.has(gameKey)}
                   />
                 );
