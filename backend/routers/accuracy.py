@@ -314,8 +314,22 @@ async def get_accuracy_stats(
         close_pct=round((sum(1 for p in close if p.get('correct')) / len(close) * 100) if close else 0, 1),
     )
 
-    # Get recent predictions (limit to 50)
-    recent = predictions[:50]
+    # Get ALL recent predictions (including pending) for the table
+    try:
+        all_query = supabase.table("predictions").select("*").order("game_date", desc=True).limit(50)
+        if start_date:
+            all_query = all_query.gte("game_date", start_date)
+        if end_date:
+            all_query = all_query.lte("game_date", end_date)
+        if team:
+            all_query = all_query.eq("pick", team.upper())
+        if confidence:
+            all_query = all_query.eq("confidence", confidence.upper())
+        all_result = all_query.execute()
+        all_predictions = all_result.data or []
+    except Exception as e:
+        all_predictions = predictions  # Fallback to completed only
+
     recent_records = [
         PredictionRecord(
             game_date=p['game_date'],
@@ -332,7 +346,7 @@ async def get_accuracy_stats(
             actual_winner=p.get('actual_winner'),
             correct=p.get('correct'),
         )
-        for p in recent
+        for p in all_predictions[:50]
     ]
 
     return AccuracyResponse(stats=stats, recent_predictions=recent_records)
