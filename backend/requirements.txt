@@ -17,5 +17,5 @@ pydantic>=2.5.0
 # ASGI server for production
 gunicorn>=21.0.0
 
-# Database
-supabase>=2.0.0
+# HTTP Client (for Supabase REST API)
+httpx>=0.25.0

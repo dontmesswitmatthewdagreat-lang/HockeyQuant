@@ -229,7 +229,7 @@ async def get_accuracy_stats(
     supabase = get_supabase()
 
     # Build query - only include predictions with results
-    query = supabase.table("predictions").select("*").not_.is_("correct", "null")
+    query = supabase.table("predictions").select("*").not_is("correct", "null")
 
     if start_date:
         query = query.gte("game_date", start_date)
