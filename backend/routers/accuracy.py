@@ -163,7 +163,7 @@ async def store_predictions(date_str: str):
 
     # Insert records
     try:
-        result = supabase.table("predictions").insert(records).execute()
+        result = supabase.table("predictions").insert(records)
         return {"message": f"Stored {len(records)} predictions for {date_str}", "stored": len(records)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to store predictions: {str(e)}")
