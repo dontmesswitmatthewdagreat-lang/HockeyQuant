@@ -13,6 +13,8 @@ from .constants import (
     TEAM_FULL_NAMES,
     ALL_TEAMS,
 )
+from .supabase_client import get_supabase
+from .results_fetcher import fetch_game_results, get_first_game_time
 
 __all__ = [
     'NHLAnalyzer',
@@ -25,4 +27,7 @@ __all__ = [
     'ESPN_TEAM_MAPPING',
     'TEAM_FULL_NAMES',
     'ALL_TEAMS',
+    'get_supabase',
+    'fetch_game_results',
+    'get_first_game_time',
 ]

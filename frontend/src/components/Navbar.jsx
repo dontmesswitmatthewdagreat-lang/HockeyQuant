@@ -33,6 +33,12 @@ function Navbar() {
         >
           Teams
         </Link>
+        <Link
+          to="/accuracy"
+          className={`nav-link ${location.pathname === '/accuracy' ? 'active' : ''}`}
+        >
+          Accuracy
+        </Link>
       </div>
       <div className="navbar-auth">
         {loading ? (

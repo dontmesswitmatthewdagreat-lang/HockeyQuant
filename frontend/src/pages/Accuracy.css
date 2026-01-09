@@ -1,0 +1,364 @@
+.accuracy-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.page-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 2rem;
+  font-weight: bold;
+  margin: 0;
+}
+
+.page-subtitle {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  margin: 0.5rem 0 2rem 0;
+}
+
+.error-message {
+  background: rgba(220, 38, 38, 0.15);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+  border-radius: 8px;
+  color: #ef4444;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+/* Filters */
+.filters-section {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.filter-group label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.filter-group input,
+.filter-group select {
+  background: #1a3550;
+  border: 1px solid #4a7090;
+  border-radius: 6px;
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  padding: 0.6rem 0.8rem;
+  min-width: 150px;
+}
+
+.filter-group input:focus,
+.filter-group select:focus {
+  outline: none;
+  border-color: #7eb8da;
+}
+
+.filter-buttons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.apply-btn,
+.clear-btn {
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.apply-btn {
+  background: #2563eb;
+  border: none;
+  color: white;
+}
+
+.apply-btn:hover {
+  background: #1d4ed8;
+}
+
+.clear-btn {
+  background: transparent;
+  border: 1px solid #4a7090;
+  color: #7eb8da;
+}
+
+.clear-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Main Stats */
+.stats-overview {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 2rem;
+}
+
+.main-stat {
+  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(37, 99, 235, 0.05));
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 16px;
+  padding: 2rem 4rem;
+  text-align: center;
+}
+
+.stat-number {
+  color: #60a5fa;
+  font-family: 'Space Mono', monospace;
+  font-size: 4rem;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.stat-label {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.1rem;
+  margin-top: 0.5rem;
+}
+
+.stat-detail {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  margin-top: 0.25rem;
+}
+
+/* Confidence Breakdown */
+.confidence-breakdown {
+  margin-bottom: 2rem;
+}
+
+.section-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.25rem;
+  margin: 0 0 1rem 0;
+}
+
+.confidence-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.confidence-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.confidence-card.strong {
+  border: 1px solid rgba(34, 197, 94, 0.4);
+}
+
+.confidence-card.moderate {
+  border: 1px solid rgba(234, 179, 8, 0.4);
+}
+
+.confidence-card.close {
+  border: 1px solid rgba(156, 163, 175, 0.4);
+}
+
+.confidence-header {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.confidence-pct {
+  font-family: 'Space Mono', monospace;
+  font-size: 2.5rem;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.confidence-card.strong .confidence-pct {
+  color: #4ade80;
+}
+
+.confidence-card.moderate .confidence-pct {
+  color: #fbbf24;
+}
+
+.confidence-card.close .confidence-pct {
+  color: #9ca3af;
+}
+
+.confidence-detail {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  margin-top: 0.5rem;
+}
+
+/* Predictions Table */
+.predictions-section {
+  margin-top: 2rem;
+}
+
+.predictions-table-wrapper {
+  overflow-x: auto;
+}
+
+.predictions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'Space Mono', monospace;
+}
+
+.predictions-table th {
+  background: rgba(255, 255, 255, 0.05);
+  color: #7eb8da;
+  font-size: 0.8rem;
+  font-weight: bold;
+  padding: 0.75rem 1rem;
+  text-align: left;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.predictions-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  color: #ffffff;
+  font-size: 0.85rem;
+  padding: 0.75rem 1rem;
+}
+
+.predictions-table tr.correct {
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.predictions-table tr.incorrect {
+  background: rgba(220, 38, 38, 0.1);
+}
+
+.pick-cell {
+  font-weight: bold;
+  color: #60a5fa;
+}
+
+.confidence-badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: bold;
+}
+
+.confidence-badge.strong {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+}
+
+.confidence-badge.moderate {
+  background: rgba(234, 179, 8, 0.2);
+  color: #fbbf24;
+}
+
+.confidence-badge.close {
+  background: rgba(156, 163, 175, 0.2);
+  color: #9ca3af;
+}
+
+.pending {
+  color: #6b7280;
+  font-style: italic;
+}
+
+.result-icon {
+  font-size: 1.2rem;
+}
+
+.correct-icon {
+  color: #4ade80;
+}
+
+.incorrect-icon {
+  color: #ef4444;
+}
+
+.pending-icon {
+  color: #6b7280;
+}
+
+.no-data {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.9rem;
+  text-align: center;
+  padding: 2rem;
+}
+
+.no-data-message {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 3rem;
+  text-align: center;
+}
+
+.no-data-message p {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.95rem;
+  margin: 0.5rem 0;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .accuracy-page {
+    padding: 1rem;
+  }
+
+  .filter-row {
+    flex-direction: column;
+  }
+
+  .filter-group {
+    width: 100%;
+  }
+
+  .filter-group input,
+  .filter-group select {
+    width: 100%;
+  }
+
+  .main-stat {
+    padding: 1.5rem 2rem;
+  }
+
+  .stat-number {
+    font-size: 3rem;
+  }
+
+  .confidence-pct {
+    font-size: 2rem;
+  }
+}

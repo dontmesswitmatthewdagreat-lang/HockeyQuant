@@ -63,16 +63,50 @@ export function AuthProvider({ children }) {
     };
   }, []);
 
-  async function fetchProfile(userId) {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error && error.code !== 'PGRST116') {
-      console.error('Error fetching profile:', error);
+  // Helper to get access token from localStorage
+  function getAccessToken() {
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+    const storageKey = `sb-${new URL(supabaseUrl).hostname.split('.')[0]}-auth-token`;
+    try {
+      const stored = localStorage.getItem(storageKey);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return parsed?.access_token;
+      }
+    } catch (e) {
+      console.error('Error getting token from localStorage:', e);
     }
+    return null;
+  }
+
+  async function fetchProfile(userId) {
+    let data = null;
+
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+      const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+      const accessToken = getAccessToken() || supabaseKey;
+
+      const response = await fetch(
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${userId}&select=*`,
+        {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${accessToken}`,
+          }
+        }
+      );
+
+      if (response.ok) {
+        const json = await response.json();
+        if (json && json.length > 0) {
+          data = json[0];
+        }
+      }
+    } catch (e) {
+      console.error('Error fetching profile:', e);
+    }
+
     setProfile(data);
     setLoading(false);
   }
@@ -106,15 +140,34 @@ export function AuthProvider({ children }) {
   }
 
   async function updateProfile(updates) {
-    if (!user) return;
+    if (!user) {
+      throw new Error('No user logged in');
+    }
 
-    const { data, error } = await supabase
-      .from('profiles')
-      .upsert({ id: user.id, ...updates })
-      .select()
-      .single();
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
+    const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
+    const accessToken = getAccessToken() || supabaseKey;
 
-    if (error) throw error;
+    const response = await fetch(
+      `${supabaseUrl}/rest/v1/profiles?id=eq.${user.id}`,
+      {
+        method: 'PATCH',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify(updates)
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to update profile: ${response.status}`);
+    }
+
+    const json = await response.json();
+    const data = json && json.length > 0 ? json[0] : null;
     setProfile(data);
     return data;
   }

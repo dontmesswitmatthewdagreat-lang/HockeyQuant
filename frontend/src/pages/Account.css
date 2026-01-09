@@ -150,3 +150,35 @@
   font-family: 'Space Mono', monospace;
   font-size: 0.85rem;
 }
+
+.teams-loading {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  padding: 0.75rem 0;
+}
+
+.teams-error {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  color: #ef4444;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.retry-button {
+  background: rgba(220, 38, 38, 0.2);
+  border: 1px solid rgba(220, 38, 38, 0.4);
+  border-radius: 4px;
+  color: #ef4444;
+  cursor: pointer;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  padding: 0.35rem 0.75rem;
+  transition: background 0.2s ease;
+}
+
+.retry-button:hover {
+  background: rgba(220, 38, 38, 0.3);
+}

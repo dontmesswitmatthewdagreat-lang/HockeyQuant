@@ -64,3 +64,49 @@ export async function fetchPredictionsWithGoalies(date, goalieOverrides) {
   }
   return response.json();
 }
+
+// Accuracy tracking endpoints
+export async function fetchAccuracyStats(params = {}) {
+  const searchParams = new URLSearchParams();
+  if (params.startDate) searchParams.append('start_date', params.startDate);
+  if (params.endDate) searchParams.append('end_date', params.endDate);
+  if (params.team) searchParams.append('team', params.team);
+  if (params.confidence) searchParams.append('confidence', params.confidence);
+
+  const url = `${API_BASE}/api/accuracy/stats${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch accuracy stats');
+  }
+  return response.json();
+}
+
+export async function storePredictions(date) {
+  const response = await fetch(`${API_BASE}/api/accuracy/store-predictions/${date}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to store predictions');
+  }
+  return response.json();
+}
+
+export async function updateResults(date) {
+  const response = await fetch(`${API_BASE}/api/accuracy/update-results/${date}`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update results');
+  }
+  return response.json();
+}
+
+export async function updateAllPendingResults() {
+  const response = await fetch(`${API_BASE}/api/accuracy/update-all-pending`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update pending results');
+  }
+  return response.json();
+}

@@ -11,6 +11,8 @@ function Account() {
   const [username, setUsername] = useState('');
   const [favoriteTeam, setFavoriteTeam] = useState('');
   const [teams, setTeams] = useState([]);
+  const [teamsLoading, setTeamsLoading] = useState(true);
+  const [teamsError, setTeamsError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -31,15 +33,23 @@ function Account() {
   }, [profile]);
 
   // Load teams list
-  useEffect(() => {
-    async function loadTeams() {
-      try {
-        const data = await fetchTeams();
-        setTeams(Array.isArray(data) ? data : data.teams || []);
-      } catch (err) {
-        console.error('Failed to load teams:', err);
-      }
+  async function loadTeams() {
+    setTeamsLoading(true);
+    setTeamsError(false);
+    try {
+      console.log('Fetching teams from backend...');
+      const data = await fetchTeams();
+      console.log('Teams response:', data);
+      setTeams(Array.isArray(data) ? data : data.teams || []);
+    } catch (err) {
+      console.error('Failed to load teams:', err);
+      setTeamsError(true);
+    } finally {
+      setTeamsLoading(false);
     }
+  }
+
+  useEffect(() => {
     loadTeams();
   }, []);
 
@@ -50,12 +60,14 @@ function Account() {
     setSaving(true);
 
     try {
+      console.log('Saving profile...');
       await updateProfile({
         username,
         favorite_team: favoriteTeam || null,
       });
       setMessage('Profile updated successfully!');
     } catch (err) {
+      console.error('Save error:', err);
       setError(err.message || 'Failed to update profile');
     } finally {
       setSaving(false);
@@ -104,18 +116,29 @@ function Account() {
 
           <div className="form-group">
             <label htmlFor="favoriteTeam">Favorite Team</label>
-            <select
-              id="favoriteTeam"
-              value={favoriteTeam}
-              onChange={(e) => setFavoriteTeam(e.target.value)}
-            >
-              <option value="">No favorite team</option>
-              {teams.map((team) => (
-                <option key={team.abbrev} value={team.abbrev}>
-                  {team.name}
-                </option>
-              ))}
-            </select>
+            {teamsLoading ? (
+              <div className="teams-loading">Loading teams...</div>
+            ) : teamsError ? (
+              <div className="teams-error">
+                <span>Failed to load teams</span>
+                <button type="button" onClick={loadTeams} className="retry-button">
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <select
+                id="favoriteTeam"
+                value={favoriteTeam}
+                onChange={(e) => setFavoriteTeam(e.target.value)}
+              >
+                <option value="">No favorite team</option>
+                {teams.map((team) => (
+                  <option key={team.abbrev} value={team.abbrev}>
+                    {team.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           <button type="submit" className="save-button" disabled={saving}>
@@ -128,8 +151,8 @@ function Account() {
           <div className="info-row">
             <span className="info-label">Member since</span>
             <span className="info-value">
-              {profile?.created_at
-                ? new Date(profile.created_at).toLocaleDateString()
+              {(profile?.created_at || user?.created_at)
+                ? new Date(profile?.created_at || user?.created_at).toLocaleDateString()
                 : 'N/A'}
             </span>
           </div>
