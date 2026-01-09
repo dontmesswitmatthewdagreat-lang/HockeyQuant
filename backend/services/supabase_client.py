@@ -7,10 +7,6 @@ import os
 import httpx
 from typing import Optional, List, Dict, Any
 
-# Get credentials from environment variables (strip to remove any trailing newlines)
-SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
-
 
 class SupabaseClient:
     """Simple Supabase REST client"""
@@ -127,7 +123,10 @@ def get_supabase() -> SupabaseClient:
     """Get or create Supabase client instance"""
     global _client
     if _client is None:
-        if not SUPABASE_URL or not SUPABASE_SERVICE_KEY:
+        # Load env vars at call time (not module load time)
+        supabase_url = os.getenv("SUPABASE_URL", "").strip()
+        supabase_key = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+        if not supabase_url or not supabase_key:
             raise ValueError("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY environment variables")
-        _client = SupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+        _client = SupabaseClient(supabase_url, supabase_key)
     return _client
