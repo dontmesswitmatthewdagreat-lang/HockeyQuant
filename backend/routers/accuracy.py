@@ -15,6 +15,36 @@ from services.results_fetcher import fetch_game_results, get_first_game_time
 router = APIRouter()
 
 
+@router.get("/accuracy/debug")
+async def debug_supabase():
+    """Debug endpoint to test Supabase connection"""
+    import os
+    url = os.getenv("SUPABASE_URL", "NOT SET")
+    key = os.getenv("SUPABASE_SERVICE_KEY", "NOT SET")
+
+    result = {
+        "url_set": url != "NOT SET" and len(url) > 0,
+        "key_set": key != "NOT SET" and len(key) > 0,
+        "url_len": len(url) if url != "NOT SET" else 0,
+        "key_len": len(key) if key != "NOT SET" else 0,
+    }
+
+    if result["url_set"] and result["key_set"]:
+        try:
+            from services.supabase_client import get_supabase
+            client = get_supabase()
+            result["client_created"] = True
+
+            # Try a simple query
+            test = client.table("predictions").select("id").limit(1).execute()
+            result["query_success"] = True
+            result["query_result"] = len(test.data)
+        except Exception as e:
+            result["error"] = str(e)
+
+    return result
+
+
 # Pydantic models
 class PredictionRecord(BaseModel):
     game_date: str
