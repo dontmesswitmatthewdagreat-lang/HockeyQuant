@@ -79,18 +79,27 @@ async def store_predictions(date_str: str):
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
-    # Get predictions from analyzer
-    analyzer = get_analyzer()
-    results = analyzer.analyze_date(date_str)
+    try:
+        # Get predictions from analyzer
+        analyzer = get_analyzer()
+        results = analyzer.analyze_date(date_str)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
 
     if not results:
         return {"message": f"No games found for {date_str}", "stored": 0}
 
     # Connect to Supabase
-    supabase = get_supabase()
+    try:
+        supabase = get_supabase()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase init error: {str(e)}")
 
     # Check if predictions already exist for this date
-    existing = supabase.table("predictions").select("id").eq("game_date", date_str).execute()
+    try:
+        existing = supabase.table("predictions").select("id").eq("game_date", date_str).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
     if existing.data and len(existing.data) > 0:
         return {"message": f"Predictions already stored for {date_str}", "stored": 0}
@@ -211,7 +220,7 @@ async def update_all_pending():
     return {"message": f"Updated {total_updated} results across {len(dates)} dates", "updated": total_updated}
 
 
-@router.get("/accuracy/stats", response_model=AccuracyResponse)
+@router.get("/accuracy/stats")
 async def get_accuracy_stats(
     start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
     end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
@@ -226,25 +235,31 @@ async def get_accuracy_stats(
     - **team**: Filter by team that was picked to win
     - **confidence**: Filter by confidence level (STRONG, MODERATE, CLOSE)
     """
-    supabase = get_supabase()
+    try:
+        supabase = get_supabase()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase init error: {str(e)}")
 
     # Build query - only include predictions with results
-    query = supabase.table("predictions").select("*").not_is("correct", "null")
+    try:
+        query = supabase.table("predictions").select("*").not_is("correct", "null")
 
-    if start_date:
-        query = query.gte("game_date", start_date)
-    if end_date:
-        query = query.lte("game_date", end_date)
-    if team:
-        query = query.eq("pick", team.upper())
-    if confidence:
-        query = query.eq("confidence", confidence.upper())
+        if start_date:
+            query = query.gte("game_date", start_date)
+        if end_date:
+            query = query.lte("game_date", end_date)
+        if team:
+            query = query.eq("pick", team.upper())
+        if confidence:
+            query = query.eq("confidence", confidence.upper())
 
-    # Order by date descending
-    query = query.order("game_date", desc=True)
+        # Order by date descending
+        query = query.order("game_date", desc=True)
 
-    result = query.execute()
-    predictions = result.data or []
+        result = query.execute()
+        predictions = result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
     # Calculate stats
     total = len(predictions)
