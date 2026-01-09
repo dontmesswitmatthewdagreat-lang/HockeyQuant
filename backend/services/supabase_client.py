@@ -5,9 +5,9 @@ Supabase client for HockeyQuant
 import os
 from supabase import create_client, Client
 
-# Get credentials from environment variables
-SUPABASE_URL = os.getenv("SUPABASE_URL", "")
-SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "")
+# Get credentials from environment variables (strip to remove any trailing newlines)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
 _client: Client = None
 
