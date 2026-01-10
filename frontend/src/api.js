@@ -118,3 +118,11 @@ export async function fetchAccuracyTrend(window = 30) {
   }
   return response.json();
 }
+
+export async function fetchPredictionStatus(date) {
+  const response = await fetch(`${API_BASE}/api/predictions/status/${date}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch prediction status');
+  }
+  return response.json();
+}

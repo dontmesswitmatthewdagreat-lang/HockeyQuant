@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { fetchPredictions, fetchPredictionsWithGoalies } from '../api';
 import GameCard from '../components/GameCard';
-import LoadingSpinner from '../components/LoadingSpinner';
+import ProgressBar from '../components/ProgressBar';
 import './Predictions.css';
 
 // Module-level cache for predictions - persists across tab switches
@@ -17,6 +17,7 @@ function Predictions() {
   const [goalieOverrides, setGoalieOverrides] = useState({});
   const [recalculatingGames, setRecalculatingGames] = useState(new Set());
   const [fromCache, setFromCache] = useState(false);
+  const [modelStatus, setModelStatus] = useState(null);
 
   // Debounce timer ref
   const debounceTimer = useRef(null);
@@ -24,6 +25,22 @@ function Predictions() {
   function getTodayDate() {
     const today = new Date();
     return today.toISOString().split('T')[0];
+  }
+
+  // Format UTC timestamp to local time string
+  function formatTime(isoString) {
+    if (!isoString) return null;
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short',
+      });
+    } catch {
+      return null;
+    }
   }
 
   // Check if cached data is still valid
@@ -67,6 +84,11 @@ function Predictions() {
       }
       const preds = data.predictions || [];
       setPredictions(preds);
+
+      // Update model status from response
+      if (data.status) {
+        setModelStatus(data.status);
+      }
 
       // Cache the default predictions (no overrides)
       if (Object.keys(overrides).length === 0) {
@@ -152,6 +174,25 @@ function Predictions() {
     <div className="predictions-page">
       <div className="predictions-header">
         <h1 className="page-title">Game Predictions</h1>
+
+        {/* Model Status Display */}
+        {modelStatus && modelStatus.is_cached && (
+          <div className="model-status">
+            {formatTime(modelStatus.last_updated) && (
+              <div className="status-item">
+                <span className="status-label">Last updated:</span>
+                <span className="status-value">{formatTime(modelStatus.last_updated)}</span>
+              </div>
+            )}
+            {formatTime(modelStatus.next_update) && (
+              <div className="status-item">
+                <span className="status-label">Next update:</span>
+                <span className="status-value">{formatTime(modelStatus.next_update)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
         <form className="date-form" onSubmit={handleSubmit}>
           <label htmlFor="date">Game Date:</label>
           <input
@@ -168,7 +209,7 @@ function Predictions() {
 
       <div className="predictions-content">
         {loading && (
-          <LoadingSpinner message="Fetching predictions..." />
+          <ProgressBar />
         )}
 
         {error && (

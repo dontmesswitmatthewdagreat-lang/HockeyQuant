@@ -55,55 +55,80 @@ jobs:
             echo "first_game_utc=$FIRST_GAME" >> $GITHUB_OUTPUT
           fi
 
-      - name: Calculate wait time and sleep
-        if: steps.games.outputs.has_games == 'true' && github.event.inputs.action != 'store-predictions-now'
-        run: |
-          FIRST_GAME="${{ steps.games.outputs.first_game_utc }}"
-
-          # Parse the ISO timestamp and calculate target time (30 min before)
-          # Convert to epoch seconds
-          FIRST_GAME_EPOCH=$(date -d "$FIRST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${FIRST_GAME%Z}" +%s 2>/dev/null || echo "0")
-
-          if [ "$FIRST_GAME_EPOCH" == "0" ]; then
-            echo "Warning: Could not parse game time, storing predictions now"
-            exit 0
-          fi
-
-          # Target = 30 minutes before first game
-          TARGET_EPOCH=$((FIRST_GAME_EPOCH - 1800))
-          NOW_EPOCH=$(date +%s)
-
-          # Calculate seconds to sleep
-          SLEEP_SECONDS=$((TARGET_EPOCH - NOW_EPOCH))
-
-          echo "First game epoch: $FIRST_GAME_EPOCH"
-          echo "Target epoch (30 min before): $TARGET_EPOCH"
-          echo "Current epoch: $NOW_EPOCH"
-          echo "Sleep seconds: $SLEEP_SECONDS"
-
-          if [ $SLEEP_SECONDS -gt 0 ]; then
-            echo "Sleeping for $SLEEP_SECONDS seconds ($(($SLEEP_SECONDS / 3600)) hours, $((($SLEEP_SECONDS % 3600) / 60)) minutes)"
-            sleep $SLEEP_SECONDS
-          else
-            echo "Target time already passed or is now, proceeding immediately"
-          fi
-
-      - name: Store predictions
+      - name: Store predictions repeatedly until 30 min before game
         if: steps.games.outputs.has_games == 'true'
         run: |
           DATE=${{ steps.date.outputs.today }}
-          echo "Storing predictions for $DATE at $(date -u)"
-          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
-          echo "Response: $RESPONSE"
+          FIRST_GAME="${{ steps.games.outputs.first_game_utc }}"
+          FORCE_NOW="${{ github.event.inputs.action == 'store-predictions-now' }}"
 
-          # Check if successful
-          STORED=$(echo "$RESPONSE" | jq -r '.stored // 0')
-          if [ "$STORED" -gt 0 ]; then
-            echo "Successfully stored $STORED predictions"
-          else
-            MESSAGE=$(echo "$RESPONSE" | jq -r '.message // "Unknown error"')
-            echo "Note: $MESSAGE"
+          # Parse the ISO timestamp to get cutoff time (30 min before first game)
+          FIRST_GAME_EPOCH=$(date -d "$FIRST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${FIRST_GAME%Z}" +%s 2>/dev/null || echo "0")
+
+          if [ "$FIRST_GAME_EPOCH" == "0" ]; then
+            echo "Warning: Could not parse game time, storing predictions once"
+            curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE"
+            exit 0
           fi
+
+          # Cutoff = 30 minutes before first game
+          CUTOFF_EPOCH=$((FIRST_GAME_EPOCH - 1800))
+
+          echo "First game at epoch: $FIRST_GAME_EPOCH"
+          echo "Cutoff (30 min before): $CUTOFF_EPOCH"
+
+          # If force-now, just store once and exit
+          if [ "$FORCE_NOW" == "true" ]; then
+            echo "Force storing predictions now..."
+            curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE"
+            exit 0
+          fi
+
+          # Loop: store predictions every 30 minutes until cutoff
+          ITERATION=1
+          while true; do
+            NOW_EPOCH=$(date +%s)
+
+            if [ $NOW_EPOCH -ge $CUTOFF_EPOCH ]; then
+              echo "Reached cutoff time, stopping updates"
+              break
+            fi
+
+            echo ""
+            echo "=== Iteration $ITERATION at $(date -u) ==="
+            echo "Storing/updating predictions for $DATE..."
+
+            RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
+            echo "Response: $RESPONSE"
+
+            CACHED=$(echo "$RESPONSE" | jq -r '.cached // false')
+            UPDATED_AT=$(echo "$RESPONSE" | jq -r '.updated_at // "unknown"')
+            echo "Cache status: $CACHED, Updated at: $UPDATED_AT"
+
+            # Calculate time until cutoff
+            NOW_EPOCH=$(date +%s)
+            TIME_TO_CUTOFF=$((CUTOFF_EPOCH - NOW_EPOCH))
+
+            if [ $TIME_TO_CUTOFF -le 0 ]; then
+              echo "Cutoff reached after storing, exiting"
+              break
+            fi
+
+            # Sleep for 30 minutes (1800 seconds) or until cutoff, whichever is shorter
+            SLEEP_TIME=1800
+            if [ $TIME_TO_CUTOFF -lt $SLEEP_TIME ]; then
+              SLEEP_TIME=$TIME_TO_CUTOFF
+            fi
+
+            echo "Sleeping for $SLEEP_TIME seconds (next update at $(date -u -d "+$SLEEP_TIME seconds" 2>/dev/null || echo "in $SLEEP_TIME seconds"))"
+            sleep $SLEEP_TIME
+
+            ITERATION=$((ITERATION + 1))
+          done
+
+          echo ""
+          echo "=== Prediction updates complete ==="
+          echo "Total iterations: $ITERATION"
 
       - name: No games today
         if: steps.games.outputs.has_games != 'true'

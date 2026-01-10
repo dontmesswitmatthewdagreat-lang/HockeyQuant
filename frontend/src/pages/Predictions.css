@@ -21,6 +21,35 @@
   margin: 0;
 }
 
+.model-status {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.75rem 1rem;
+  background: rgba(126, 184, 218, 0.1);
+  border: 1px solid rgba(126, 184, 218, 0.2);
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.status-item {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.status-label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.status-value {
+  color: #22c55e;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
 .date-form {
   display: flex;
   align-items: center;

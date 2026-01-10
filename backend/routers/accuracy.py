@@ -163,12 +163,8 @@ async def store_predictions(date_str: str):
     flat_exists = existing_flat.data and len(existing_flat.data) > 0
     cache_exists = existing_cache.data and len(existing_cache.data) > 0
 
-    # If both exist, nothing to do
-    if flat_exists and cache_exists:
-        return {"message": f"Predictions already stored for {date_str}", "stored": 0}
-
-    # If only flat exists but cache doesn't, we need to populate cache
-    # (This can happen if predictions were stored before the caching code was added)
+    # If flat predictions exist, we won't re-store them (they're for accuracy tracking)
+    # But we ALWAYS update the cache to refresh predictions with latest data
 
     # Prepare records for flat predictions table (accuracy tracking)
     records = []
@@ -220,30 +216,50 @@ async def store_predictions(date_str: str):
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to store predictions: {str(e)}")
 
-    # Insert full predictions to daily_predictions table for instant API responses (if not cached)
+    # Get first game time for this date
+    first_game_time = get_first_game_time(date_str)
+    first_game_iso = first_game_time.isoformat() if first_game_time else None
+
+    # Insert or update daily_predictions table for instant API responses
+    # Always update to refresh the cache with latest predictions
     stored_cache = False
-    if not cache_exists:
-        try:
-            daily_record = {
-                "game_date": date_str,
-                "games_count": len(full_predictions),
-                "predictions": full_predictions,
-            }
+    try:
+        daily_record = {
+            "game_date": date_str,
+            "games_count": len(full_predictions),
+            "predictions": full_predictions,
+            "updated_at": datetime.utcnow().isoformat(),
+            "first_game_time": first_game_iso,
+        }
+        if cache_exists:
+            # Update existing record
+            supabase.table("daily_predictions").update(daily_record).eq("game_date", date_str).execute()
+        else:
+            # Insert new record
             supabase.table("daily_predictions").insert([daily_record])
-            stored_cache = True
-        except Exception as e:
-            # Log but don't fail - the flat predictions are more important
-            print(f"Warning: Failed to store daily_predictions cache: {str(e)}")
+        stored_cache = True
+    except Exception as e:
+        # Log but don't fail - the flat predictions are more important
+        print(f"Warning: Failed to store daily_predictions cache: {str(e)}")
 
     message_parts = []
     if stored_flat > 0:
         message_parts.append(f"stored {stored_flat} predictions")
     if stored_cache:
-        message_parts.append("cached for instant access")
+        if cache_exists:
+            message_parts.append("cache updated")
+        else:
+            message_parts.append("cache created")
     if not message_parts:
         message_parts.append("no changes needed")
 
-    return {"message": f"{date_str}: {', '.join(message_parts)}", "stored": stored_flat, "cached": stored_cache}
+    return {
+        "message": f"{date_str}: {', '.join(message_parts)}",
+        "stored": stored_flat,
+        "cached": stored_cache,
+        "updated_at": datetime.utcnow().isoformat(),
+        "first_game_time": first_game_iso,
+    }
 
 
 @router.post("/accuracy/update-results/{date_str}")

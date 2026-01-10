@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchAccuracyStats, fetchTeams } from '../api';
-import LoadingSpinner from '../components/LoadingSpinner';
+import ProgressBar from '../components/ProgressBar';
 import AccuracyChart from '../components/AccuracyChart';
 import './Accuracy.css';
 
@@ -65,7 +65,12 @@ function Accuracy() {
   }
 
   if (loading && !stats) {
-    return <LoadingSpinner message="Loading accuracy data..." />;
+    return (
+      <div className="accuracy-page">
+        <h1 className="page-title">Model Accuracy</h1>
+        <ProgressBar message="Loading accuracy data..." />
+      </div>
+    );
   }
 
   return (
