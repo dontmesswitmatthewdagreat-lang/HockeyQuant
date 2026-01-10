@@ -7,8 +7,10 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from datetime import date, datetime
+import json
 
 from services import NHLAnalyzer, get_data_loader
+from services.supabase_client import get_supabase
 
 router = APIRouter()
 
@@ -94,6 +96,7 @@ def get_analyzer() -> NHLAnalyzer:
 async def get_predictions(date_str: str):
     """
     Get predictions for all games on a specific date.
+    First checks for pre-computed predictions in database, then falls back to on-demand computation.
 
     - **date_str**: Date in YYYY-MM-DD format (e.g., 2025-01-06)
     """
@@ -106,6 +109,25 @@ async def get_predictions(date_str: str):
             detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-01-06)"
         )
 
+    # Check for pre-computed predictions in database first
+    supabase = get_supabase()
+    if supabase:
+        try:
+            result = supabase.table("daily_predictions").select("*").eq("game_date", date_str).execute()
+            if result.data and len(result.data) > 0:
+                cached = result.data[0]
+                cached_predictions = cached.get("predictions", [])
+                # Return pre-computed predictions directly
+                return PredictionsResponse(
+                    date=date_str,
+                    games_count=cached.get("games_count", len(cached_predictions)),
+                    predictions=[GamePrediction(**p) for p in cached_predictions],
+                )
+        except Exception as e:
+            # Log error but continue to on-demand computation
+            print(f"Error fetching cached predictions: {e}")
+
+    # Fall back to on-demand computation
     analyzer = get_analyzer()
     results = analyzer.analyze_date(date_str)
 

@@ -86,6 +86,11 @@
   font-size: 0.8rem;
 }
 
+.cache-indicator {
+  color: #22c55e;
+  font-size: 0.8rem;
+}
+
 .predictions-list {
   display: flex;
   flex-direction: column;

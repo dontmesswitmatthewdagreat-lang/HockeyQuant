@@ -4,6 +4,11 @@ import GameCard from '../components/GameCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 import './Predictions.css';
 
+// Module-level cache for predictions - persists across tab switches
+// Key: date string, Value: { predictions, timestamp }
+const predictionsCache = {};
+const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+
 function Predictions() {
   const [date, setDate] = useState(getTodayDate());
   const [predictions, setPredictions] = useState([]);
@@ -11,6 +16,7 @@ function Predictions() {
   const [error, setError] = useState(null);
   const [goalieOverrides, setGoalieOverrides] = useState({});
   const [recalculatingGames, setRecalculatingGames] = useState(new Set());
+  const [fromCache, setFromCache] = useState(false);
 
   // Debounce timer ref
   const debounceTimer = useRef(null);
@@ -20,9 +26,38 @@ function Predictions() {
     return today.toISOString().split('T')[0];
   }
 
-  async function loadPredictions(selectedDate, overrides = {}) {
-    setLoading(true);
+  // Check if cached data is still valid
+  function getCachedPredictions(selectedDate) {
+    const cached = predictionsCache[selectedDate];
+    if (cached && Date.now() - cached.timestamp < CACHE_DURATION_MS) {
+      return cached.predictions;
+    }
+    return null;
+  }
+
+  // Store predictions in cache
+  function setCachedPredictions(selectedDate, predictions) {
+    predictionsCache[selectedDate] = {
+      predictions,
+      timestamp: Date.now(),
+    };
+  }
+
+  async function loadPredictions(selectedDate, overrides = {}, forceRefresh = false) {
     setError(null);
+    setFromCache(false);
+
+    // Check cache first (only for default goalie predictions)
+    if (!forceRefresh && Object.keys(overrides).length === 0) {
+      const cached = getCachedPredictions(selectedDate);
+      if (cached) {
+        setPredictions(cached);
+        setFromCache(true);
+        return;
+      }
+    }
+
+    setLoading(true);
     try {
       let data;
       if (Object.keys(overrides).length > 0) {
@@ -30,7 +65,13 @@ function Predictions() {
       } else {
         data = await fetchPredictions(selectedDate);
       }
-      setPredictions(data.predictions || []);
+      const preds = data.predictions || [];
+      setPredictions(preds);
+
+      // Cache the default predictions (no overrides)
+      if (Object.keys(overrides).length === 0) {
+        setCachedPredictions(selectedDate, preds);
+      }
     } catch (err) {
       setError(err.message);
       setPredictions([]);
@@ -52,7 +93,8 @@ function Predictions() {
   function handleSubmit(e) {
     e.preventDefault();
     setGoalieOverrides({});
-    loadPredictions(date);
+    // Force refresh when user clicks the button
+    loadPredictions(date, {}, true);
   }
 
   // Handle goalie toggle - goalieName is null to use starter, or backup name to use backup
@@ -148,6 +190,11 @@ function Predictions() {
               {predictions.length} game{predictions.length !== 1 ? 's' : ''} found
               {Object.keys(goalieOverrides).length > 0 && (
                 <span className="override-indicator"> (custom goalies)</span>
+              )}
+              {fromCache && (
+                <span className="cache-indicator" title="Data loaded from cache">
+                  {' '} (cached)
+                </span>
               )}
             </p>
             <div className="predictions-list">

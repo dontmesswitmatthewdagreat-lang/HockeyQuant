@@ -124,7 +124,11 @@ def get_analyzer() -> NHLAnalyzer:
 async def store_predictions(date_str: str):
     """
     Store predictions for a specific date.
-    Called by cron job 15 min before first game.
+    Called by cron job 30 min before first game.
+
+    Stores to TWO tables:
+    1. `predictions` - flat records for accuracy tracking
+    2. `daily_predictions` - full JSON for instant API responses
 
     - **date_str**: Date in YYYY-MM-DD format
     """
@@ -151,15 +155,26 @@ async def store_predictions(date_str: str):
 
     # Check if predictions already exist for this date
     try:
-        existing = supabase.table("predictions").select("id").eq("game_date", date_str).execute()
+        existing_flat = supabase.table("predictions").select("id").eq("game_date", date_str).execute()
+        existing_cache = supabase.table("daily_predictions").select("id").eq("game_date", date_str).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
-    if existing.data and len(existing.data) > 0:
+    flat_exists = existing_flat.data and len(existing_flat.data) > 0
+    cache_exists = existing_cache.data and len(existing_cache.data) > 0
+
+    # If both exist, nothing to do
+    if flat_exists and cache_exists:
         return {"message": f"Predictions already stored for {date_str}", "stored": 0}
 
-    # Prepare records for insertion
+    # If only flat exists but cache doesn't, we need to populate cache
+    # (This can happen if predictions were stored before the caching code was added)
+
+    # Prepare records for flat predictions table (accuracy tracking)
     records = []
+    # Prepare full predictions for daily_predictions table (instant API responses)
+    full_predictions = []
+
     for r in results:
         # Determine confidence level
         diff = r['diff']
@@ -173,6 +188,7 @@ async def store_predictions(date_str: str):
         # Create a game_id from teams and date
         game_id = f"{date_str}_{r['away']['team']}_{r['home']['team']}"
 
+        # Flat record for accuracy tracking
         records.append({
             "game_date": date_str,
             "game_id": game_id,
@@ -185,12 +201,49 @@ async def store_predictions(date_str: str):
             "diff": round(diff, 2),
         })
 
-    # Insert records
-    try:
-        result = supabase.table("predictions").insert(records)
-        return {"message": f"Stored {len(records)} predictions for {date_str}", "stored": len(records)}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to store predictions: {str(e)}")
+        # Full prediction for instant API responses
+        full_predictions.append({
+            "away": r['away'],
+            "home": r['home'],
+            "pick": r['pick'],
+            "diff": round(diff, 2),
+            "confidence": confidence,
+            "factors": r.get('factors', []),
+        })
+
+    # Insert flat records to predictions table (if they don't exist)
+    stored_flat = 0
+    if not flat_exists:
+        try:
+            supabase.table("predictions").insert(records)
+            stored_flat = len(records)
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to store predictions: {str(e)}")
+
+    # Insert full predictions to daily_predictions table for instant API responses (if not cached)
+    stored_cache = False
+    if not cache_exists:
+        try:
+            daily_record = {
+                "game_date": date_str,
+                "games_count": len(full_predictions),
+                "predictions": full_predictions,
+            }
+            supabase.table("daily_predictions").insert([daily_record])
+            stored_cache = True
+        except Exception as e:
+            # Log but don't fail - the flat predictions are more important
+            print(f"Warning: Failed to store daily_predictions cache: {str(e)}")
+
+    message_parts = []
+    if stored_flat > 0:
+        message_parts.append(f"stored {stored_flat} predictions")
+    if stored_cache:
+        message_parts.append("cached for instant access")
+    if not message_parts:
+        message_parts.append("no changes needed")
+
+    return {"message": f"{date_str}: {', '.join(message_parts)}", "stored": stored_flat, "cached": stored_cache}
 
 
 @router.post("/accuracy/update-results/{date_str}")
