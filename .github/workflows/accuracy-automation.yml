@@ -1,0 +1,53 @@
+# Automated accuracy tracking for HockeyQuant
+# - Stores predictions before games start (10 AM ET)
+# - Updates results after games finish (2 AM ET)
+
+name: Accuracy Automation
+
+on:
+  schedule:
+    # Store predictions at 10 AM ET (3 PM UTC) - before any games
+    - cron: '0 15 * * *'
+    # Update results at 2 AM ET (7 AM UTC) - after all games
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'update-results'
+        type: choice
+        options:
+          - store-predictions
+          - update-results
+
+jobs:
+  accuracy-job:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine action
+        id: action
+        run: |
+          HOUR=$(date -u +%H)
+          if [ "${{ github.event.inputs.action }}" != "" ]; then
+            echo "action=${{ github.event.inputs.action }}" >> $GITHUB_OUTPUT
+          elif [ "$HOUR" -eq "15" ]; then
+            echo "action=store-predictions" >> $GITHUB_OUTPUT
+          else
+            echo "action=update-results" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Store predictions
+        if: steps.action.outputs.action == 'store-predictions'
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          echo "Storing predictions for $DATE"
+          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
+          echo "Response: $RESPONSE"
+
+      - name: Update results
+        if: steps.action.outputs.action == 'update-results'
+        run: |
+          echo "Updating all pending results"
+          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/update-all-pending")
+          echo "Response: $RESPONSE"

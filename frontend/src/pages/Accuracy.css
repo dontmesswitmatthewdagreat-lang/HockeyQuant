@@ -146,6 +146,47 @@
   margin-top: 0.25rem;
 }
 
+/* Quick Stats Cards */
+.quick-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 1rem;
+  margin-bottom: 2rem;
+}
+
+.quick-stat-card {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.25rem;
+  text-align: center;
+}
+
+.quick-stat-label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
+}
+
+.quick-stat-value {
+  color: #60a5fa;
+  font-family: 'Space Mono', monospace;
+  font-size: 2rem;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.quick-stat-detail {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.75rem;
+  margin-top: 0.5rem;
+}
+
 /* Confidence Breakdown */
 .confidence-breakdown {
   margin-bottom: 2rem;

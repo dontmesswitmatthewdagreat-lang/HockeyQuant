@@ -1,0 +1,141 @@
+.chart-container {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 2rem;
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.chart-title {
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.window-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.window-selector label {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+}
+
+.window-selector select {
+  background: #1a3550;
+  border: 1px solid #4a7090;
+  border-radius: 6px;
+  color: #ffffff;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.85rem;
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+
+.window-selector select:focus {
+  outline: none;
+  border-color: #7eb8da;
+}
+
+.chart-wrapper {
+  width: 100%;
+  height: 300px;
+}
+
+.chart-footer {
+  margin-top: 1rem;
+  text-align: center;
+}
+
+.chart-info {
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+  font-size: 0.8rem;
+}
+
+.chart-loading,
+.chart-error,
+.chart-no-data {
+  text-align: center;
+  padding: 3rem;
+  color: #7eb8da;
+  font-family: 'Space Mono', monospace;
+}
+
+.chart-error {
+  color: #ef4444;
+}
+
+.chart-no-data p {
+  margin: 0.5rem 0;
+}
+
+/* Custom Tooltip */
+.chart-tooltip {
+  background: rgba(26, 53, 80, 0.95);
+  border: 1px solid #4a7090;
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  font-family: 'Space Mono', monospace;
+}
+
+.tooltip-date {
+  color: #ffffff;
+  font-size: 0.9rem;
+  font-weight: bold;
+  margin: 0 0 0.5rem 0;
+}
+
+.tooltip-rolling,
+.tooltip-cumulative {
+  margin: 0.25rem 0;
+  font-size: 0.8rem;
+}
+
+.tooltip-rolling {
+  color: #60a5fa;
+}
+
+.tooltip-cumulative {
+  color: #4ade80;
+}
+
+.tooltip-games {
+  color: #7eb8da;
+  margin-left: 0.5rem;
+  font-size: 0.75rem;
+}
+
+/* Recharts legend styling */
+.recharts-legend-wrapper {
+  font-family: 'Space Mono', monospace !important;
+}
+
+.recharts-legend-item-text {
+  color: #7eb8da !important;
+  font-size: 0.8rem !important;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .chart-header {
+    flex-direction: column;
+    gap: 1rem;
+    align-items: flex-start;
+  }
+
+  .chart-wrapper {
+    height: 250px;
+  }
+}

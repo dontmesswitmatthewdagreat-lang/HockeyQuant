@@ -62,6 +62,12 @@ class PredictionRecord(BaseModel):
     correct: Optional[bool] = None
 
 
+class WindowStats(BaseModel):
+    correct: int
+    total: int
+    pct: float
+
+
 class AccuracyStats(BaseModel):
     total_games: int
     correct_picks: int
@@ -75,11 +81,29 @@ class AccuracyStats(BaseModel):
     close_total: int
     close_correct: int
     close_pct: float
+    # Multi-window stats
+    rolling_30: Optional[WindowStats] = None
+    current_season: Optional[WindowStats] = None
+    all_time: Optional[WindowStats] = None
 
 
 class AccuracyResponse(BaseModel):
     stats: AccuracyStats
     recent_predictions: List[PredictionRecord]
+
+
+class TrendDataPoint(BaseModel):
+    date: str
+    rolling_accuracy: float
+    games_in_window: int
+    cumulative_accuracy: float
+    cumulative_games: int
+
+
+class TrendResponse(BaseModel):
+    window_size: int
+    total_games: int
+    data_points: List[TrendDataPoint]
 
 
 # Shared analyzer instance
@@ -299,6 +323,48 @@ async def get_accuracy_stats(
     moderate = [p for p in predictions if p.get('confidence') == 'MODERATE']
     close = [p for p in predictions if p.get('confidence') == 'CLOSE']
 
+    # Calculate multi-window stats (from ALL predictions, ignoring filters)
+    try:
+        all_completed = supabase.table("predictions").select("*").not_is("correct", "null").order("game_date", desc=True).execute()
+        all_preds = all_completed.data or []
+    except Exception:
+        all_preds = predictions
+
+    # All-time stats
+    all_time_total = len(all_preds)
+    all_time_correct = sum(1 for p in all_preds if p.get('correct'))
+    all_time_stats = WindowStats(
+        correct=all_time_correct,
+        total=all_time_total,
+        pct=round((all_time_correct / all_time_total * 100) if all_time_total > 0 else 0, 1)
+    )
+
+    # Rolling 30 games (most recent 30)
+    last_30 = all_preds[:30]
+    rolling_30_correct = sum(1 for p in last_30 if p.get('correct'))
+    rolling_30_stats = WindowStats(
+        correct=rolling_30_correct,
+        total=len(last_30),
+        pct=round((rolling_30_correct / len(last_30) * 100) if last_30 else 0, 1)
+    )
+
+    # Current season stats (Oct 1 - Jun 30)
+    today = date.today()
+    if today.month >= 10:
+        season_start = date(today.year, 10, 1)
+        season_end = date(today.year + 1, 6, 30)
+    else:
+        season_start = date(today.year - 1, 10, 1)
+        season_end = date(today.year, 6, 30)
+
+    season_preds = [p for p in all_preds if season_start.isoformat() <= p['game_date'] <= season_end.isoformat()]
+    season_correct = sum(1 for p in season_preds if p.get('correct'))
+    current_season_stats = WindowStats(
+        correct=season_correct,
+        total=len(season_preds),
+        pct=round((season_correct / len(season_preds) * 100) if season_preds else 0, 1)
+    )
+
     stats = AccuracyStats(
         total_games=total,
         correct_picks=correct,
@@ -312,6 +378,9 @@ async def get_accuracy_stats(
         close_total=len(close),
         close_correct=sum(1 for p in close if p.get('correct')),
         close_pct=round((sum(1 for p in close if p.get('correct')) / len(close) * 100) if close else 0, 1),
+        rolling_30=rolling_30_stats,
+        current_season=current_season_stats,
+        all_time=all_time_stats,
     )
 
     # Get ALL recent predictions (including pending) for the table
@@ -375,3 +444,64 @@ async def get_first_game_time_endpoint(date_str: str):
         }
     else:
         return {"date": date_str, "first_game_utc": None, "message": "No games scheduled"}
+
+
+@router.get("/accuracy/trend", response_model=TrendResponse)
+async def get_accuracy_trend(
+    window: int = Query(30, description="Rolling window size (number of games)", ge=5, le=100),
+):
+    """
+    Get rolling accuracy data for graphing.
+
+    - **window**: Number of games in the rolling window (default 30)
+
+    Returns data points with rolling accuracy calculated at each game,
+    suitable for creating trend charts.
+    """
+    try:
+        supabase = get_supabase()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase init error: {str(e)}")
+
+    # Fetch all completed predictions ordered by date (oldest first for rolling calc)
+    try:
+        result = supabase.table("predictions").select("*").not_is("correct", "null").order("game_date", desc=False).execute()
+        predictions = result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
+
+    if not predictions:
+        return TrendResponse(window_size=window, total_games=0, data_points=[])
+
+    # Calculate rolling accuracy at each point
+    data_points = []
+    cumulative_correct = 0
+
+    for i, pred in enumerate(predictions):
+        # Update cumulative
+        if pred.get('correct'):
+            cumulative_correct += 1
+        cumulative_total = i + 1
+        cumulative_pct = round((cumulative_correct / cumulative_total) * 100, 1)
+
+        # Calculate rolling window
+        window_start = max(0, i - window + 1)
+        window_preds = predictions[window_start:i + 1]
+        window_correct = sum(1 for p in window_preds if p.get('correct'))
+        window_total = len(window_preds)
+        rolling_pct = round((window_correct / window_total) * 100, 1) if window_total > 0 else 0
+
+        data_points.append(TrendDataPoint(
+            date=pred['game_date'],
+            rolling_accuracy=rolling_pct,
+            games_in_window=window_total,
+            cumulative_accuracy=cumulative_pct,
+            cumulative_games=cumulative_total,
+        ))
+
+    # Return data points (most recent last for charting)
+    return TrendResponse(
+        window_size=window,
+        total_games=len(predictions),
+        data_points=data_points
+    )

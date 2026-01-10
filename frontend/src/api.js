@@ -110,3 +110,11 @@ export async function updateAllPendingResults() {
   }
   return response.json();
 }
+
+export async function fetchAccuracyTrend(window = 30) {
+  const response = await fetch(`${API_BASE}/api/accuracy/trend?window=${window}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch accuracy trend');
+  }
+  return response.json();
+}

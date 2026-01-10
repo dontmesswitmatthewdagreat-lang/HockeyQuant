@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchAccuracyStats, fetchTeams } from '../api';
 import LoadingSpinner from '../components/LoadingSpinner';
+import AccuracyChart from '../components/AccuracyChart';
 import './Accuracy.css';
 
 function Accuracy() {
@@ -134,13 +135,41 @@ function Accuracy() {
         </div>
       </div>
 
+      {/* Accuracy Trend Chart */}
+      <AccuracyChart />
+
       {stats && (
         <>
-          {/* Main Stats */}
+          {/* Quick Stats Cards */}
+          <div className="quick-stats">
+            <div className="quick-stat-card">
+              <div className="quick-stat-label">All-Time</div>
+              <div className="quick-stat-value">{stats.all_time?.pct || 0}%</div>
+              <div className="quick-stat-detail">
+                {stats.all_time?.correct || 0} / {stats.all_time?.total || 0} games
+              </div>
+            </div>
+            <div className="quick-stat-card">
+              <div className="quick-stat-label">This Season</div>
+              <div className="quick-stat-value">{stats.current_season?.pct || 0}%</div>
+              <div className="quick-stat-detail">
+                {stats.current_season?.correct || 0} / {stats.current_season?.total || 0} games
+              </div>
+            </div>
+            <div className="quick-stat-card">
+              <div className="quick-stat-label">Last 30 Games</div>
+              <div className="quick-stat-value">{stats.rolling_30?.pct || 0}%</div>
+              <div className="quick-stat-detail">
+                {stats.rolling_30?.correct || 0} / {stats.rolling_30?.total || 0} games
+              </div>
+            </div>
+          </div>
+
+          {/* Main Stats (filtered) */}
           <div className="stats-overview">
             <div className="main-stat">
               <div className="stat-number">{stats.accuracy_pct}%</div>
-              <div className="stat-label">Overall Accuracy</div>
+              <div className="stat-label">Filtered Accuracy</div>
               <div className="stat-detail">{stats.correct_picks} / {stats.total_games} games</div>
             </div>
           </div>
