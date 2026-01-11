@@ -18,13 +18,7 @@ app = FastAPI(
 # CORS middleware - allow frontend to make requests
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # React dev server
-        "http://localhost:5173",  # Vite dev server
-        "https://hockeyquant.vercel.app",  # Vercel frontend
-        "https://frontend-pi-beige-13.vercel.app",  # Vercel frontend (alt)
-        "https://hockeyquant.com",  # Production domain (future)
-    ],
+    allow_origins=["*"],  # Allow all origins for now
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
