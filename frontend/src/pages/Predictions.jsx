@@ -5,7 +5,7 @@ import ProgressBar from '../components/ProgressBar';
 import './Predictions.css';
 
 // Module-level cache for predictions - persists across tab switches
-// Key: date string, Value: { predictions, timestamp }
+// Key: date string, Value: { predictions, status, timestamp }
 const predictionsCache = {};
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -44,18 +44,19 @@ function Predictions() {
   }
 
   // Check if cached data is still valid
-  function getCachedPredictions(selectedDate) {
+  function getCachedData(selectedDate) {
     const cached = predictionsCache[selectedDate];
     if (cached && Date.now() - cached.timestamp < CACHE_DURATION_MS) {
-      return cached.predictions;
+      return { predictions: cached.predictions, status: cached.status };
     }
     return null;
   }
 
-  // Store predictions in cache
-  function setCachedPredictions(selectedDate, predictions) {
+  // Store predictions and status in cache
+  function setCachedData(selectedDate, predictions, status) {
     predictionsCache[selectedDate] = {
       predictions,
+      status,
       timestamp: Date.now(),
     };
   }
@@ -66,9 +67,12 @@ function Predictions() {
 
     // Check cache first (only for default goalie predictions)
     if (!forceRefresh && Object.keys(overrides).length === 0) {
-      const cached = getCachedPredictions(selectedDate);
+      const cached = getCachedData(selectedDate);
       if (cached) {
-        setPredictions(cached);
+        setPredictions(cached.predictions);
+        if (cached.status) {
+          setModelStatus(cached.status);
+        }
         setFromCache(true);
         return;
       }
@@ -90,9 +94,9 @@ function Predictions() {
         setModelStatus(data.status);
       }
 
-      // Cache the default predictions (no overrides)
+      // Cache the default predictions and status (no overrides)
       if (Object.keys(overrides).length === 0) {
-        setCachedPredictions(selectedDate, preds);
+        setCachedData(selectedDate, preds, data.status);
       }
     } catch (err) {
       setError(err.message);
