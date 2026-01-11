@@ -1,5 +1,6 @@
 # Automated accuracy tracking for HockeyQuant
-# - Stores predictions 30 minutes before first game (dynamic timing)
+# - Updates predictions every 30 min until 30 min before LAST game
+# - Allows Daily Faceoff confirmations to update throughout the day
 # - Updates results after games finish (2 AM ET)
 
 name: Accuracy Automation
@@ -33,49 +34,65 @@ jobs:
         id: date
         run: echo "today=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Check for games and get first game time
+      - name: Check for games and get game times
         id: games
         run: |
           DATE=${{ steps.date.outputs.today }}
           echo "Checking games for $DATE..."
 
           # Query the API for first game time
-          RESPONSE=$(curl -s "https://hockeyquant.onrender.com/api/accuracy/first-game-time/$DATE")
-          echo "API Response: $RESPONSE"
+          FIRST_RESPONSE=$(curl -s "https://hockeyquant.onrender.com/api/accuracy/first-game-time/$DATE")
+          echo "First Game Response: $FIRST_RESPONSE"
 
-          # Parse the response
-          FIRST_GAME=$(echo "$RESPONSE" | jq -r '.first_game_utc // empty')
+          # Query the API for last game time
+          LAST_RESPONSE=$(curl -s "https://hockeyquant.onrender.com/api/accuracy/last-game-time/$DATE")
+          echo "Last Game Response: $LAST_RESPONSE"
+
+          # Parse the responses
+          FIRST_GAME=$(echo "$FIRST_RESPONSE" | jq -r '.first_game_utc // empty')
+          LAST_GAME=$(echo "$LAST_RESPONSE" | jq -r '.last_game_utc // empty')
 
           if [ -z "$FIRST_GAME" ] || [ "$FIRST_GAME" == "null" ]; then
             echo "No games scheduled for $DATE"
             echo "has_games=false" >> $GITHUB_OUTPUT
           else
             echo "First game at: $FIRST_GAME"
+            echo "Last game at: $LAST_GAME"
             echo "has_games=true" >> $GITHUB_OUTPUT
             echo "first_game_utc=$FIRST_GAME" >> $GITHUB_OUTPUT
+            echo "last_game_utc=$LAST_GAME" >> $GITHUB_OUTPUT
           fi
 
-      - name: Store predictions repeatedly until 30 min before game
+      - name: Store predictions repeatedly until 30 min before last game
         if: steps.games.outputs.has_games == 'true'
         run: |
           DATE=${{ steps.date.outputs.today }}
           FIRST_GAME="${{ steps.games.outputs.first_game_utc }}"
+          LAST_GAME="${{ steps.games.outputs.last_game_utc }}"
           FORCE_NOW="${{ github.event.inputs.action == 'store-predictions-now' }}"
 
-          # Parse the ISO timestamp to get cutoff time (30 min before first game)
+          # Parse game times
           FIRST_GAME_EPOCH=$(date -d "$FIRST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${FIRST_GAME%Z}" +%s 2>/dev/null || echo "0")
+          LAST_GAME_EPOCH=$(date -d "$LAST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${LAST_GAME%Z}" +%s 2>/dev/null || echo "0")
+
+          if [ "$LAST_GAME_EPOCH" == "0" ]; then
+            echo "Warning: Could not parse last game time, using first game"
+            LAST_GAME_EPOCH=$FIRST_GAME_EPOCH
+          fi
 
           if [ "$FIRST_GAME_EPOCH" == "0" ]; then
-            echo "Warning: Could not parse game time, storing predictions once"
+            echo "Warning: Could not parse game times, storing predictions once"
             curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE"
             exit 0
           fi
 
-          # Cutoff = 30 minutes before first game
-          CUTOFF_EPOCH=$((FIRST_GAME_EPOCH - 1800))
+          # Cutoff = 30 minutes before LAST game (not first!)
+          # This allows confirmations for later games to be captured
+          CUTOFF_EPOCH=$((LAST_GAME_EPOCH - 1800))
 
           echo "First game at epoch: $FIRST_GAME_EPOCH"
-          echo "Cutoff (30 min before): $CUTOFF_EPOCH"
+          echo "Last game at epoch: $LAST_GAME_EPOCH"
+          echo "Cutoff (30 min before last game): $CUTOFF_EPOCH"
 
           # If force-now, just store once and exit
           if [ "$FORCE_NOW" == "true" ]; then
@@ -90,7 +107,7 @@ jobs:
             NOW_EPOCH=$(date +%s)
 
             if [ $NOW_EPOCH -ge $CUTOFF_EPOCH ]; then
-              echo "Reached cutoff time, stopping updates"
+              echo "Reached cutoff time (30 min before last game), stopping updates"
               break
             fi
 

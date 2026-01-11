@@ -10,7 +10,7 @@ from datetime import date, datetime, timedelta
 
 from services import NHLAnalyzer, get_data_loader
 from services.supabase_client import get_supabase
-from services.results_fetcher import fetch_game_results, get_first_game_time
+from services.results_fetcher import fetch_game_results, get_first_game_time, get_last_game_time
 
 router = APIRouter()
 
@@ -513,6 +513,31 @@ async def get_first_game_time_endpoint(date_str: str):
         }
     else:
         return {"date": date_str, "first_game_utc": None, "message": "No games scheduled"}
+
+
+@router.get("/accuracy/last-game-time/{date_str}")
+async def get_last_game_time_endpoint(date_str: str):
+    """
+    Get the start time of the last game on a given date.
+    Useful for determining when to stop the prediction update loop.
+
+    - **date_str**: Date in YYYY-MM-DD format
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    last_game = get_last_game_time(date_str)
+
+    if last_game:
+        return {
+            "date": date_str,
+            "last_game_utc": last_game.isoformat(),
+            "cutoff_time": (last_game - timedelta(minutes=30)).isoformat(),
+        }
+    else:
+        return {"date": date_str, "last_game_utc": None, "message": "No games scheduled"}
 
 
 @router.get("/accuracy/trend", response_model=TrendResponse)

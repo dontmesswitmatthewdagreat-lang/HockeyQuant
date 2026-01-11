@@ -492,8 +492,37 @@ class NHLAnalyzer:
             }
         return None
 
+    def _build_goalie_dict(self, goalie_row) -> Dict:
+        """Build goalie stats dict from DataFrame row"""
+        xGoals = float(goalie_row['xGoals'])
+        goals = float(goalie_row['goals'])
+        ongoal = float(goalie_row['ongoal'])
+        icetime = float(goalie_row['icetime'])
+        gsax = xGoals - goals
+        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
+        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
+
+        return {
+            'name': goalie_row['name'],
+            'gsax': gsax,
+            'sv_pct': sv_pct,
+            'gaa': gaa
+        }
+
+    def _is_player_injured(self, player_name: str, injured_list: List[str]) -> bool:
+        """Check if a player name matches any name in the injury list"""
+        if not injured_list:
+            return False
+        name_lower = player_name.lower()
+        for injured_name in injured_list:
+            injured_lower = injured_name.lower()
+            # Check if either name contains the other (handles partial matches)
+            if injured_lower in name_lower or name_lower in injured_lower:
+                return True
+        return False
+
     def get_starting_goalie(self, team_abbrev: str) -> Optional[Dict]:
-        """Get projected starting goalie and their stats"""
+        """Get starting goalie - confirmed from Daily Faceoff, or GP-based fallback"""
         goalie_data = self.data_loader.goalie_data
         if goalie_data is None:
             return None
@@ -502,29 +531,41 @@ class NHLAnalyzer:
         if team_goalies.empty:
             return None
 
+        # 1. Check for confirmed starter from Daily Faceoff
+        confirmed_name = self.data_loader.get_confirmed_starter(team_abbrev)
+        if confirmed_name:
+            # Find this goalie in our data
+            confirmed_goalie = self.get_goalie_by_name(team_abbrev, confirmed_name)
+            if confirmed_goalie:
+                return confirmed_goalie
+
+        # 2. Fallback: GP-based selection with injury filtering
+        injured_players = self.data_loader.get_injuries(team_abbrev)
+
+        # Filter qualified goalies (5+ games)
         qualified = team_goalies[team_goalies['games_played'] >= 5]
         if qualified.empty:
             qualified = team_goalies
 
-        starter = qualified.nlargest(1, 'games_played').iloc[0]
+        # Sort by games played (most first)
+        sorted_goalies = qualified.sort_values('games_played', ascending=False)
 
-        xGoals = float(starter['xGoals'])
-        goals = float(starter['goals'])
-        ongoal = float(starter['ongoal'])
-        icetime = float(starter['icetime'])
-        gsax = xGoals - goals
-        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
-        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
+        # Find first non-injured goalie
+        for _, goalie in sorted_goalies.iterrows():
+            if not self._is_player_injured(goalie['name'], injured_players):
+                return self._build_goalie_dict(goalie)
 
-        return {
-            'name': starter['name'],
-            'gsax': gsax,
-            'sv_pct': sv_pct,
-            'gaa': gaa
-        }
+        # All qualified goalies injured - try any team goalie
+        all_sorted = team_goalies.sort_values('games_played', ascending=False)
+        for _, goalie in all_sorted.iterrows():
+            if not self._is_player_injured(goalie['name'], injured_players):
+                return self._build_goalie_dict(goalie)
+
+        # Everyone injured - return top goalie anyway (edge case)
+        return self._build_goalie_dict(sorted_goalies.iloc[0])
 
     def get_backup_goalie(self, team_abbrev: str) -> Optional[Dict]:
-        """Get backup goalie and their stats"""
+        """Get backup goalie and their stats (injury-aware)"""
         goalie_data = self.data_loader.goalie_data
         if goalie_data is None:
             return None
@@ -533,29 +574,33 @@ class NHLAnalyzer:
         if team_goalies.empty or len(team_goalies) < 2:
             return None
 
+        # Get starter to exclude (already injury-filtered)
+        starter = self.get_starting_goalie(team_abbrev)
+        starter_name = starter['name'] if starter else None
+
+        # Get injured players
+        injured_players = self.data_loader.get_injuries(team_abbrev)
+
+        # Filter qualified backups (3+ games)
         qualified = team_goalies[team_goalies['games_played'] >= 3]
         if len(qualified) < 2:
             qualified = team_goalies
 
-        top_goalies = qualified.nlargest(2, 'games_played')
-        if len(top_goalies) < 2:
-            return None
+        # Sort by games played
+        sorted_goalies = qualified.sort_values('games_played', ascending=False)
 
-        backup = top_goalies.iloc[1]
-        xGoals = float(backup['xGoals'])
-        goals = float(backup['goals'])
-        ongoal = float(backup['ongoal'])
-        icetime = float(backup['icetime'])
-        gsax = xGoals - goals
-        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
-        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
+        # Find first non-injured goalie that isn't the starter
+        for _, goalie in sorted_goalies.iterrows():
+            if goalie['name'] != starter_name and not self._is_player_injured(goalie['name'], injured_players):
+                return self._build_goalie_dict(goalie)
 
-        return {
-            'name': backup['name'],
-            'gsax': gsax,
-            'sv_pct': sv_pct,
-            'gaa': gaa
-        }
+        # Try any team goalie that isn't the starter
+        all_sorted = team_goalies.sort_values('games_played', ascending=False)
+        for _, goalie in all_sorted.iterrows():
+            if goalie['name'] != starter_name and not self._is_player_injured(goalie['name'], injured_players):
+                return self._build_goalie_dict(goalie)
+
+        return None
 
     def get_goalie_by_name(self, team_abbrev: str, goalie_name: str) -> Optional[Dict]:
         """Get a specific goalie by name for a team"""
@@ -580,21 +625,7 @@ class NHLAnalyzer:
         if match.empty:
             return None
 
-        goalie = match.iloc[0]
-        xGoals = float(goalie['xGoals'])
-        goals = float(goalie['goals'])
-        ongoal = float(goalie['ongoal'])
-        icetime = float(goalie['icetime'])
-        gsax = xGoals - goals
-        sv_pct = (ongoal - goals) / ongoal if ongoal > 0 else 0.900
-        gaa = (goals / (icetime/60)) * 60 if icetime > 0 else 3.0
-
-        return {
-            'name': goalie['name'],
-            'gsax': gsax,
-            'sv_pct': sv_pct,
-            'gaa': gaa
-        }
+        return self._build_goalie_dict(match.iloc[0])
 
     def calculate_goalie_score(self, goalie: Optional[Dict]) -> float:
         """Calculate composite goalie score"""

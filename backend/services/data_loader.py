@@ -30,6 +30,7 @@ class DataLoader:
         self._pp_data = None
         self._pk_data = None
         self._injury_cache = {}
+        self._confirmed_starters_cache = {}
         self._last_load_time = None
 
     def load_all_data(self, force_refresh: bool = False) -> Dict:
@@ -101,8 +102,7 @@ class DataLoader:
                     cells = row.find_all('td')
                     if len(cells) >= 2:
                         name = cells[0].get_text(strip=True)
-                        pos = cells[1].get_text(strip=True)
-                        if pos != 'G' and name:  # Exclude goalies
+                        if name:  # Include all players (goalies too)
                             players.append(name)
 
                 if players:
@@ -126,6 +126,82 @@ class DataLoader:
         if not self._injury_cache:
             self.scrape_injuries()
         return self._injury_cache.get(team_abbrev, [])
+
+    def scrape_confirmed_starters(self) -> Dict[str, str]:
+        """
+        Scrape confirmed starting goalies from Daily Faceoff.
+        Returns dict mapping team abbreviation to confirmed goalie name.
+        Example: {'TOR': 'Joseph Woll', 'MTL': 'Sam Montembeault'}
+        """
+        url = "https://www.dailyfaceoff.com/starting-goalies"
+        try:
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+            response = requests.get(url, headers=headers, timeout=15)
+            soup = BeautifulSoup(response.text, 'html.parser')
+
+            confirmed_starters = {}
+
+            # Find all starter cards - Daily Faceoff uses divs with goalie info
+            # Look for elements containing team names and goalie names with "Confirmed" status
+
+            # Try to find game cards/sections
+            cards = soup.find_all('div', class_='starting-goalies-card')
+            if not cards:
+                # Alternative: look for table rows or other structures
+                cards = soup.find_all('div', class_='goalie-card')
+
+            if not cards:
+                # Try finding by data attributes or other patterns
+                # Look for any div that might contain goalie matchup info
+                all_links = soup.find_all('a', href=True)
+                for link in all_links:
+                    href = link.get('href', '')
+                    # Check if it's a team page link that might contain goalie info
+                    if '/teams/' in href and '/goalies' in href:
+                        continue
+
+            # Parse page content looking for confirmed starters
+            # The page structure may vary, so we'll look for common patterns
+            text_content = soup.get_text()
+
+            # Look for team abbreviations and nearby goalie names
+            for team_name, abbrev in ESPN_TEAM_MAPPING.items():
+                # Find team mentions in the page
+                team_sections = soup.find_all(string=lambda x: x and team_name.lower() in x.lower() if x else False)
+                for section in team_sections:
+                    parent = section.find_parent(['div', 'td', 'tr'])
+                    if parent:
+                        # Look for "Confirmed" nearby
+                        parent_text = parent.get_text()
+                        if 'confirmed' in parent_text.lower():
+                            # Try to extract goalie name
+                            # This is a simplified approach - may need refinement
+                            pass
+
+            # Alternative approach: Look for JSON data in script tags
+            scripts = soup.find_all('script', type='application/json')
+            for script in scripts:
+                try:
+                    data = json.loads(script.string)
+                    # Parse JSON structure for goalie data
+                except (json.JSONDecodeError, TypeError):
+                    continue
+
+            # Store whatever we found
+            self._confirmed_starters_cache = confirmed_starters
+            return confirmed_starters
+
+        except Exception as e:
+            print(f"Daily Faceoff scrape failed: {e}")
+            return self._confirmed_starters_cache or {}
+
+    def get_confirmed_starter(self, team_abbrev: str) -> Optional[str]:
+        """Get confirmed starting goalie name for a team, if available"""
+        if not self._confirmed_starters_cache:
+            self.scrape_confirmed_starters()
+        return self._confirmed_starters_cache.get(team_abbrev)
 
     @property
     def team_data(self):

@@ -99,3 +99,38 @@ def get_first_game_time(date_str: str) -> Optional[datetime]:
                     return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
 
     return None
+
+
+def get_last_game_time(date_str: str) -> Optional[datetime]:
+    """
+    Get the start time of the last game on a given date.
+
+    Args:
+        date_str: Date in YYYY-MM-DD format
+
+    Returns:
+        datetime of last game start, or None if no games
+    """
+    url = f"https://api-web.nhle.com/v1/schedule/{date_str}"
+
+    try:
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        print(f"Error fetching schedule for {date_str}: {e}")
+        return None
+
+    game_week = data.get("gameWeek", [])
+
+    for day in game_week:
+        if day.get("date") == date_str:
+            games = day.get("games", [])
+            if games:
+                # Get the last game (games are sorted by time)
+                last_game = games[-1]
+                start_time = last_game.get("startTimeUTC")
+                if start_time:
+                    return datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+
+    return None
