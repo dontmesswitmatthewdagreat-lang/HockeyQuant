@@ -8,7 +8,6 @@ function Home() {
         <span className="hero-icon">🏒</span>
         <h1 className="hero-title">HockeyQuant</h1>
         <p className="hero-subtitle">NHL Game Prediction Engine</p>
-        <p className="hero-version">Version 1.0</p>
       </div>
 
       <div className="nav-cards">

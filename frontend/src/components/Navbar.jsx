@@ -18,7 +18,7 @@ function Navbar() {
       <Link to="/" className="navbar-brand" onClick={closeMobileMenu}>
         <span className="brand-icon">🏒</span>
         <span className="brand-text">HockeyQuant</span>
-        <span style={{fontSize: '0.6rem', color: '#4ade80', marginLeft: '4px'}}>v3</span>
+        <span style={{fontSize: '0.75rem', color: '#4ade80', marginLeft: '6px'}}>v1</span>
       </Link>
 
       <button className="hamburger" onClick={toggleMobileMenu} aria-label="Toggle menu">
