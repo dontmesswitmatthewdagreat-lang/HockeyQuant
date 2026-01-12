@@ -5,10 +5,10 @@
 }
 
 .page-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.75rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 2.25rem;
+  letter-spacing: 0.02em;
   margin: 0 0 2rem 0;
   text-align: center;
 }
@@ -16,15 +16,15 @@
 .error-message {
   text-align: center;
   padding: 2rem;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: var(--accent-red-light);
+  border: 1px solid var(--accent-red);
   border-radius: 8px;
   margin-bottom: 2rem;
 }
 
 .error-message p {
-  color: #ef4444;
-  font-family: 'Space Mono', monospace;
+  color: var(--accent-red);
+  font-family: var(--font-body);
   margin: 0;
 }
 
@@ -35,20 +35,21 @@
 }
 
 .division-group {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .division-title {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.9rem;
-  font-weight: bold;
+  color: var(--accent-red);
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
   margin: 0 0 1rem 0;
   padding-bottom: 0.75rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .division-teams {
@@ -58,8 +59,8 @@
 }
 
 .team-button {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.75rem 1rem;
   display: flex;
@@ -71,26 +72,26 @@
 }
 
 .team-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
+  background: var(--bg-primary);
+  border-color: var(--accent-red);
 }
 
 .team-button.selected {
-  background: rgba(37, 99, 235, 0.2);
-  border-color: #2563eb;
+  background: var(--accent-red-light);
+  border-color: var(--accent-red);
 }
 
 .team-abbrev {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.9rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1rem;
+  letter-spacing: 0.02em;
   min-width: 40px;
 }
 
 .team-name {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
 }
 
@@ -101,7 +102,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -110,8 +111,8 @@
 }
 
 .modal-content {
-  background: #0d2137;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
   border-radius: 16px;
   padding: 2rem;
   max-width: 600px;
@@ -119,6 +120,7 @@
   max-height: 80vh;
   overflow-y: auto;
   position: relative;
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-close {
@@ -127,7 +129,7 @@
   right: 1rem;
   background: none;
   border: none;
-  color: #7eb8da;
+  color: var(--text-muted);
   font-size: 1.5rem;
   cursor: pointer;
   padding: 0.25rem 0.5rem;
@@ -136,24 +138,24 @@
 }
 
 .modal-close:hover {
-  color: #ffffff;
+  color: var(--accent-red);
 }
 
 /* Team Details */
 .team-details {
-  color: #ffffff;
+  color: var(--text-primary);
 }
 
 .details-title {
-  font-family: 'Space Mono', monospace;
-  font-size: 1.5rem;
-  font-weight: bold;
+  font-family: var(--font-heading);
+  font-size: 2rem;
+  letter-spacing: 0.02em;
   margin: 0 0 0.25rem 0;
 }
 
 .details-subtitle {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin: 0 0 1.5rem 0;
 }
@@ -166,7 +168,7 @@
 }
 
 .stat-box {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-secondary);
   border-radius: 8px;
   padding: 1rem;
   text-align: center;
@@ -174,36 +176,38 @@
 
 .stat-label {
   display: block;
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
   margin-bottom: 0.25rem;
 }
 
 .stat-value {
   display: block;
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.1rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
 }
 
 .stat-value.positive {
-  color: #4ade80;
+  color: var(--accent-green);
 }
 
 .stat-value.negative {
-  color: #ef4444;
+  color: var(--accent-red);
 }
 
 .section-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.1rem;
+  letter-spacing: 0.02em;
   margin: 1.5rem 0 0.75rem 0;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .goalies-list {
@@ -222,27 +226,27 @@
 }
 
 .goalie-name {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
 }
 
 .goalie-stats {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.8rem;
 }
 
 .recent-form {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin: 0;
 }
 
 .injuries {
-  color: #f97316;
-  font-family: 'Space Mono', monospace;
+  color: var(--accent-orange);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   margin: 0;
 }
@@ -270,7 +274,7 @@
   }
 
   .page-title {
-    font-size: 1.5rem;
+    font-size: 1.75rem;
   }
 
   .team-card {
@@ -303,12 +307,13 @@
     padding: 1rem;
     height: 100%;
     overflow-y: auto;
+    border-radius: 0;
   }
 
   .modal-header {
     position: sticky;
     top: 0;
-    background: #0d2137;
+    background: var(--bg-primary);
     padding-bottom: 1rem;
     margin-bottom: 1rem;
     z-index: 10;
@@ -334,7 +339,7 @@
   }
 
   .section-title {
-    font-size: 0.9rem;
+    font-size: 1rem;
     margin: 1rem 0 0.5rem 0;
   }
 

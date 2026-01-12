@@ -11,30 +11,34 @@
   margin-bottom: 3rem;
 }
 
-.hero-icon {
-  font-size: 4rem;
-  display: block;
+.hero-logo {
+  height: 120px;
+  width: auto;
   margin-bottom: 1rem;
 }
 
 .hero-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 2.5rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 3.5rem;
+  letter-spacing: 0.05em;
   margin: 0 0 0.5rem 0;
 }
 
+.hero-title .highlight {
+  color: #FF0000;
+}
+
 .hero-subtitle {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 1.1rem;
   margin: 0 0 0.5rem 0;
 }
 
 .hero-version {
-  color: #5a7a90;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin: 0;
 }
@@ -47,8 +51,8 @@
 }
 
 .nav-card {
-  background: rgba(255, 255, 255, 0.08);
-  border: 2px solid rgba(255, 255, 255, 0.15);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   text-align: center;
@@ -56,12 +60,13 @@
   transition: all 0.2s ease;
   cursor: pointer;
   position: relative;
+  box-shadow: var(--shadow-sm);
 }
 
 .nav-card:hover:not(.disabled) {
-  background: rgba(255, 255, 255, 0.12);
-  border-color: #4CAF50;
+  border-color: #FF0000;
   transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
 }
 
 .nav-card.disabled {
@@ -76,16 +81,16 @@
 }
 
 .card-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.1rem;
-  font-weight: bold;
+  color: #000000;
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  letter-spacing: 0.02em;
   margin: 0 0 0.5rem 0;
 }
 
 .card-desc {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: #000000;
+  font-family: var(--font-body);
   font-size: 0.85rem;
   margin: 0;
 }
@@ -94,10 +99,11 @@
   display: inline-block;
   margin-top: 0.75rem;
   padding: 0.25rem 0.75rem;
-  background: rgba(255, 215, 0, 0.2);
-  color: #FFD700;
-  font-family: 'Space Mono', monospace;
+  background: var(--accent-red-light);
+  color: var(--accent-red);
+  font-family: var(--font-body);
   font-size: 0.7rem;
+  font-weight: 600;
   border-radius: 10px;
 }
 
@@ -108,8 +114,8 @@
 }
 
 .home-footer p {
-  color: #5a7a90;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.8rem;
   margin: 0;
 }
@@ -121,7 +127,7 @@
   }
 
   .hero-title {
-    font-size: 2rem;
+    font-size: 2.5rem;
   }
 }
 
@@ -134,12 +140,12 @@
     margin-bottom: 2rem;
   }
 
-  .hero-icon {
-    font-size: 3rem;
+  .hero-logo {
+    height: 80px;
   }
 
   .hero-title {
-    font-size: 1.5rem;
+    font-size: 2rem;
   }
 
   .hero-subtitle {
@@ -167,7 +173,7 @@
   }
 
   .card-title {
-    font-size: 1rem;
+    font-size: 1.1rem;
   }
 
   .card-desc {

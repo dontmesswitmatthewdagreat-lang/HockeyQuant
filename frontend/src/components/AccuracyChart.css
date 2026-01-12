@@ -1,9 +1,10 @@
 .chart-container {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 2rem;
+  box-shadow: var(--shadow-md);
 }
 
 .chart-header {
@@ -14,9 +15,10 @@
 }
 
 .chart-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.25rem;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
   margin: 0;
 }
 
@@ -27,17 +29,17 @@
 }
 
 .window-selector label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
 }
 
 .window-selector select {
-  background: #1a3550;
-  border: 1px solid #4a7090;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   padding: 0.4rem 0.8rem;
   cursor: pointer;
@@ -45,7 +47,7 @@
 
 .window-selector select:focus {
   outline: none;
-  border-color: #7eb8da;
+  border-color: var(--accent-red);
 }
 
 .chart-wrapper {
@@ -59,8 +61,8 @@
 }
 
 .chart-info {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.8rem;
 }
 
@@ -69,12 +71,12 @@
 .chart-no-data {
   text-align: center;
   padding: 3rem;
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
 }
 
 .chart-error {
-  color: #ef4444;
+  color: var(--accent-red);
 }
 
 .chart-no-data p {
@@ -83,17 +85,18 @@
 
 /* Custom Tooltip */
 .chart-tooltip {
-  background: rgba(26, 53, 80, 0.95);
-  border: 1px solid #4a7090;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.75rem 1rem;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
+  box-shadow: var(--shadow-lg);
 }
 
 .tooltip-date {
-  color: #ffffff;
+  color: var(--text-primary);
   font-size: 0.9rem;
-  font-weight: bold;
+  font-weight: 600;
   margin: 0 0 0.5rem 0;
 }
 
@@ -104,26 +107,26 @@
 }
 
 .tooltip-rolling {
-  color: #60a5fa;
+  color: var(--accent-red);
 }
 
 .tooltip-cumulative {
-  color: #4ade80;
+  color: var(--accent-green);
 }
 
 .tooltip-games {
-  color: #7eb8da;
+  color: var(--text-muted);
   margin-left: 0.5rem;
   font-size: 0.75rem;
 }
 
 /* Recharts legend styling */
 .recharts-legend-wrapper {
-  font-family: 'Space Mono', monospace !important;
+  font-family: var(--font-body) !important;
 }
 
 .recharts-legend-item-text {
-  color: #7eb8da !important;
+  color: var(--text-secondary) !important;
   font-size: 0.8rem !important;
 }
 

@@ -11,7 +11,7 @@
   width: 100%;
   max-width: 400px;
   height: 6px;
-  background: rgba(126, 184, 218, 0.2);
+  background: var(--border-color);
   border-radius: 3px;
   overflow: hidden;
   position: relative;
@@ -21,7 +21,7 @@
   position: absolute;
   width: 30%;
   height: 100%;
-  background: linear-gradient(90deg, #4CAF50, #7eb8da, #4CAF50);
+  background: linear-gradient(90deg, var(--accent-red), var(--accent-red-hover), var(--accent-red));
   border-radius: 3px;
   animation: slide 1.5s ease-in-out infinite;
 }
@@ -36,8 +36,8 @@
 }
 
 .progress-message {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 1rem;
   margin: 0;
   text-align: center;

@@ -1,10 +1,15 @@
 .game-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.25rem;
   margin-bottom: 1rem;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: var(--shadow-md);
+  transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.game-card:hover {
+  box-shadow: var(--shadow-lg);
 }
 
 .game-card.recalculating {
@@ -19,39 +24,39 @@
 }
 
 .matchup {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.1rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.3rem;
+  letter-spacing: 0.02em;
   margin: 0;
 }
 
 .confidence-badge {
   padding: 0.35rem 1rem;
   border-radius: 20px;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.75rem;
-  font-weight: bold;
+  font-family: var(--font-heading);
+  font-size: 0.85rem;
+  letter-spacing: 0.05em;
   color: white;
-  min-width: 80px;
+  min-width: 90px;
   text-align: center;
 }
 
 .confidence-strong {
-  background: #16a34a;
+  background: var(--accent-green);
 }
 
 .confidence-moderate {
-  background: #ca8a04;
+  background: var(--accent-yellow);
 }
 
 .confidence-close {
-  background: #dc2626;
+  background: var(--accent-red);
 }
 
 .card-divider {
   height: 1px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--border-color);
   margin: 0.75rem 0;
 }
 
@@ -70,23 +75,26 @@
 }
 
 .team-score .label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
   margin-bottom: 0.25rem;
 }
 
 .team-abbrev {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.25rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
 }
 
 .score {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 1rem;
+  font-weight: 600;
 }
 
 .pick-section {
@@ -96,52 +104,56 @@
 }
 
 .pick-section .label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
   margin-bottom: 0.25rem;
 }
 
 .pick-box {
-  background: rgba(76, 175, 80, 0.2);
-  border: 1px solid rgba(76, 175, 80, 0.4);
+  background: var(--accent-red-light);
+  border: 2px solid var(--accent-red);
   border-radius: 8px;
   padding: 0.5rem 1.5rem;
 }
 
 .pick-team {
-  color: #4ade80;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.5rem;
-  font-weight: bold;
+  color: var(--accent-red);
+  font-family: var(--font-heading);
+  font-size: 1.75rem;
+  letter-spacing: 0.02em;
 }
 
 .diff {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   margin-top: 0.25rem;
 }
 
 /* Goalie Box - Click to Toggle */
 .goalie-box {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   padding: 0.75rem;
   margin-top: 1rem;
 }
 
 .goalie-box.clickable {
-  border-color: rgba(147, 197, 253, 0.3);
-  background: rgba(147, 197, 253, 0.05);
+  border-color: var(--accent-red);
+  background: var(--accent-red-light);
 }
 
 .goalie-title {
   display: block;
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: uppercase;
   margin-bottom: 0.5rem;
 }
 
@@ -165,19 +177,20 @@
 }
 
 .goalie-line.has-backup:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-primary);
 }
 
 .goalie-team {
-  color: #5a7a90;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.75rem;
+  font-weight: 600;
   min-width: 40px;
 }
 
 .goalie-name {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
 }
 
@@ -190,24 +203,26 @@
 }
 
 .info-box {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 0.75rem;
 }
 
 .info-label {
   display: block;
-  color: #5a7a90;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.65rem;
+  font-weight: 500;
+  text-transform: uppercase;
   margin-bottom: 0.35rem;
 }
 
 .info-value {
   display: block;
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.8rem;
   line-height: 1.4;
 }

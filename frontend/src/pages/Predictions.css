@@ -14,10 +14,10 @@
 }
 
 .page-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.75rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 2.25rem;
+  letter-spacing: 0.02em;
   margin: 0;
 }
 
@@ -25,10 +25,11 @@
   display: flex;
   gap: 1.5rem;
   padding: 0.75rem 1rem;
-  background: rgba(126, 184, 218, 0.1);
-  border: 1px solid rgba(126, 184, 218, 0.2);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 8px;
   flex-wrap: wrap;
+  box-shadow: var(--shadow-sm);
 }
 
 .status-item {
@@ -38,16 +39,16 @@
 }
 
 .status-label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.8rem;
 }
 
 .status-value {
-  color: #22c55e;
-  font-family: 'Space Mono', monospace;
+  color: var(--accent-green);
+  font-family: var(--font-body);
   font-size: 0.8rem;
-  font-weight: bold;
+  font-weight: 600;
 }
 
 .date-form {
@@ -57,45 +58,46 @@
 }
 
 .date-form label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
+  font-weight: 500;
 }
 
 .date-form input[type="date"] {
-  background: #1a3550;
-  color: #ffffff;
-  border: 1px solid #4a7090;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 0.5rem 1rem;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
   font-size: 0.9rem;
 }
 
 .date-form input[type="date"]:focus {
   outline: none;
-  border-color: #7eb8da;
+  border-color: var(--accent-red);
 }
 
 .date-form button {
-  background: #2563eb;
-  color: #ffffff;
+  background: var(--accent-red);
+  color: var(--text-on-red);
   border: none;
   border-radius: 6px;
   padding: 0.5rem 1.25rem;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
   font-size: 0.9rem;
-  font-weight: bold;
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.2s ease;
 }
 
 .date-form button:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--accent-red-hover);
 }
 
 .date-form button:disabled {
-  background: #93c5fd;
+  background: var(--text-muted);
   cursor: not-allowed;
 }
 
@@ -104,19 +106,19 @@
 }
 
 .results-count {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin-bottom: 1rem;
 }
 
 .override-indicator {
-  color: #f97316;
+  color: var(--accent-orange);
   font-size: 0.8rem;
 }
 
 .cache-indicator {
-  color: #22c55e;
+  color: var(--accent-green);
   font-size: 0.8rem;
 }
 
@@ -129,24 +131,30 @@
 .error-message {
   text-align: center;
   padding: 2rem;
-  background: rgba(220, 38, 38, 0.1);
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: var(--accent-red-light);
+  border: 1px solid var(--accent-red);
   border-radius: 8px;
 }
 
 .error-message p {
-  color: #ef4444;
-  font-family: 'Space Mono', monospace;
+  color: var(--accent-red);
+  font-family: var(--font-body);
   margin: 0 0 1rem 0;
 }
 
 .error-message button {
-  background: #dc2626;
+  background: var(--accent-red);
   color: white;
   border: none;
   border-radius: 6px;
   padding: 0.5rem 1rem;
   cursor: pointer;
+  font-family: var(--font-body);
+  font-weight: 600;
+}
+
+.error-message button:hover {
+  background: var(--accent-red-hover);
 }
 
 .no-games {
@@ -155,8 +163,8 @@
 }
 
 .no-games p {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 1.1rem;
 }
 
@@ -178,7 +186,7 @@
   }
 
   .page-title {
-    font-size: 1.25rem;
+    font-size: 1.75rem;
   }
 
   .model-status {
@@ -230,4 +238,82 @@
   .no-games p {
     font-size: 1rem;
   }
+}
+
+/* Server Disclaimer Modal */
+.disclaimer-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+  padding: 1rem;
+  animation: fadeIn 0.2s ease;
+}
+
+.disclaimer-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 420px;
+  width: 100%;
+  text-align: center;
+  box-shadow: var(--shadow-lg);
+  animation: slideUp 0.3s ease;
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.disclaimer-icon {
+  font-size: 3rem;
+  color: var(--accent-red);
+  margin-bottom: 0.75rem;
+}
+
+.disclaimer-title {
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
+  margin: 0 0 1rem 0;
+}
+
+.disclaimer-text {
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0 0 1.5rem 0;
+}
+
+.disclaimer-button {
+  background: var(--accent-red);
+  color: var(--text-on-red);
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem 2rem;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.disclaimer-button:hover {
+  background: var(--accent-red-hover);
 }

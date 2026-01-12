@@ -5,8 +5,8 @@ function Home() {
   return (
     <div className="home">
       <div className="hero">
-        <span className="hero-icon">🏒</span>
-        <h1 className="hero-title">HockeyQuant</h1>
+        <img src="/logo.png" alt="HockeyQuant" className="hero-logo" />
+        <h1 className="hero-title">HOCKEY<span className="highlight">QUANT</span></h1>
         <p className="hero-subtitle">NHL Game Prediction Engine</p>
       </div>
 

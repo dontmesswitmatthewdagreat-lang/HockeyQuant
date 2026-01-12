@@ -9,6 +9,9 @@ import './Predictions.css';
 const predictionsCache = {};
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
+// Track if disclaimer has been dismissed this session
+let disclaimerDismissedThisSession = false;
+
 function Predictions() {
   const [date, setDate] = useState(getTodayDate());
   const [predictions, setPredictions] = useState([]);
@@ -18,9 +21,22 @@ function Predictions() {
   const [recalculatingGames, setRecalculatingGames] = useState(new Set());
   const [fromCache, setFromCache] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
 
   // Debounce timer ref
   const debounceTimer = useRef(null);
+
+  // Show disclaimer when loading starts (only if not dismissed)
+  useEffect(() => {
+    if (loading && !disclaimerDismissedThisSession && !fromCache) {
+      setShowDisclaimer(true);
+    }
+  }, [loading, fromCache]);
+
+  function dismissDisclaimer() {
+    setShowDisclaimer(false);
+    disclaimerDismissedThisSession = true;
+  }
 
   function getTodayDate() {
     const today = new Date();
@@ -210,6 +226,23 @@ function Predictions() {
           </button>
         </form>
       </div>
+
+      {/* Server spin-up disclaimer */}
+      {showDisclaimer && (
+        <div className="disclaimer-overlay">
+          <div className="disclaimer-modal">
+            <div className="disclaimer-icon">&#9432;</div>
+            <h3 className="disclaimer-title">Heads Up!</h3>
+            <p className="disclaimer-text">
+              Predictions may take up to a minute to load if the server has been inactive.
+              This is because our free-tier server automatically spins down during periods of inactivity.
+            </p>
+            <button className="disclaimer-button" onClick={dismissDisclaimer}>
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="predictions-content">
         {loading && (

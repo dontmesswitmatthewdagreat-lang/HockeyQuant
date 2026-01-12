@@ -1,7 +1,5 @@
 /* HockeyQuant - Global Styles */
 
-@import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap');
-
 * {
   margin: 0;
   padding: 0;
@@ -9,19 +7,35 @@
 }
 
 :root {
-  /* Color Palette - matches desktop app */
-  --bg-primary: #0a1929;
-  --bg-secondary: #0d2137;
-  --bg-card: rgba(255, 255, 255, 0.05);
-  --text-primary: #ffffff;
-  --text-secondary: #7eb8da;
-  --text-muted: #5a7a90;
-  --border-color: rgba(255, 255, 255, 0.1);
-  --accent-blue: #2563eb;
-  --accent-green: #4ade80;
-  --accent-red: #ef4444;
-  --accent-orange: #f97316;
-  --accent-yellow: #ffd700;
+  /* Typography */
+  --font-heading: 'Bebas Neue', sans-serif;
+  --font-body: 'Inter', sans-serif;
+
+  /* Color Palette - Red/White Theme */
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-card: #ffffff;
+  --bg-accent: #dc2626;
+
+  /* Text Colors */
+  --text-primary: #1a1a1a;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --text-on-red: #ffffff;
+
+  /* Accent Colors */
+  --accent-red: #dc2626;
+  --accent-red-hover: #b91c1c;
+  --accent-red-light: #fef2f2;
+  --accent-green: #16a34a;
+  --accent-yellow: #ca8a04;
+  --accent-orange: #ea580c;
+
+  /* Borders & Shadows */
+  --border-color: #e5e7eb;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 6px rgba(0,0,0,0.07);
+  --shadow-lg: 0 10px 15px rgba(0,0,0,0.1);
 }
 
 html {
@@ -29,8 +43,8 @@ html {
 }
 
 body {
-  font-family: 'Space Mono', monospace;
-  background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+  font-family: var(--font-body);
+  background: var(--bg-secondary);
   color: var(--text-primary);
   min-height: 100vh;
   line-height: 1.5;
@@ -45,17 +59,17 @@ body {
 }
 
 a {
-  color: var(--text-secondary);
+  color: var(--accent-red);
   text-decoration: none;
   transition: color 0.2s ease;
 }
 
 a:hover {
-  color: var(--text-primary);
+  color: var(--accent-red-hover);
 }
 
 button {
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
 }
 
 /* Scrollbar styling */
@@ -65,21 +79,21 @@ button {
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-primary);
+  background: var(--bg-secondary);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--text-muted);
+  background: var(--border-color);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: var(--text-muted);
 }
 
 /* Selection */
 ::selection {
-  background: var(--accent-blue);
+  background: var(--accent-red);
   color: white;
 }
 

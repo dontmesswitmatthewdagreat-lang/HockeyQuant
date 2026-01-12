@@ -5,36 +5,37 @@
 }
 
 .page-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 2rem;
-  font-weight: bold;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 2.5rem;
+  letter-spacing: 0.02em;
   margin: 0;
 }
 
 .page-subtitle {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin: 0.5rem 0 2rem 0;
 }
 
 .error-message {
-  background: rgba(220, 38, 38, 0.15);
-  border: 1px solid rgba(220, 38, 38, 0.3);
+  background: var(--accent-red-light);
+  border: 1px solid var(--accent-red);
   border-radius: 8px;
-  color: #ef4444;
+  color: var(--accent-red);
   padding: 1rem;
   margin-bottom: 1.5rem;
 }
 
 /* Filters */
 .filters-section {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 2rem;
+  box-shadow: var(--shadow-sm);
 }
 
 .filter-row {
@@ -51,18 +52,19 @@
 }
 
 .filter-group label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.8rem;
+  font-weight: 500;
 }
 
 .filter-group input,
 .filter-group select {
-  background: #1a3550;
-  border: 1px solid #4a7090;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   border-radius: 6px;
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-primary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   padding: 0.6rem 0.8rem;
   min-width: 150px;
@@ -71,7 +73,7 @@
 .filter-group input:focus,
 .filter-group select:focus {
   outline: none;
-  border-color: #7eb8da;
+  border-color: var(--accent-red);
 }
 
 .filter-buttons {
@@ -83,30 +85,31 @@
 .clear-btn {
   padding: 0.6rem 1.2rem;
   border-radius: 6px;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
   font-size: 0.85rem;
+  font-weight: 600;
   cursor: pointer;
   transition: background 0.2s;
 }
 
 .apply-btn {
-  background: #2563eb;
+  background: var(--accent-red);
   border: none;
   color: white;
 }
 
 .apply-btn:hover {
-  background: #1d4ed8;
+  background: var(--accent-red-hover);
 }
 
 .clear-btn {
   background: transparent;
-  border: 1px solid #4a7090;
-  color: #7eb8da;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .clear-btn:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-secondary);
 }
 
 /* Main Stats */
@@ -117,31 +120,32 @@
 }
 
 .main-stat {
-  background: linear-gradient(135deg, rgba(37, 99, 235, 0.2), rgba(37, 99, 235, 0.05));
-  border: 1px solid rgba(37, 99, 235, 0.3);
+  background: var(--accent-red-light);
+  border: 2px solid var(--accent-red);
   border-radius: 16px;
   padding: 2rem 4rem;
   text-align: center;
 }
 
 .stat-number {
-  color: #60a5fa;
-  font-family: 'Space Mono', monospace;
-  font-size: 4rem;
-  font-weight: bold;
+  color: var(--accent-red);
+  font-family: var(--font-heading);
+  font-size: 5rem;
   line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .stat-label {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.1rem;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  letter-spacing: 0.02em;
   margin-top: 0.5rem;
 }
 
 .stat-detail {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   margin-top: 0.25rem;
 }
@@ -155,34 +159,35 @@
 }
 
 .quick-stat-card {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.25rem;
   text-align: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .quick-stat-label {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.8rem;
-  font-weight: bold;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   margin-bottom: 0.5rem;
 }
 
 .quick-stat-value {
-  color: #60a5fa;
-  font-family: 'Space Mono', monospace;
-  font-size: 2rem;
-  font-weight: bold;
+  color: var(--accent-red);
+  font-family: var(--font-heading);
+  font-size: 2.5rem;
   line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .quick-stat-detail {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-muted);
+  font-family: var(--font-body);
   font-size: 0.75rem;
   margin-top: 0.5rem;
 }
@@ -193,9 +198,10 @@
 }
 
 .section-title {
-  color: #ffffff;
-  font-family: 'Space Mono', monospace;
-  font-size: 1.25rem;
+  color: var(--text-primary);
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  letter-spacing: 0.02em;
   margin: 0 0 1rem 0;
 }
 
@@ -206,55 +212,57 @@
 }
 
 .confidence-card {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-card);
   border-radius: 12px;
   padding: 1.5rem;
   text-align: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .confidence-card.strong {
-  border: 1px solid rgba(34, 197, 94, 0.4);
+  border: 2px solid var(--accent-green);
 }
 
 .confidence-card.moderate {
-  border: 1px solid rgba(234, 179, 8, 0.4);
+  border: 2px solid var(--accent-yellow);
 }
 
 .confidence-card.close {
-  border: 1px solid rgba(156, 163, 175, 0.4);
+  border: 2px solid var(--text-muted);
 }
 
 .confidence-header {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
-  font-size: 0.85rem;
-  font-weight: bold;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
   letter-spacing: 0.05em;
+  text-transform: uppercase;
   margin-bottom: 0.5rem;
 }
 
 .confidence-pct {
-  font-family: 'Space Mono', monospace;
-  font-size: 2.5rem;
-  font-weight: bold;
+  font-family: var(--font-heading);
+  font-size: 3rem;
   line-height: 1;
+  letter-spacing: 0.02em;
 }
 
 .confidence-card.strong .confidence-pct {
-  color: #4ade80;
+  color: var(--accent-green);
 }
 
 .confidence-card.moderate .confidence-pct {
-  color: #fbbf24;
+  color: var(--accent-yellow);
 }
 
 .confidence-card.close .confidence-pct {
-  color: #9ca3af;
+  color: var(--text-muted);
 }
 
 .confidence-detail {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.85rem;
   margin-top: 0.5rem;
 }
@@ -271,14 +279,14 @@
 .predictions-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: 'Space Mono', monospace;
+  font-family: var(--font-body);
 }
 
 .predictions-table th {
-  background: rgba(255, 255, 255, 0.05);
-  color: #7eb8da;
-  font-size: 0.8rem;
-  font-weight: bold;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
   padding: 0.75rem 1rem;
   text-align: left;
   text-transform: uppercase;
@@ -286,50 +294,52 @@
 }
 
 .predictions-table td {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-  color: #ffffff;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
   font-size: 0.85rem;
   padding: 0.75rem 1rem;
 }
 
 .predictions-table tr.correct {
-  background: rgba(34, 197, 94, 0.1);
+  background: rgba(22, 163, 74, 0.08);
 }
 
 .predictions-table tr.incorrect {
-  background: rgba(220, 38, 38, 0.1);
+  background: rgba(220, 38, 38, 0.08);
 }
 
 .pick-cell {
-  font-weight: bold;
-  color: #60a5fa;
+  font-weight: 600;
+  color: var(--accent-red);
 }
 
 .confidence-badge {
   display: inline-block;
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: bold;
+  font-size: 0.7rem;
+  font-weight: 600;
+  font-family: var(--font-heading);
+  letter-spacing: 0.05em;
 }
 
 .confidence-badge.strong {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
+  background: rgba(22, 163, 74, 0.15);
+  color: var(--accent-green);
 }
 
 .confidence-badge.moderate {
-  background: rgba(234, 179, 8, 0.2);
-  color: #fbbf24;
+  background: rgba(202, 138, 4, 0.15);
+  color: var(--accent-yellow);
 }
 
 .confidence-badge.close {
-  background: rgba(156, 163, 175, 0.2);
-  color: #9ca3af;
+  background: var(--bg-secondary);
+  color: var(--text-muted);
 }
 
 .pending {
-  color: #6b7280;
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -338,36 +348,37 @@
 }
 
 .correct-icon {
-  color: #4ade80;
+  color: var(--accent-green);
 }
 
 .incorrect-icon {
-  color: #ef4444;
+  color: var(--accent-red);
 }
 
 .pending-icon {
-  color: #6b7280;
+  color: var(--text-muted);
 }
 
 .no-data {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.9rem;
   text-align: center;
   padding: 2rem;
 }
 
 .no-data-message {
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 3rem;
   text-align: center;
+  box-shadow: var(--shadow-sm);
 }
 
 .no-data-message p {
-  color: #7eb8da;
-  font-family: 'Space Mono', monospace;
+  color: var(--text-secondary);
+  font-family: var(--font-body);
   font-size: 0.95rem;
   margin: 0.5rem 0;
 }
@@ -396,18 +407,18 @@
   }
 
   .stat-number {
-    font-size: 3rem;
+    font-size: 4rem;
   }
 
   .confidence-pct {
-    font-size: 2rem;
+    font-size: 2.5rem;
   }
 }
 
 /* Small mobile - Table to Cards */
 @media (max-width: 600px) {
   .page-title {
-    font-size: 1.5rem;
+    font-size: 2rem;
   }
 
   .page-subtitle {
@@ -415,7 +426,7 @@
   }
 
   .section-title {
-    font-size: 1.1rem;
+    font-size: 1.25rem;
   }
 
   .main-stat {
@@ -423,19 +434,19 @@
   }
 
   .stat-number {
-    font-size: 2.5rem;
+    font-size: 3.5rem;
   }
 
   .stat-label {
-    font-size: 0.95rem;
+    font-size: 1rem;
   }
 
   .quick-stat-value {
-    font-size: 1.5rem;
+    font-size: 2rem;
   }
 
   .confidence-pct {
-    font-size: 1.75rem;
+    font-size: 2rem;
   }
 
   /* Convert table to card layout */
@@ -459,18 +470,19 @@
 
   .predictions-table tr {
     display: block;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--bg-card);
     border-radius: 8px;
     padding: 0.875rem;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--shadow-sm);
   }
 
   .predictions-table tr.correct {
-    border-color: rgba(34, 197, 94, 0.3);
+    border-color: var(--accent-green);
   }
 
   .predictions-table tr.incorrect {
-    border-color: rgba(220, 38, 38, 0.3);
+    border-color: var(--accent-red);
   }
 
   .predictions-table td {
@@ -484,9 +496,9 @@
 
   .predictions-table td::before {
     content: attr(data-label);
-    font-weight: bold;
-    color: #7eb8da;
-    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    font-size: 0.7rem;
     text-transform: uppercase;
   }
 

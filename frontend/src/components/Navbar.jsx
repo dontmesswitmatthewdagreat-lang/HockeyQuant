@@ -16,9 +16,8 @@ function Navbar() {
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-brand" onClick={closeMobileMenu}>
-        <span className="brand-icon">🏒</span>
-        <span className="brand-text">HockeyQuant</span>
-        <span style={{fontSize: '0.75rem', color: '#4ade80', marginLeft: '6px'}}>v1</span>
+        <img src="/logo.png" alt="HockeyQuant" className="brand-logo" />
+        <span className="brand-version">v1</span>
       </Link>
 
       <button className="hamburger" onClick={toggleMobileMenu} aria-label="Toggle menu">
@@ -60,7 +59,7 @@ function Navbar() {
         {/* Auth links inside mobile menu */}
         <div className="mobile-auth">
           {loading ? (
-            <span style={{color: '#7eb8da', fontSize: '0.85rem'}}>...</span>
+            <span className="auth-loading">...</span>
           ) : user ? (
             <UserMenu onAction={closeMobileMenu} />
           ) : (
@@ -74,7 +73,7 @@ function Navbar() {
 
       <div className="navbar-auth desktop-only">
         {loading ? (
-          <span style={{color: '#7eb8da', fontSize: '0.85rem'}}>...</span>
+          <span className="auth-loading">...</span>
         ) : user ? (
           <UserMenu />
         ) : (
