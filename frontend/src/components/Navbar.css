@@ -5,6 +5,7 @@
   padding: 1rem 2rem;
   background: linear-gradient(180deg, #0d2137 0%, #0a1628 100%);
   border-bottom: 1px solid rgba(126, 184, 218, 0.2);
+  position: relative;
 }
 
 .navbar-brand {
@@ -50,24 +51,120 @@
   background: rgba(76, 175, 80, 0.1);
 }
 
+.nav-link.signup-link {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.nav-link.signup-link:hover {
+  background: #1d4ed8;
+}
+
 .navbar-auth {
   display: flex;
   align-items: center;
 }
 
+/* Hamburger button - hidden on desktop */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 10px;
+  z-index: 100;
+}
+
+.hamburger span {
+  width: 25px;
+  height: 3px;
+  background: #7eb8da;
+  border-radius: 2px;
+  transition: all 0.3s ease;
+}
+
+/* Hamburger animation when open */
+.hamburger span.open:nth-child(1) {
+  transform: rotate(45deg) translate(6px, 6px);
+}
+
+.hamburger span.open:nth-child(2) {
+  opacity: 0;
+}
+
+.hamburger span.open:nth-child(3) {
+  transform: rotate(-45deg) translate(6px, -6px);
+}
+
+/* Mobile auth hidden on desktop */
+.mobile-auth {
+  display: none;
+}
+
+/* Desktop auth visible on desktop */
+.desktop-only {
+  display: flex;
+}
+
+/* Mobile styles */
 @media (max-width: 768px) {
   .navbar {
-    flex-wrap: wrap;
-    gap: 1rem;
+    padding: 1rem;
+  }
+
+  .hamburger {
+    display: flex;
   }
 
   .navbar-links {
-    order: 3;
-    width: 100%;
-    justify-content: center;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    background: #0d2137;
+    flex-direction: column;
+    padding: 0;
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease, padding 0.3s ease;
+    border-top: 1px solid rgba(126, 184, 218, 0.2);
+    z-index: 99;
   }
 
-  .navbar-auth {
-    order: 2;
+  .navbar-links.open {
+    max-height: 500px;
+    padding: 1rem;
+  }
+
+  .navbar-links .nav-link {
+    padding: 0.875rem 1rem;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    width: 100%;
+    border-radius: 0;
+  }
+
+  .navbar-links .nav-link:hover {
+    background: rgba(126, 184, 218, 0.15);
+  }
+
+  /* Show mobile auth, hide desktop auth */
+  .mobile-auth {
+    display: flex;
+    flex-direction: column;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(126, 184, 218, 0.1);
+  }
+
+  .desktop-only {
+    display: none;
+  }
+
+  .brand-text {
+    font-size: 1.1rem;
   }
 }

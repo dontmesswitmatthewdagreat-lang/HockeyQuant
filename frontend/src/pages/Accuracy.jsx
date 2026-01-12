@@ -228,22 +228,22 @@ function Accuracy() {
                   <tbody>
                     {predictions.map((pred, i) => (
                       <tr key={i} className={pred.correct === true ? 'correct' : pred.correct === false ? 'incorrect' : ''}>
-                        <td>{pred.game_date}</td>
-                        <td>{pred.away_team} @ {pred.home_team}</td>
-                        <td className="pick-cell">{pred.pick}</td>
-                        <td>
+                        <td data-label="Date">{pred.game_date}</td>
+                        <td data-label="Matchup">{pred.away_team} @ {pred.home_team}</td>
+                        <td data-label="Pick" className="pick-cell">{pred.pick}</td>
+                        <td data-label="Confidence">
                           <span className={`confidence-badge ${pred.confidence.toLowerCase()}`}>
                             {pred.confidence}
                           </span>
                         </td>
-                        <td>
+                        <td data-label="Result">
                           {pred.away_final !== null ? (
                             `${pred.away_final} - ${pred.home_final}`
                           ) : (
                             <span className="pending">Pending</span>
                           )}
                         </td>
-                        <td>
+                        <td data-label="Correct">
                           {pred.correct === true && <span className="result-icon correct-icon">✓</span>}
                           {pred.correct === false && <span className="result-icon incorrect-icon">✗</span>}
                           {pred.correct === null && <span className="result-icon pending-icon">-</span>}

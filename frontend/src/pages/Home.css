@@ -124,3 +124,61 @@
     font-size: 2rem;
   }
 }
+
+@media (max-width: 480px) {
+  .home {
+    padding: 1.5rem 1rem;
+  }
+
+  .hero {
+    margin-bottom: 2rem;
+  }
+
+  .hero-icon {
+    font-size: 3rem;
+  }
+
+  .hero-title {
+    font-size: 1.5rem;
+  }
+
+  .hero-subtitle {
+    font-size: 0.9rem;
+  }
+
+  .hero-version {
+    font-size: 0.8rem;
+  }
+
+  .nav-cards {
+    gap: 1rem;
+    width: 100%;
+  }
+
+  .nav-card {
+    padding: 1.25rem 1rem;
+    min-width: unset;
+    width: 100%;
+  }
+
+  .card-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .card-title {
+    font-size: 1rem;
+  }
+
+  .card-desc {
+    font-size: 0.8rem;
+  }
+
+  .home-footer {
+    padding-top: 1.5rem;
+  }
+
+  .home-footer p {
+    font-size: 0.75rem;
+  }
+}

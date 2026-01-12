@@ -82,3 +82,31 @@ button {
   background: var(--accent-blue);
   color: white;
 }
+
+/* Prevent horizontal scroll on mobile */
+html, body {
+  overflow-x: hidden;
+}
+
+/* Global mobile improvements */
+@media (max-width: 480px) {
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Ensure touch targets are accessible */
+@media (pointer: coarse) {
+  button,
+  a,
+  input,
+  select,
+  .nav-link,
+  .auth-link {
+    min-height: 44px;
+  }
+}

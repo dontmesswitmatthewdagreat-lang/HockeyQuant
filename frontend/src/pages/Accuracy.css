@@ -403,3 +403,100 @@
     font-size: 2rem;
   }
 }
+
+/* Small mobile - Table to Cards */
+@media (max-width: 600px) {
+  .page-title {
+    font-size: 1.5rem;
+  }
+
+  .page-subtitle {
+    font-size: 0.8rem;
+  }
+
+  .section-title {
+    font-size: 1.1rem;
+  }
+
+  .main-stat {
+    padding: 1.25rem 1.5rem;
+  }
+
+  .stat-number {
+    font-size: 2.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.95rem;
+  }
+
+  .quick-stat-value {
+    font-size: 1.5rem;
+  }
+
+  .confidence-pct {
+    font-size: 1.75rem;
+  }
+
+  /* Convert table to card layout */
+  .predictions-table-wrapper {
+    overflow-x: visible;
+  }
+
+  .predictions-table {
+    display: block;
+  }
+
+  .predictions-table thead {
+    display: none;
+  }
+
+  .predictions-table tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .predictions-table tr {
+    display: block;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 0.875rem;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+
+  .predictions-table tr.correct {
+    border-color: rgba(34, 197, 94, 0.3);
+  }
+
+  .predictions-table tr.incorrect {
+    border-color: rgba(220, 38, 38, 0.3);
+  }
+
+  .predictions-table td {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.375rem 0;
+    border-bottom: none;
+    font-size: 0.8rem;
+  }
+
+  .predictions-table td::before {
+    content: attr(data-label);
+    font-weight: bold;
+    color: #7eb8da;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+  }
+
+  .filter-buttons {
+    width: 100%;
+  }
+
+  .apply-btn,
+  .clear-btn {
+    flex: 1;
+    padding: 0.75rem 1rem;
+  }
+}
