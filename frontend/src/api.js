@@ -48,23 +48,6 @@ export async function fetchTeamGoalies(abbrev) {
   return response.json();
 }
 
-export async function fetchPredictionsWithGoalies(date, goalieOverrides) {
-  const response = await fetch(`${API_BASE}/api/predictions/${date}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ goalie_overrides: goalieOverrides }),
-  });
-  if (!response.ok) {
-    if (response.status === 404) {
-      return { predictions: [], games_count: 0, date };
-    }
-    throw new Error('Failed to fetch predictions');
-  }
-  return response.json();
-}
-
 // Accuracy tracking endpoints
 export async function fetchAccuracyStats(params = {}) {
   const searchParams = new URLSearchParams();

@@ -1,14 +1,19 @@
 # Automated accuracy tracking for HockeyQuant
-# - Updates predictions every 30 min until 30 min before LAST game
-# - Allows Daily Faceoff confirmations to update throughout the day
+# - Per-game predictions: Stores official predictions 15 min before each game
+# - Runs every 10 minutes during typical game hours to catch each game's window
 # - Updates results after games finish (2 AM ET)
 
 name: Accuracy Automation
 
 on:
   schedule:
-    # Check for games at 6 AM ET (11 AM UTC) - early enough for any game start
-    - cron: '0 11 * * *'
+    # Run every 10 minutes during typical NHL game hours
+    # Games typically start between 7 PM ET (midnight UTC) and 10:30 PM ET (3:30 AM UTC)
+    # Earliest matinee games can start at 1 PM ET (6 PM UTC)
+    # Running from 5 PM ET to 1 AM ET covers most games with some buffer
+    # UTC times: 22:00 to 06:00
+    - cron: '*/10 17-23 * * *'  # 5 PM - 11:59 PM UTC (12 PM - 7 PM ET)
+    - cron: '*/10 0-6 * * *'    # 12 AM - 6 AM UTC (7 PM ET - 1 AM ET)
     # Update results at 2 AM ET (7 AM UTC) - after all games
     - cron: '0 7 * * *'
   workflow_dispatch:
@@ -16,140 +21,42 @@ on:
       action:
         description: 'Action to perform'
         required: true
-        default: 'check-and-store'
+        default: 'store-predictions'
         type: choice
         options:
-          - check-and-store
-          - store-predictions-now
+          - store-predictions
           - update-results
 
 jobs:
-  # Job 1: Check for games and store predictions 30 min before first game
+  # Job 1: Store official predictions for games within 15-min window
   store-predictions:
     runs-on: ubuntu-latest
-    timeout-minutes: 600  # 10 hours max (covers latest possible game starts)
-    if: github.event.schedule == '0 11 * * *' || github.event.inputs.action == 'check-and-store' || github.event.inputs.action == 'store-predictions-now'
+    if: github.event.schedule != '0 7 * * *' || github.event.inputs.action == 'store-predictions'
     steps:
       - name: Get today's date
         id: date
         run: echo "today=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
 
-      - name: Check for games and get game times
-        id: games
+      - name: Store predictions for games in window
         run: |
           DATE=${{ steps.date.outputs.today }}
-          echo "Checking games for $DATE..."
+          echo "Checking and storing predictions for $DATE at $(date -u)"
 
-          # Query the API for first game time
-          FIRST_RESPONSE=$(curl -s "https://hockeyquant.onrender.com/api/accuracy/first-game-time/$DATE")
-          echo "First Game Response: $FIRST_RESPONSE"
+          # Call the endpoint - it handles per-game logic internally
+          # Only stores predictions for games within 15-min window that aren't already stored
+          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
+          echo "Response: $RESPONSE"
 
-          # Query the API for last game time
-          LAST_RESPONSE=$(curl -s "https://hockeyquant.onrender.com/api/accuracy/last-game-time/$DATE")
-          echo "Last Game Response: $LAST_RESPONSE"
-
-          # Parse the responses
-          FIRST_GAME=$(echo "$FIRST_RESPONSE" | jq -r '.first_game_utc // empty')
-          LAST_GAME=$(echo "$LAST_RESPONSE" | jq -r '.last_game_utc // empty')
-
-          if [ -z "$FIRST_GAME" ] || [ "$FIRST_GAME" == "null" ]; then
-            echo "No games scheduled for $DATE"
-            echo "has_games=false" >> $GITHUB_OUTPUT
-          else
-            echo "First game at: $FIRST_GAME"
-            echo "Last game at: $LAST_GAME"
-            echo "has_games=true" >> $GITHUB_OUTPUT
-            echo "first_game_utc=$FIRST_GAME" >> $GITHUB_OUTPUT
-            echo "last_game_utc=$LAST_GAME" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Store predictions repeatedly until 30 min before last game
-        if: steps.games.outputs.has_games == 'true'
-        run: |
-          DATE=${{ steps.date.outputs.today }}
-          FIRST_GAME="${{ steps.games.outputs.first_game_utc }}"
-          LAST_GAME="${{ steps.games.outputs.last_game_utc }}"
-          FORCE_NOW="${{ github.event.inputs.action == 'store-predictions-now' }}"
-
-          # Parse game times
-          FIRST_GAME_EPOCH=$(date -d "$FIRST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${FIRST_GAME%Z}" +%s 2>/dev/null || echo "0")
-          LAST_GAME_EPOCH=$(date -d "$LAST_GAME" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%S" "${LAST_GAME%Z}" +%s 2>/dev/null || echo "0")
-
-          if [ "$LAST_GAME_EPOCH" == "0" ]; then
-            echo "Warning: Could not parse last game time, using first game"
-            LAST_GAME_EPOCH=$FIRST_GAME_EPOCH
-          fi
-
-          if [ "$FIRST_GAME_EPOCH" == "0" ]; then
-            echo "Warning: Could not parse game times, storing predictions once"
-            curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE"
-            exit 0
-          fi
-
-          # Cutoff = 30 minutes before LAST game (not first!)
-          # This allows confirmations for later games to be captured
-          CUTOFF_EPOCH=$((LAST_GAME_EPOCH - 1800))
-
-          echo "First game at epoch: $FIRST_GAME_EPOCH"
-          echo "Last game at epoch: $LAST_GAME_EPOCH"
-          echo "Cutoff (30 min before last game): $CUTOFF_EPOCH"
-
-          # If force-now, just store once and exit
-          if [ "$FORCE_NOW" == "true" ]; then
-            echo "Force storing predictions now..."
-            curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE"
-            exit 0
-          fi
-
-          # Loop: store predictions every 30 minutes until cutoff
-          ITERATION=1
-          while true; do
-            NOW_EPOCH=$(date +%s)
-
-            if [ $NOW_EPOCH -ge $CUTOFF_EPOCH ]; then
-              echo "Reached cutoff time (30 min before last game), stopping updates"
-              break
-            fi
-
-            echo ""
-            echo "=== Iteration $ITERATION at $(date -u) ==="
-            echo "Storing/updating predictions for $DATE..."
-
-            RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
-            echo "Response: $RESPONSE"
-
-            CACHED=$(echo "$RESPONSE" | jq -r '.cached // false')
-            UPDATED_AT=$(echo "$RESPONSE" | jq -r '.updated_at // "unknown"')
-            echo "Cache status: $CACHED, Updated at: $UPDATED_AT"
-
-            # Calculate time until cutoff
-            NOW_EPOCH=$(date +%s)
-            TIME_TO_CUTOFF=$((CUTOFF_EPOCH - NOW_EPOCH))
-
-            if [ $TIME_TO_CUTOFF -le 0 ]; then
-              echo "Cutoff reached after storing, exiting"
-              break
-            fi
-
-            # Sleep for 30 minutes (1800 seconds) or until cutoff, whichever is shorter
-            SLEEP_TIME=1800
-            if [ $TIME_TO_CUTOFF -lt $SLEEP_TIME ]; then
-              SLEEP_TIME=$TIME_TO_CUTOFF
-            fi
-
-            echo "Sleeping for $SLEEP_TIME seconds (next update at $(date -u -d "+$SLEEP_TIME seconds" 2>/dev/null || echo "in $SLEEP_TIME seconds"))"
-            sleep $SLEEP_TIME
-
-            ITERATION=$((ITERATION + 1))
-          done
+          # Parse response
+          STORED=$(echo "$RESPONSE" | jq -r '.stored // 0')
+          SKIPPED=$(echo "$RESPONSE" | jq -r '.skipped_existing // 0')
+          NOT_YET=$(echo "$RESPONSE" | jq -r '.not_yet_in_window // 0')
 
           echo ""
-          echo "=== Prediction updates complete ==="
-          echo "Total iterations: $ITERATION"
-
-      - name: No games today
-        if: steps.games.outputs.has_games != 'true'
-        run: echo "No games scheduled for today, skipping prediction storage"
+          echo "Summary:"
+          echo "  - Newly stored: $STORED"
+          echo "  - Already stored (skipped): $SKIPPED"
+          echo "  - Not yet in window: $NOT_YET"
 
   # Job 2: Update results for completed games
   update-results:

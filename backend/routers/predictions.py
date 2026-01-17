@@ -6,7 +6,7 @@ Endpoints for game predictions
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 
 from services import NHLAnalyzer, get_data_loader
@@ -70,6 +70,12 @@ class GamePrediction(BaseModel):
     diff: float
     confidence: str
     factors: List[str]
+    # New fields for per-game prediction timing
+    game_time: Optional[str] = None           # ISO timestamp of game start (UTC)
+    is_official: bool = False                 # True if within 15-min window (locked)
+    official_at: Optional[str] = None         # ISO timestamp when prediction becomes official
+    goalie_status_away: str = "expected"      # "confirmed" | "expected"
+    goalie_status_home: str = "expected"      # "confirmed" | "expected"
 
 
 class PredictionStatus(BaseModel):
@@ -174,11 +180,34 @@ async def get_predictions(date_str: str):
                     is_cached=True,
                 )
 
-                # Return pre-computed predictions directly
+                # Recalculate is_official based on current time for each prediction
+                now = datetime.now(timezone.utc)
+                updated_predictions = []
+                for p in cached_predictions:
+                    game_time_str = p.get('game_time')
+                    is_official = p.get('is_official', False)
+                    official_at_str = p.get('official_at')
+
+                    # Recalculate is_official if we have game_time
+                    if game_time_str:
+                        try:
+                            game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00'))
+                            official_at = game_time - timedelta(minutes=15)
+                            official_at_str = official_at.isoformat().replace('+00:00', 'Z')
+                            is_official = now >= official_at
+                        except Exception:
+                            pass
+
+                    # Update the prediction with recalculated values
+                    p['is_official'] = is_official
+                    p['official_at'] = official_at_str
+                    updated_predictions.append(GamePrediction(**p))
+
+                # Return pre-computed predictions with updated official status
                 return PredictionsResponse(
                     date=date_str,
                     games_count=cached.get("games_count", len(cached_predictions)),
-                    predictions=[GamePrediction(**p) for p in cached_predictions],
+                    predictions=updated_predictions,
                     status=status,
                 )
         except Exception as e:
@@ -195,6 +224,9 @@ async def get_predictions(date_str: str):
             detail=f"No games found for {date_str}"
         )
 
+    # Current time for determining official status
+    now = datetime.now(timezone.utc)
+
     # Transform results to API response format
     predictions = []
     for r in results:
@@ -206,6 +238,20 @@ async def get_predictions(date_str: str):
         else:
             confidence = "CLOSE"
 
+        # Get game time and calculate official status
+        game_time_str = r.get('game_time')
+        is_official = False
+        official_at_str = None
+
+        if game_time_str:
+            try:
+                game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00'))
+                official_at = game_time - timedelta(minutes=15)
+                official_at_str = official_at.isoformat().replace('+00:00', 'Z')
+                is_official = now >= official_at
+            except Exception:
+                pass
+
         predictions.append(GamePrediction(
             away=TeamAnalysis(**r['away']),
             home=TeamAnalysis(**r['home']),
@@ -213,6 +259,11 @@ async def get_predictions(date_str: str):
             diff=round(r['diff'], 2),
             confidence=confidence,
             factors=r.get('factors', []),
+            game_time=game_time_str,
+            is_official=is_official,
+            official_at=official_at_str,
+            goalie_status_away=r.get('goalie_status_away', 'expected'),
+            goalie_status_home=r.get('goalie_status_home', 'expected'),
         ))
 
     return PredictionsResponse(
@@ -229,58 +280,15 @@ async def get_today_predictions():
     return await get_predictions(today)
 
 
-@router.post("/predictions/{date_str}", response_model=PredictionsResponse)
+@router.post("/predictions/{date_str}")
 async def get_predictions_with_goalies(date_str: str, request: GoalieOverridesRequest):
     """
-    Get predictions for all games on a specific date with custom goalie selections.
-
-    - **date_str**: Date in YYYY-MM-DD format (e.g., 2025-01-06)
-    - **goalie_overrides**: Dict mapping team abbreviation to goalie name
-      - Example: {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
-      - Only include teams you want to override; others use auto-selected starter
+    DISABLED: Goalie overrides are not available for the official model.
+    Custom models with goalie selection coming soon.
     """
-    # Validate date format
-    try:
-        parsed_date = datetime.strptime(date_str, "%Y-%m-%d")
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail="Invalid date format. Use YYYY-MM-DD (e.g., 2025-01-06)"
-        )
-
-    analyzer = get_analyzer()
-    results = analyzer.analyze_date(date_str, goalie_overrides=request.goalie_overrides)
-
-    if not results:
-        raise HTTPException(
-            status_code=404,
-            detail=f"No games found for {date_str}"
-        )
-
-    # Transform results to API response format
-    predictions = []
-    for r in results:
-        # Determine confidence level
-        if r['diff'] >= 10:
-            confidence = "STRONG"
-        elif r['diff'] >= 5:
-            confidence = "MODERATE"
-        else:
-            confidence = "CLOSE"
-
-        predictions.append(GamePrediction(
-            away=TeamAnalysis(**r['away']),
-            home=TeamAnalysis(**r['home']),
-            pick=r['pick'],
-            diff=round(r['diff'], 2),
-            confidence=confidence,
-            factors=r.get('factors', []),
-        ))
-
-    return PredictionsResponse(
-        date=date_str,
-        games_count=len(predictions),
-        predictions=predictions,
+    raise HTTPException(
+        status_code=403,
+        detail="Goalie overrides are disabled for the official model. Custom models coming soon."
     )
 
 

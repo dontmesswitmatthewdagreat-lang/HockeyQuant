@@ -5,6 +5,7 @@ import Home from './pages/Home';
 import Predictions from './pages/Predictions';
 import Teams from './pages/Teams';
 import Accuracy from './pages/Accuracy';
+import About from './pages/About';
 import Account from './pages/Account';
 import LoginForm from './components/Auth/LoginForm';
 import SignupForm from './components/Auth/SignupForm';
@@ -22,6 +23,7 @@ function App() {
               <Route path="/predictions" element={<Predictions />} />
               <Route path="/teams" element={<Teams />} />
               <Route path="/accuracy" element={<Accuracy />} />
+              <Route path="/about" element={<About />} />
               <Route path="/account" element={<Account />} />
               <Route path="/login" element={<LoginForm />} />
               <Route path="/signup" element={<SignupForm />} />

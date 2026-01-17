@@ -1,12 +1,18 @@
-import { useState } from 'react';
 import './GameCard.css';
 
-function GameCard({ prediction, onGoalieToggle, isRecalculating }) {
-  const { away, home, pick, diff, confidence, factors } = prediction;
-
-  // Track which team is using backup goalie
-  const [awayUsingBackup, setAwayUsingBackup] = useState(false);
-  const [homeUsingBackup, setHomeUsingBackup] = useState(false);
+function GameCard({ prediction }) {
+  const {
+    away,
+    home,
+    pick,
+    diff,
+    confidence,
+    factors,
+    is_official,
+    official_at,
+    goalie_status_away,
+    goalie_status_home,
+  } = prediction;
 
   const getConfidenceClass = () => {
     if (confidence === 'STRONG') return 'confidence-strong';
@@ -14,60 +20,50 @@ function GameCard({ prediction, onGoalieToggle, isRecalculating }) {
     return 'confidence-close';
   };
 
-  // Format goalie display: "LastName (+GSAX)" or "LastName * (+GSAX)" for backup
-  const formatGoalie = (name, gsax, isBackup = false) => {
+  // Format goalie display: "LastName (+GSAX)"
+  const formatGoalie = (name, gsax) => {
     const lastName = name?.split(' ').pop() || 'TBD';
-    const suffix = isBackup ? ' *' : '';
     const gsaxSign = gsax >= 0 ? '+' : '';
-    return `${lastName}${suffix} (${gsaxSign}${gsax?.toFixed(1) || '0.0'})`;
+    return `${lastName} (${gsaxSign}${gsax?.toFixed(1) || '0.0'})`;
   };
 
-  // Handle clicking on away goalie to toggle
-  const handleAwayGoalieClick = () => {
-    if (!away.backup_goalie) return; // No backup available
-
-    const newUsingBackup = !awayUsingBackup;
-    setAwayUsingBackup(newUsingBackup);
-
-    if (onGoalieToggle) {
-      // Pass the goalie name to use (backup if toggling on, starter if toggling off)
-      const goalieName = newUsingBackup ? away.backup_goalie : null;
-      onGoalieToggle(away.team, goalieName);
+  // Format time for display
+  const formatOfficialTime = (isoString) => {
+    if (!isoString) return '';
+    try {
+      const date = new Date(isoString);
+      return date.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      });
+    } catch {
+      return '';
     }
   };
-
-  // Handle clicking on home goalie to toggle
-  const handleHomeGoalieClick = () => {
-    if (!home.backup_goalie) return; // No backup available
-
-    const newUsingBackup = !homeUsingBackup;
-    setHomeUsingBackup(newUsingBackup);
-
-    if (onGoalieToggle) {
-      const goalieName = newUsingBackup ? home.backup_goalie : null;
-      onGoalieToggle(home.team, goalieName);
-    }
-  };
-
-  // Determine which goalie to display for each team
-  const awayGoalieDisplay = awayUsingBackup && away.backup_goalie
-    ? { name: away.backup_goalie, gsax: away.backup_goalie_gsax }
-    : { name: away.goalie, gsax: away.goalie_gsax };
-
-  const homeGoalieDisplay = homeUsingBackup && home.backup_goalie
-    ? { name: home.backup_goalie, gsax: home.backup_goalie_gsax }
-    : { name: home.goalie, gsax: home.goalie_gsax };
-
-  // Check if any backups are available for click-to-swap functionality
-  const hasBackups = away.backup_goalie || home.backup_goalie;
 
   return (
-    <div className={`game-card ${isRecalculating ? 'recalculating' : ''}`}>
-      {/* Header */}
-      <div className="card-header">
+    <div className={`game-card ${is_official ? 'official' : 'estimated'}`}>
+      {/* Status Banner */}
+      {!is_official && (
+        <div className="status-banner estimated">
+          <span className="status-icon">&#9203;</span>
+          <span>Estimated prediction - Official at {formatOfficialTime(official_at)}</span>
+        </div>
+      )}
+      {is_official && (
+        <div className="status-banner official">
+          <span className="status-icon">&#10003;</span>
+          <span>Official prediction (locked)</span>
+        </div>
+      )}
+
+      <div className="card-body">
+        {/* Header */}
+        <div className="card-header">
         <h3 className="matchup">{away.team} @ {home.team}</h3>
         <span className={`confidence-badge ${getConfidenceClass()}`}>
-          {isRecalculating ? '...' : confidence}
+          {confidence}
         </span>
       </div>
 
@@ -96,28 +92,26 @@ function GameCard({ prediction, onGoalieToggle, isRecalculating }) {
         </div>
       </div>
 
-      {/* Goalie Section - Click to Toggle */}
-      <div className={`goalie-box ${hasBackups ? 'clickable' : ''}`}>
-        <span className="goalie-title">
-          {hasBackups ? 'STARTERS (click to swap)' : 'PREDICTED STARTERS'}
-        </span>
+      {/* Goalie Section - Display Only (no toggle) */}
+      <div className="goalie-box">
+        <span className="goalie-title">STARTING GOALIES</span>
         <div className="goalie-lines">
-          <div
-            className={`goalie-line ${away.backup_goalie ? 'has-backup' : ''}`}
-            onClick={handleAwayGoalieClick}
-          >
+          <div className="goalie-line">
             <span className="goalie-team">{away.team}</span>
             <span className="goalie-name">
-              {formatGoalie(awayGoalieDisplay.name, awayGoalieDisplay.gsax, awayUsingBackup)}
+              {formatGoalie(away.goalie, away.goalie_gsax)}
+              <span className={`confirmation-badge ${goalie_status_away}`}>
+                {goalie_status_away === 'confirmed' ? ' ✓' : ' ?'}
+              </span>
             </span>
           </div>
-          <div
-            className={`goalie-line ${home.backup_goalie ? 'has-backup' : ''}`}
-            onClick={handleHomeGoalieClick}
-          >
+          <div className="goalie-line">
             <span className="goalie-team">{home.team}</span>
             <span className="goalie-name">
-              {formatGoalie(homeGoalieDisplay.name, homeGoalieDisplay.gsax, homeUsingBackup)}
+              {formatGoalie(home.goalie, home.goalie_gsax)}
+              <span className={`confirmation-badge ${goalie_status_home}`}>
+                {goalie_status_home === 'confirmed' ? ' ✓' : ' ?'}
+              </span>
             </span>
           </div>
         </div>
@@ -136,6 +130,7 @@ function GameCard({ prediction, onGoalieToggle, isRecalculating }) {
             {factors?.length > 0 ? factors.join(', ') : 'No major factors'}
           </span>
         </div>
+      </div>
       </div>
     </div>
   );

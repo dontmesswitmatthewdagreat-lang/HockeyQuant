@@ -13,6 +13,19 @@
   box-shadow: var(--shadow-sm);
 }
 
+/* Center nav links in the viewport */
+@media (min-width: 769px) {
+  .navbar {
+    position: fixed;
+  }
+
+  .navbar-links {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+}
+
 .navbar-brand {
   display: flex;
   align-items: center;

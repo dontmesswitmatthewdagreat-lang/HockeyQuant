@@ -2,7 +2,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 1.25rem;
+  overflow: hidden;
   margin-bottom: 1rem;
   box-shadow: var(--shadow-md);
   transition: opacity 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
@@ -12,8 +12,43 @@
   box-shadow: var(--shadow-lg);
 }
 
-.game-card.recalculating {
-  opacity: 0.6;
+/* Status-based card styling */
+.game-card.estimated {
+  border-color: #fcd34d;
+}
+
+.game-card.official {
+  border-color: #86efac;
+}
+
+/* Status Banner */
+.status-banner {
+  padding: 0.5rem 1rem;
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.status-banner.estimated {
+  background: #fef3c7;
+  color: #92400e;
+  border-bottom: 1px solid #fcd34d;
+}
+
+.status-banner.official {
+  background: #dcfce7;
+  color: #166534;
+  border-bottom: 1px solid #86efac;
+}
+
+.status-icon {
+  font-size: 1rem;
+}
+
+.card-body {
+  padding: 1rem;
 }
 
 .card-header {
@@ -142,9 +177,18 @@
   margin-top: 1rem;
 }
 
-.goalie-box.clickable {
-  border-color: var(--accent-red);
-  background: var(--accent-red-light);
+/* Confirmation badge for goalie status */
+.confirmation-badge {
+  font-size: 0.85rem;
+  margin-left: 0.25rem;
+}
+
+.confirmation-badge.confirmed {
+  color: var(--accent-green);
+}
+
+.confirmation-badge.expected {
+  color: var(--text-muted);
 }
 
 .goalie-title {
@@ -172,13 +216,6 @@
   transition: background 0.15s ease;
 }
 
-.goalie-line.has-backup {
-  cursor: pointer;
-}
-
-.goalie-line.has-backup:hover {
-  background: var(--bg-primary);
-}
 
 .goalie-team {
   color: var(--text-muted);

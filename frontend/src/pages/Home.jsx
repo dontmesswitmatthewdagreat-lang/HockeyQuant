@@ -7,7 +7,7 @@ function Home() {
       <div className="hero">
         <img src="/logo.png" alt="HockeyQuant" className="hero-logo" />
         <h1 className="hero-title">HOCKEY<span className="highlight">QUANT</span></h1>
-        <p className="hero-subtitle">NHL Game Prediction Engine</p>
+        <p className="hero-subtitle">Custom Prediction Engines & Advanced Statistics</p>
       </div>
 
       <div className="nav-cards">
@@ -39,7 +39,7 @@ function Home() {
       </div>
 
       <footer className="home-footer">
-        <p>Data: MoneyPuck.com | Injuries: ESPN.com | Schedule: NHL API</p>
+        <p>Data: moneypuck.com | Injuries: espn.com | Schedule & Results: NHL API | Confirmed Starting Goalie: dailyfaceoff.com</p>
       </footer>
     </div>
   );

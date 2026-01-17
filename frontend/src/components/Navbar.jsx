@@ -55,6 +55,13 @@ function Navbar() {
         >
           Accuracy
         </Link>
+        <Link
+          to="/about"
+          className={`nav-link ${location.pathname === '/about' ? 'active' : ''}`}
+          onClick={closeMobileMenu}
+        >
+          About
+        </Link>
 
         {/* Auth links inside mobile menu */}
         <div className="mobile-auth">

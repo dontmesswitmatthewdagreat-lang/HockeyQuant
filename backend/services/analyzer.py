@@ -721,7 +721,7 @@ class NHLAnalyzer:
         }
 
     def get_games_for_date(self, date_str: str) -> List[Dict]:
-        """Get all NHL games for a specific date"""
+        """Get all NHL games for a specific date, including start times"""
         url = f"{self.base_url}/schedule/{date_str}"
         games = []
         try:
@@ -733,11 +733,23 @@ class NHLAnalyzer:
                         for game in day['games']:
                             away = game.get('awayTeam', {}).get('abbrev')
                             home = game.get('homeTeam', {}).get('abbrev')
+                            start_time = game.get('startTimeUTC')  # ISO format UTC
                             if away and home:
-                                games.append({'away': away, 'home': home})
+                                games.append({
+                                    'away': away,
+                                    'home': home,
+                                    'game_time': start_time
+                                })
         except:
             pass
         return games
+
+    def get_goalie_confirmation_status(self, team_abbrev: str) -> str:
+        """Check if goalie is confirmed from Daily Faceoff or just expected (GP-based)"""
+        goalie_name, is_confirmed = self.data_loader.get_starter_with_status(team_abbrev)
+        if is_confirmed:
+            return "confirmed"
+        return "expected"
 
     def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None) -> List[Dict]:
         """Analyze all games for a given date
@@ -752,6 +764,8 @@ class NHLAnalyzer:
         if not goalie_overrides:
             self.clear_runtime_caches()
             self.data_loader.scrape_injuries()
+            # Also refresh confirmed starters
+            self.data_loader.scrape_confirmed_starters()
 
         games = self.get_games_for_date(date_str)
         results = []
@@ -785,12 +799,19 @@ class NHLAnalyzer:
                     if winner['h2h_mult'] > 1.02:
                         factors.append(f"{winner['team']} H2H edge")
 
+                    # Get goalie confirmation status
+                    goalie_status_away = self.get_goalie_confirmation_status(game['away'])
+                    goalie_status_home = self.get_goalie_confirmation_status(game['home'])
+
                     results.append({
                         'away': away_data,
                         'home': home_data,
                         'pick': pick,
                         'diff': abs(diff),
                         'factors': factors[:3],
+                        'game_time': game.get('game_time'),
+                        'goalie_status_away': goalie_status_away,
+                        'goalie_status_home': goalie_status_home,
                     })
             except Exception as e:
                 print(f"Error analyzing {game['away']} @ {game['home']}: {e}")

@@ -6,7 +6,7 @@ Endpoints for tracking prediction accuracy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from typing import List, Optional
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from services import NHLAnalyzer, get_data_loader
 from services.supabase_client import get_supabase
@@ -123,12 +123,13 @@ def get_analyzer() -> NHLAnalyzer:
 @router.post("/accuracy/store-predictions/{date_str}")
 async def store_predictions(date_str: str):
     """
-    Store predictions for a specific date.
-    Called by cron job 30 min before first game.
+    Store official predictions for games within the 15-min window.
+    Called by cron job every 10 minutes.
 
-    Stores to TWO tables:
-    1. `predictions` - flat records for accuracy tracking
-    2. `daily_predictions` - full JSON for instant API responses
+    For each game:
+    - If current_time >= game_time - 15 minutes AND not already stored:
+      - Store to predictions table (locked for accuracy tracking)
+    - Always updates daily_predictions cache with ALL games (for API serving)
 
     - **date_str**: Date in YYYY-MM-DD format
     """
@@ -138,7 +139,7 @@ async def store_predictions(date_str: str):
         raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
 
     try:
-        # Get predictions from analyzer
+        # Get predictions from analyzer (includes game_time and goalie_status)
         analyzer = get_analyzer()
         results = analyzer.analyze_date(date_str)
     except Exception as e:
@@ -153,22 +154,25 @@ async def store_predictions(date_str: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase init error: {str(e)}")
 
-    # Check if predictions already exist for this date
+    # Get current time for 15-min window check
+    now = datetime.now(timezone.utc)
+
+    # Get existing predictions for this date (to avoid duplicates)
     try:
-        existing_flat = supabase.table("predictions").select("id").eq("game_date", date_str).execute()
-        existing_cache = supabase.table("daily_predictions").select("id").eq("game_date", date_str).execute()
+        existing_preds = supabase.table("predictions").select("game_id").eq("game_date", date_str).execute()
+        existing_game_ids = set(p['game_id'] for p in existing_preds.data) if existing_preds.data else set()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
-    flat_exists = existing_flat.data and len(existing_flat.data) > 0
-    cache_exists = existing_cache.data and len(existing_cache.data) > 0
+    # Check if cache exists
+    try:
+        existing_cache = supabase.table("daily_predictions").select("id").eq("game_date", date_str).execute()
+        cache_exists = existing_cache.data and len(existing_cache.data) > 0
+    except Exception as e:
+        cache_exists = False
 
-    # If flat predictions exist, we won't re-store them (they're for accuracy tracking)
-    # But we ALWAYS update the cache to refresh predictions with latest data
-
-    # Prepare records for flat predictions table (accuracy tracking)
-    records = []
-    # Prepare full predictions for daily_predictions table (instant API responses)
+    # Process each game - only store to flat table if within 15-min window
+    stored_flat = 0
     full_predictions = []
 
     for r in results:
@@ -184,20 +188,46 @@ async def store_predictions(date_str: str):
         # Create a game_id from teams and date
         game_id = f"{date_str}_{r['away']['team']}_{r['home']['team']}"
 
-        # Flat record for accuracy tracking
-        records.append({
-            "game_date": date_str,
-            "game_id": game_id,
-            "away_team": r['away']['team'],
-            "home_team": r['home']['team'],
-            "away_score": r['away']['final_score'],
-            "home_score": r['home']['final_score'],
-            "pick": r['pick'],
-            "confidence": confidence,
-            "diff": round(diff, 2),
-        })
+        # Check if within 15-min window
+        game_time_str = r.get('game_time')
+        is_official = False
+        official_at_str = None
 
-        # Full prediction for instant API responses
+        if game_time_str:
+            try:
+                game_time = datetime.fromisoformat(game_time_str.replace('Z', '+00:00'))
+                official_at = game_time - timedelta(minutes=15)
+                official_at_str = official_at.isoformat().replace('+00:00', 'Z')
+                is_official = now >= official_at
+            except Exception:
+                pass
+
+        # Store to flat predictions table ONLY if:
+        # 1. Within 15-min window (is_official)
+        # 2. Not already stored
+        if is_official and game_id not in existing_game_ids:
+            record = {
+                "game_date": date_str,
+                "game_id": game_id,
+                "away_team": r['away']['team'],
+                "home_team": r['home']['team'],
+                "away_score": r['away']['final_score'],
+                "home_score": r['home']['final_score'],
+                "pick": r['pick'],
+                "confidence": confidence,
+                "diff": round(diff, 2),
+                "predicted_at": now.isoformat(),
+                "goalie_confirmed_away": r.get('goalie_status_away') == 'confirmed',
+                "goalie_confirmed_home": r.get('goalie_status_home') == 'confirmed',
+            }
+            try:
+                supabase.table("predictions").insert([record])
+                stored_flat += 1
+                existing_game_ids.add(game_id)  # Track to avoid duplicate attempts
+            except Exception as e:
+                print(f"Failed to store prediction for {game_id}: {e}")
+
+        # Always include in full predictions for cache (regardless of official status)
         full_predictions.append({
             "away": r['away'],
             "home": r['home'],
@@ -205,30 +235,26 @@ async def store_predictions(date_str: str):
             "diff": round(diff, 2),
             "confidence": confidence,
             "factors": r.get('factors', []),
+            "game_time": game_time_str,
+            "is_official": is_official,
+            "official_at": official_at_str,
+            "goalie_status_away": r.get('goalie_status_away', 'expected'),
+            "goalie_status_home": r.get('goalie_status_home', 'expected'),
         })
-
-    # Insert flat records to predictions table (if they don't exist)
-    stored_flat = 0
-    if not flat_exists:
-        try:
-            supabase.table("predictions").insert(records)
-            stored_flat = len(records)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to store predictions: {str(e)}")
 
     # Get first game time for this date
     first_game_time = get_first_game_time(date_str)
     first_game_iso = first_game_time.isoformat() if first_game_time else None
 
     # Insert or update daily_predictions table for instant API responses
-    # Always update to refresh the cache with latest predictions
+    # Always update to refresh the cache with latest predictions and statuses
     stored_cache = False
     try:
         daily_record = {
             "game_date": date_str,
             "games_count": len(full_predictions),
             "predictions": full_predictions,
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "first_game_time": first_game_iso,
         }
         if cache_exists:
@@ -242,22 +268,27 @@ async def store_predictions(date_str: str):
         # Log but don't fail - the flat predictions are more important
         print(f"Warning: Failed to store daily_predictions cache: {str(e)}")
 
+    # Count official games
+    official_count = sum(1 for p in full_predictions if p.get('is_official'))
+    pending_count = len(full_predictions) - official_count
+
     message_parts = []
     if stored_flat > 0:
-        message_parts.append(f"stored {stored_flat} predictions")
+        message_parts.append(f"locked {stored_flat} official predictions")
     if stored_cache:
         if cache_exists:
             message_parts.append("cache updated")
         else:
             message_parts.append("cache created")
-    if not message_parts:
-        message_parts.append("no changes needed")
+    message_parts.append(f"{official_count} official, {pending_count} pending")
 
     return {
         "message": f"{date_str}: {', '.join(message_parts)}",
         "stored": stored_flat,
+        "official_count": official_count,
+        "pending_count": pending_count,
         "cached": stored_cache,
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "first_game_time": first_game_iso,
     }
 
