@@ -44,11 +44,17 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 ### API Endpoints
 
 **Predictions:**
-- `GET /api/predictions/{date}` - Game predictions (checks cache first, computes on miss)
+- `GET /api/predictions/{date}` - Game predictions with per-game official status (checks cache first)
 - `GET /api/predictions/today` - Convenience endpoint for current day
-- `POST /api/predictions/{date}` - Predictions with custom goalie overrides
+- `POST /api/predictions/{date}` - DISABLED (goalie overrides not available for official model)
 - `GET /api/predictions/status/{date}` - Lightweight polling for cache status
 - `GET /api/games/{date}` - Basic game list without full analysis
+
+**Prediction Response Fields:**
+- `game_time` - ISO timestamp of game start (UTC)
+- `is_official` - True if within 15-min window before game (locked)
+- `official_at` - ISO timestamp when prediction becomes official
+- `goalie_status_away/home` - "confirmed" or "expected" based on Daily Faceoff
 
 **Teams:**
 - `GET /api/teams` - All 32 teams with division/conference info
@@ -73,6 +79,8 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - `game_date`, `game_id`, `away_team`, `home_team`
 - `away_score`, `home_score`, `pick`, `confidence`, `diff`
 - `away_final`, `home_final`, `actual_winner`, `correct` (nullable, filled after games)
+- `predicted_at` - Timestamp when official prediction was locked
+- `goalie_confirmed_away`, `goalie_confirmed_home` - Boolean flags for goalie confirmation status
 
 **`daily_predictions` table** - Full JSON cache for instant API responses:
 - `game_date` (unique), `games_count`, `predictions` (JSON array)
@@ -86,15 +94,34 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - Backend: Render (hockeyquant.onrender.com)
 - CI/CD: GitHub Actions for accuracy automation and Windows builds
 
+### Per-Game Prediction Scheduling
+Predictions become "official" 15 minutes before each individual game start time:
+
+**How it works:**
+1. GitHub Actions cron runs every 10 minutes during game hours (5 PM - 1 AM ET)
+2. Each run calls `POST /api/accuracy/store-predictions/{date}`
+3. Endpoint checks each game: if `current_time >= game_time - 15 minutes` AND not already stored, locks the prediction
+4. Locked predictions are stored in `predictions` table for accuracy tracking
+5. `daily_predictions` cache is always updated with current status for all games
+
+**Prediction States:**
+- **Estimated** (yellow banner): Before 15-min window, may change as goalie info updates
+- **Official** (green banner): Within 15-min window, locked for accuracy tracking
+
+**Goalie Confirmation:**
+- Daily Faceoff scraper detects "Confirmed" vs "Expected" status
+- Shown as checkmark (✓) or question mark (?) badges on game cards
+
 ## Frontend Features
 
-### Pages (7 total)
+### Pages (8 total)
 | Page | Route | Features |
 |------|-------|----------|
 | Home | `/` | Navigation cards, data source attribution, "Coming Soon" placeholders |
-| Predictions | `/predictions` | Date picker, client caching (5-min TTL), goalie override with debounced recalc |
+| Predictions | `/predictions` | Date picker, client caching (5-min TTL), official/estimated status banners |
 | Teams | `/teams` | Conference/division grouping, team detail modal, goalie stats, injuries |
 | Accuracy | `/accuracy` | Quick stats cards, confidence breakdown, filters, trend chart, recent predictions table |
+| About | `/about` | About me section, model methodology explanation |
 | Account | `/account` | User settings, favorite team selector, profile management (auth required) |
 | Login | `/login` | Email/password auth via Supabase |
 | Signup | `/signup` | Registration with email verification |
@@ -103,7 +130,7 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 | Component | Purpose |
 |-----------|---------|
 | `Navbar.jsx` | Responsive nav with hamburger menu, auth-aware user menu |
-| `GameCard.jsx` | Prediction display with goalie swap, confidence badge, factors |
+| `GameCard.jsx` | Prediction display with status banner (official/estimated), confidence badge, goalie confirmation indicators |
 | `AccuracyChart.jsx` | Recharts line chart with rolling/cumulative accuracy, window selector |
 | `ProgressBar.jsx` | Animated loading with cycling status messages |
 | `UserMenu.jsx` | Avatar dropdown with account links and logout |
@@ -111,7 +138,7 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 
 ### Advanced Frontend Features
 - **Client-side Caching**: Module-level cache with 5-min TTL, cache indicators in UI
-- **Goalie Override System**: Click-to-swap goalies, debounced API calls (300ms), real-time recalculation
+- **Per-Game Status Display**: Official (green) vs Estimated (yellow) status banners, goalie confirmation badges
 - **Authentication**: Supabase auth with session management, protected routes, user profiles
 - **Accuracy Visualization**: Multi-metric charts, window selection (10/20/30/50 games), date/team/confidence filters
 - **Mobile Responsive**: Hamburger menu, touch-friendly UI, responsive tables and grids
@@ -134,7 +161,7 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 |------|---------|
 | `frontend/src/api.js` | API client with all endpoint functions |
 | `frontend/src/context/AuthContext.jsx` | Supabase auth state management |
-| `frontend/src/pages/Predictions.jsx` | Predictions UI with caching and goalie overrides |
+| `frontend/src/pages/Predictions.jsx` | Predictions UI with caching (official model, no goalie overrides) |
 | `frontend/src/pages/Accuracy.jsx` | Accuracy dashboard with filters and charts |
 | `frontend/src/pages/Teams.jsx` | Team browser with detail modals |
 | `frontend/src/components/GameCard.jsx` | Individual game prediction card |
