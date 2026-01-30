@@ -9,6 +9,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import json
 import os
+import io
 from typing import Optional, Dict, List, Tuple
 
 from .constants import ESPN_TEAM_MAPPING
@@ -37,6 +38,13 @@ class DataLoader:
     GOALIE_DATA_URL = "https://moneypuck.com/moneypuck/playerData/seasonSummary/2025/regular/goalies.csv"
     SKATER_DATA_URL = "https://moneypuck.com/moneypuck/playerData/seasonSummary/2025/regular/skaters.csv"
 
+    # Headers to avoid 403 Forbidden from MoneyPuck
+    HEADERS = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
+
     def __init__(self, cache_dir: Optional[str] = None):
         self.cache_dir = cache_dir or os.path.dirname(__file__)
         self._team_data = None
@@ -48,6 +56,12 @@ class DataLoader:
         self._confirmed_starters_cache = {}
         self._last_load_time = None
 
+    def _fetch_csv(self, url: str) -> pd.DataFrame:
+        """Fetch CSV from URL with proper headers to avoid 403 errors"""
+        response = requests.get(url, headers=self.HEADERS, timeout=30)
+        response.raise_for_status()
+        return pd.read_csv(io.StringIO(response.text))
+
     def load_all_data(self, force_refresh: bool = False) -> Dict:
         """Load all data from MoneyPuck"""
         # Check if we need to refresh (data older than 1 hour)
@@ -56,18 +70,18 @@ class DataLoader:
                 return self._get_cached_data()
 
         try:
-            # Load team data
-            team_data_full = pd.read_csv(self.TEAM_DATA_URL)
+            # Load team data (using _fetch_csv to avoid 403 errors)
+            team_data_full = self._fetch_csv(self.TEAM_DATA_URL)
             self._team_data = team_data_full[team_data_full['situation'] == 'all']
             self._pp_data = team_data_full[team_data_full['situation'] == '5on4']
             self._pk_data = team_data_full[team_data_full['situation'] == '4on5']
 
             # Load goalie data
-            goalie_data_full = pd.read_csv(self.GOALIE_DATA_URL)
+            goalie_data_full = self._fetch_csv(self.GOALIE_DATA_URL)
             self._goalie_data = goalie_data_full[goalie_data_full['situation'] == 'all']
 
             # Load skater data
-            skater_data_full = pd.read_csv(self.SKATER_DATA_URL)
+            skater_data_full = self._fetch_csv(self.SKATER_DATA_URL)
             self._skater_data = skater_data_full[skater_data_full['situation'] == 'all']
 
             self._last_load_time = datetime.now()
