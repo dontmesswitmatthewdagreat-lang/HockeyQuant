@@ -4,8 +4,7 @@ import GameCard from '../components/GameCard';
 import ProgressBar from '../components/ProgressBar';
 import './Predictions.css';
 
-// Module-level cache for predictions - persists across tab switches
-// Key: date string, Value: { predictions, status, timestamp }
+// Module-level cache for predictions
 const predictionsCache = {};
 const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -38,20 +37,30 @@ function Predictions() {
     return today.toISOString().split('T')[0];
   }
 
-  // Format UTC timestamp to local time string
-  function formatTime(isoString) {
-    if (!isoString) return null;
-    try {
-      const date = new Date(isoString);
-      return date.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZoneName: 'short',
-      });
-    } catch {
-      return null;
-    }
+  function getYesterday() {
+    const d = new Date(date);
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  function getTomorrow() {
+    const d = new Date(date);
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split('T')[0];
+  }
+
+  function formatDateDisplay(dateStr) {
+    const d = new Date(dateStr + 'T12:00:00');
+    return d.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  }
+
+  function isToday(dateStr) {
+    return dateStr === getTodayDate();
   }
 
   // Check if cached data is still valid
@@ -94,13 +103,9 @@ function Predictions() {
       const data = await fetchPredictions(selectedDate);
       const preds = data.predictions || [];
       setPredictions(preds);
-
-      // Update model status from response
       if (data.status) {
         setModelStatus(data.status);
       }
-
-      // Cache the predictions and status
       setCachedData(selectedDate, preds, data.status);
     } catch (err) {
       setError(err.message);
@@ -112,55 +117,27 @@ function Predictions() {
 
   useEffect(() => {
     loadPredictions(date);
-  }, []);
+  }, [date]);
 
-  function handleDateChange(e) {
-    setDate(e.target.value);
+  function handleDateNav(newDate) {
+    setDate(newDate);
   }
 
-  function handleSubmit(e) {
-    e.preventDefault();
-    // Force refresh when user clicks the button
-    loadPredictions(date, true);
-  }
+  // Calculate summary stats
+  const totalGames = predictions.length;
+  const highConfidence = predictions.filter(p => p.confidence === 'STRONG').length;
+  const avgWinProb = predictions.length > 0
+    ? Math.round(predictions.reduce((sum, p) => {
+        const winnerScore = p.pick === p.home.team ? p.home.final_score : p.away.final_score;
+        const loserScore = p.pick === p.home.team ? p.away.final_score : p.home.final_score;
+        const total = winnerScore + loserScore;
+        return sum + (total > 0 ? (winnerScore / total) * 100 : 50);
+      }, 0) / predictions.length)
+    : 0;
+  const liveGames = predictions.filter(p => p.is_live).length;
 
   return (
     <div className="predictions-page">
-      <div className="predictions-header">
-        <h1 className="page-title">Game Predictions</h1>
-
-        {/* Model Status Display */}
-        {modelStatus && modelStatus.is_cached && (
-          <div className="model-status">
-            {formatTime(modelStatus.last_updated) && (
-              <div className="status-item">
-                <span className="status-label">Last updated:</span>
-                <span className="status-value">{formatTime(modelStatus.last_updated)}</span>
-              </div>
-            )}
-            {formatTime(modelStatus.next_update) && (
-              <div className="status-item">
-                <span className="status-label">Next update:</span>
-                <span className="status-value">{formatTime(modelStatus.next_update)}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        <form className="date-form" onSubmit={handleSubmit}>
-          <label htmlFor="date">Game Date:</label>
-          <input
-            type="date"
-            id="date"
-            value={date}
-            onChange={handleDateChange}
-          />
-          <button type="submit" disabled={loading}>
-            {loading ? 'Loading...' : 'Get Predictions'}
-          </button>
-        </form>
-      </div>
-
       {/* Server spin-up disclaimer */}
       {showDisclaimer && (
         <div className="disclaimer-overlay">
@@ -178,46 +155,113 @@ function Predictions() {
         </div>
       )}
 
+      {/* Date Navigation */}
+      <div className="date-nav-container">
+        <button className="date-nav-arrow" onClick={() => handleDateNav(getYesterday())}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+
+        <div className="date-nav-center">
+          <div className="date-display">
+            <svg className="calendar-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            {formatDateDisplay(date)}
+          </div>
+          <div className="date-quick-nav">
+            <button
+              className={`quick-nav-btn ${date === getYesterday() ? '' : ''}`}
+              onClick={() => handleDateNav(getYesterday())}
+            >
+              Yesterday
+            </button>
+            <button
+              className={`quick-nav-btn ${isToday(date) ? 'active' : ''}`}
+              onClick={() => handleDateNav(getTodayDate())}
+            >
+              Today
+            </button>
+            <button
+              className={`quick-nav-btn ${date === getTomorrow() ? '' : ''}`}
+              onClick={() => handleDateNav(getTomorrow())}
+            >
+              Tomorrow
+            </button>
+          </div>
+        </div>
+
+        <button className="date-nav-arrow" onClick={() => handleDateNav(getTomorrow())}>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      {/* Summary Stats */}
+      {!loading && !error && predictions.length > 0 && (
+        <div className="summary-stats">
+          <div className="stat-card">
+            <span className="stat-label">Total Games</span>
+            <span className="stat-value">{totalGames}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">High Confidence</span>
+            <span className="stat-value">{highConfidence}</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Avg Win Prob</span>
+            <span className="stat-value">{avgWinProb}%</span>
+          </div>
+          <div className="stat-card">
+            <span className="stat-label">Live Games</span>
+            <span className="stat-value">{liveGames}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Content */}
       <div className="predictions-content">
-        {loading && (
-          <ProgressBar />
-        )}
+        {loading && <ProgressBar />}
 
         {error && (
           <div className="error-message">
             <p>Error: {error}</p>
-            <button onClick={() => loadPredictions(date)}>Try Again</button>
+            <button onClick={() => loadPredictions(date, true)}>Try Again</button>
           </div>
         )}
 
         {!loading && !error && predictions.length === 0 && (
           <div className="no-games">
-            <p>No games found for {date}</p>
+            <div className="no-games-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+            </div>
+            <h3>No Games Scheduled</h3>
+            <p>There are no NHL games scheduled for {formatDateDisplay(date)}</p>
           </div>
         )}
 
         {!loading && !error && predictions.length > 0 && (
-          <>
-            <p className="results-count">
-              {predictions.length} game{predictions.length !== 1 ? 's' : ''} found
-              {fromCache && (
-                <span className="cache-indicator" title="Data loaded from cache">
-                  {' '} (cached)
-                </span>
-              )}
-            </p>
-            <div className="predictions-list">
-              {predictions.map((prediction) => {
-                const gameKey = `${prediction.away.team}-${prediction.home.team}`;
-                return (
-                  <GameCard
-                    key={gameKey}
-                    prediction={prediction}
-                  />
-                );
-              })}
-            </div>
-          </>
+          <div className="games-grid">
+            {predictions.map((prediction) => {
+              const gameKey = `${prediction.away.team}-${prediction.home.team}`;
+              return (
+                <GameCard
+                  key={gameKey}
+                  prediction={prediction}
+                />
+              );
+            })}
+          </div>
         )}
       </div>
     </div>

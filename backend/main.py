@@ -6,7 +6,7 @@ FastAPI backend for NHL game predictions
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import predictions, teams, accuracy
+from routers import predictions, teams, accuracy, models
 
 # Create FastAPI app
 app = FastAPI(
@@ -28,6 +28,7 @@ app.add_middleware(
 app.include_router(predictions.router, prefix="/api", tags=["predictions"])
 app.include_router(teams.router, prefix="/api", tags=["teams"])
 app.include_router(accuracy.router, prefix="/api", tags=["accuracy"])
+app.include_router(models.router, prefix="/api", tags=["models"])
 
 
 @app.get("/")

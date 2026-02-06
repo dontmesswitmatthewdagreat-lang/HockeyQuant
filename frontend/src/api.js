@@ -109,3 +109,120 @@ export async function fetchPredictionStatus(date) {
   }
   return response.json();
 }
+
+// User Models API
+
+/**
+ * Fetch all models for the authenticated user
+ * @param {string} token - Supabase access token
+ */
+export async function fetchUserModels(token) {
+  const response = await fetch(`${API_BASE}/api/models`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    if (response.status === 401) {
+      throw new Error('Please log in to view your models');
+    }
+    throw new Error('Failed to fetch models');
+  }
+  return response.json();
+}
+
+/**
+ * Create a new custom model
+ * @param {string} token - Supabase access token
+ * @param {object} modelData - { name, description, weights }
+ */
+export async function createModel(token, modelData) {
+  const response = await fetch(`${API_BASE}/api/models`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(modelData),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || 'Failed to create model');
+  }
+  return response.json();
+}
+
+/**
+ * Get a specific model by ID
+ * @param {string} token - Supabase access token
+ * @param {string} modelId - Model UUID
+ */
+export async function fetchModel(token, modelId) {
+  const response = await fetch(`${API_BASE}/api/models/${modelId}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch model');
+  }
+  return response.json();
+}
+
+/**
+ * Update an existing model
+ * @param {string} token - Supabase access token
+ * @param {string} modelId - Model UUID
+ * @param {object} updates - { name?, description?, weights? }
+ */
+export async function updateModel(token, modelId, updates) {
+  const response = await fetch(`${API_BASE}/api/models/${modelId}`, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(updates),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({}));
+    throw new Error(error.detail || 'Failed to update model');
+  }
+  return response.json();
+}
+
+/**
+ * Delete a model
+ * @param {string} token - Supabase access token
+ * @param {string} modelId - Model UUID
+ */
+export async function deleteModel(token, modelId) {
+  const response = await fetch(`${API_BASE}/api/models/${modelId}`, {
+    method: 'DELETE',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Failed to delete model');
+  }
+  return response.json();
+}
+
+/**
+ * Get predictions using a custom model
+ * @param {string} token - Supabase access token
+ * @param {string} modelId - Model UUID
+ * @param {string} date - Date in YYYY-MM-DD format
+ */
+export async function fetchModelPredictions(token, modelId, date) {
+  const response = await fetch(`${API_BASE}/api/models/${modelId}/predictions/${date}`, {
+    headers: {
+      'Authorization': `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error('Failed to fetch model predictions');
+  }
+  return response.json();
+}

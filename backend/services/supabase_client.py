@@ -86,6 +86,29 @@ class TableQuery:
     def update(self, data: Dict[str, Any]) -> "UpdateQuery":
         return UpdateQuery(self.client, self.table, data, self.params)
 
+    def delete(self) -> "DeleteQuery":
+        return DeleteQuery(self.client, self.table, self.params)
+
+
+class DeleteQuery:
+    """Delete query builder"""
+
+    def __init__(self, client: SupabaseClient, table: str, params: Dict[str, str]):
+        self.client = client
+        self.table = table
+        self.params = params.copy()
+
+    def eq(self, column: str, value: Any) -> "DeleteQuery":
+        self.params[column] = f"eq.{value}"
+        return self
+
+    def execute(self) -> "QueryResult":
+        url = f"{self.client.rest_url}/{self.table}"
+        with httpx.Client(timeout=30.0) as http:
+            response = http.delete(url, headers=self.client.headers, params=self.params)
+            response.raise_for_status()
+            return QueryResult(response.json() if response.text else [])
+
 
 class UpdateQuery:
     """Update query builder"""

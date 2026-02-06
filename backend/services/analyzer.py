@@ -636,7 +636,7 @@ class NHLAnalyzer:
         gaa_norm = max(0, min(1, 1 - (goalie['gaa'] - 2.0) / 2.0))
         return gsax_norm * 0.50 + sv_norm * 0.30 + gaa_norm * 0.20
 
-    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool, goalie_override: str = None) -> Optional[Dict]:
+    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool, goalie_override: str = None, custom_weights: Dict = None) -> Optional[Dict]:
         """Full team analysis returning score and all factors
 
         Args:
@@ -644,6 +644,8 @@ class NHLAnalyzer:
             opponent_abbrev: Opponent team abbreviation
             is_away: Whether the team is playing away
             goalie_override: Optional goalie name to use instead of auto-selected starter
+            custom_weights: Optional dict with weight distribution:
+                {"offense": 40, "defense": 15, "goaltending": 30, "points_pct": 10, "win_rate": 5}
         """
         stats = self.get_team_stats(team_abbrev)
         if not stats:
@@ -684,8 +686,23 @@ class NHLAnalyzer:
         backup_goalie = self.get_backup_goalie(team_abbrev)
         goalie_score = self.calculate_goalie_score(goalie)
 
-        # Base score calculation
-        base_score = off_quality * 40 + def_quality * 15 + pts_pct * 10 + goalie_score * 30 + win_pct * 5
+        # Default weights if not provided
+        weights = custom_weights or {
+            "offense": 40,
+            "defense": 15,
+            "goaltending": 30,
+            "points_pct": 10,
+            "win_rate": 5
+        }
+
+        # Base score calculation with configurable weights
+        base_score = (
+            off_quality * weights.get("offense", 40) +
+            def_quality * weights.get("defense", 15) +
+            pts_pct * weights.get("points_pct", 10) +
+            goalie_score * weights.get("goaltending", 30) +
+            win_pct * weights.get("win_rate", 5)
+        )
 
         # Calculate multipliers
         fatigue_mult, fatigue_sum = self.calculate_fatigue_penalty(team_abbrev, opponent_abbrev, is_away)
@@ -751,13 +768,15 @@ class NHLAnalyzer:
             return "confirmed"
         return "expected"
 
-    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None) -> List[Dict]:
+    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None) -> List[Dict]:
         """Analyze all games for a given date
 
         Args:
             date_str: Date in YYYY-MM-DD format
             goalie_overrides: Optional dict mapping team abbrev to goalie name
                               e.g., {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
+            custom_weights: Optional dict with weight distribution for custom models:
+                {"offense": 40, "defense": 15, "goaltending": 30, "points_pct": 10, "win_rate": 5}
         """
         # Only clear caches and re-scrape injuries on fresh analysis (no overrides)
         # When recalculating with goalie overrides, use cached data for speed
@@ -776,8 +795,8 @@ class NHLAnalyzer:
                 away_goalie = goalie_overrides.get(game['away'])
                 home_goalie = goalie_overrides.get(game['home'])
 
-                away_data = self.analyze_team(game['away'], game['home'], is_away=True, goalie_override=away_goalie)
-                home_data = self.analyze_team(game['home'], game['away'], is_away=False, goalie_override=home_goalie)
+                away_data = self.analyze_team(game['away'], game['home'], is_away=True, goalie_override=away_goalie, custom_weights=custom_weights)
+                home_data = self.analyze_team(game['home'], game['away'], is_away=False, goalie_override=home_goalie, custom_weights=custom_weights)
 
                 if away_data and home_data:
                     diff = home_data['final_score'] - away_data['final_score']

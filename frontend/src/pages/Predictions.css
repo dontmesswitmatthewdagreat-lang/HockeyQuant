@@ -1,143 +1,180 @@
 .predictions-page {
   padding: 2rem;
-  max-width: 900px;
+  max-width: 1200px;
   margin: 0 auto;
 }
 
-.predictions-header {
+/* Date Navigation */
+.date-nav-container {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  flex-wrap: wrap;
+  justify-content: center;
   gap: 1rem;
-  margin-bottom: 2rem;
-}
-
-.page-title {
-  color: var(--text-primary);
-  font-family: var(--font-heading);
-  font-size: 2.25rem;
-  letter-spacing: 0.02em;
-  margin: 0;
-}
-
-.model-status {
-  display: flex;
-  gap: 1.5rem;
-  padding: 0.75rem 1rem;
-  background: var(--bg-card);
+  padding: 1.5rem;
+  background: white;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  flex-wrap: wrap;
-  box-shadow: var(--shadow-sm);
+  border-radius: 12px;
+  margin-bottom: 1.5rem;
 }
 
-.status-item {
+.date-nav-arrow {
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border-color);
+  background: white;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.date-nav-arrow:hover {
+  background: var(--bg-secondary);
+  border-color: var(--text-secondary);
+}
+
+.date-nav-arrow svg {
+  width: 20px;
+  height: 20px;
+  color: var(--text-secondary);
+}
+
+.date-nav-center {
+  text-align: center;
+}
+
+.date-display {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 0.75rem;
+}
+
+.calendar-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--accent-red);
+}
+
+.date-quick-nav {
   display: flex;
   gap: 0.5rem;
-  align-items: center;
 }
 
-.status-label {
-  color: var(--text-muted);
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-}
-
-.status-value {
-  color: var(--accent-green);
-  font-family: var(--font-body);
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-.date-form {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.date-form label {
-  color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-  font-weight: 500;
-}
-
-.date-form input[type="date"] {
-  background: var(--bg-card);
-  color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+.quick-nav-btn {
   padding: 0.5rem 1rem;
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-}
-
-.date-form input[type="date"]:focus {
-  outline: none;
-  border-color: var(--accent-red);
-}
-
-.date-form button {
-  background: var(--accent-red);
-  color: var(--text-on-red);
-  border: none;
-  border-radius: 6px;
-  padding: 0.5rem 1.25rem;
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: white;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-secondary);
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: all 0.2s ease;
 }
 
-.date-form button:hover:not(:disabled) {
-  background: var(--accent-red-hover);
+.quick-nav-btn:hover {
+  border-color: var(--text-secondary);
+  color: var(--text-primary);
 }
 
-.date-form button:disabled {
-  background: var(--text-muted);
-  cursor: not-allowed;
+.quick-nav-btn.active {
+  background: var(--accent-red);
+  border-color: var(--accent-red);
+  color: white;
 }
 
+/* Summary Stats */
+.summary-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.summary-stats .stat-card {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.summary-stats .stat-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.summary-stats .stat-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* Games Grid */
+.games-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+}
+
+/* Content */
 .predictions-content {
   min-height: 400px;
 }
 
-.results-count {
+/* No Games State */
+.no-games {
+  text-align: center;
+  padding: 4rem 2rem;
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+}
+
+.no-games-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 1.5rem;
+  color: var(--text-muted);
+}
+
+.no-games-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.no-games h3 {
+  font-size: 1.25rem;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+
+.no-games p {
   color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 0.9rem;
-  margin-bottom: 1rem;
+  font-size: 0.95rem;
+  margin: 0;
 }
 
-.override-indicator {
-  color: var(--accent-orange);
-  font-size: 0.8rem;
-}
-
-.cache-indicator {
-  color: var(--accent-green);
-  font-size: 0.8rem;
-}
-
-.predictions-list {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
+/* Error Message */
 .error-message {
   text-align: center;
   padding: 2rem;
-  background: var(--accent-red-light);
-  border: 1px solid var(--accent-red);
-  border-radius: 8px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
 }
 
 .error-message p {
-  color: var(--accent-red);
+  color: #dc2626;
   font-family: var(--font-body);
   margin: 0 0 1rem 0;
 }
@@ -157,89 +194,6 @@
   background: var(--accent-red-hover);
 }
 
-.no-games {
-  text-align: center;
-  padding: 3rem;
-}
-
-.no-games p {
-  color: var(--text-secondary);
-  font-family: var(--font-body);
-  font-size: 1.1rem;
-}
-
-/* Responsive */
-@media (max-width: 650px) {
-  .predictions-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .date-form {
-    flex-wrap: wrap;
-  }
-}
-
-@media (max-width: 480px) {
-  .predictions-page {
-    padding: 1rem;
-  }
-
-  .page-title {
-    font-size: 1.75rem;
-  }
-
-  .model-status {
-    flex-direction: column;
-    gap: 0.5rem;
-    width: 100%;
-    padding: 0.5rem 0.75rem;
-  }
-
-  .status-item {
-    justify-content: space-between;
-    width: 100%;
-  }
-
-  .date-form {
-    width: 100%;
-    flex-direction: column;
-    align-items: stretch;
-  }
-
-  .date-form label {
-    margin-bottom: 0.25rem;
-  }
-
-  .date-form input[type="date"] {
-    width: 100%;
-    padding: 0.75rem 1rem;
-    font-size: 1rem;
-  }
-
-  .date-form button {
-    width: 100%;
-    padding: 0.875rem 1rem;
-    font-size: 1rem;
-  }
-
-  .predictions-content {
-    min-height: 300px;
-  }
-
-  .results-count {
-    font-size: 0.85rem;
-  }
-
-  .no-games {
-    padding: 2rem 1rem;
-  }
-
-  .no-games p {
-    font-size: 1rem;
-  }
-}
-
 /* Server Disclaimer Modal */
 .disclaimer-overlay {
   position: fixed;
@@ -251,20 +205,24 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1001;
+  z-index: 2000;
   padding: 1rem;
   animation: fadeIn 0.2s ease;
 }
 
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .disclaimer-modal {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
+  background: white;
   border-radius: 16px;
   padding: 2rem;
   max-width: 420px;
   width: 100%;
   text-align: center;
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
   animation: slideUp 0.3s ease;
 }
 
@@ -286,28 +244,25 @@
 }
 
 .disclaimer-title {
-  color: var(--text-primary);
   font-family: var(--font-heading);
   font-size: 1.5rem;
-  letter-spacing: 0.02em;
   margin: 0 0 1rem 0;
+  color: var(--text-primary);
 }
 
 .disclaimer-text {
-  color: var(--text-secondary);
-  font-family: var(--font-body);
   font-size: 0.95rem;
   line-height: 1.6;
   margin: 0 0 1.5rem 0;
+  color: var(--text-secondary);
 }
 
 .disclaimer-button {
   background: var(--accent-red);
-  color: var(--text-on-red);
+  color: white;
   border: none;
   border-radius: 8px;
   padding: 0.75rem 2rem;
-  font-family: var(--font-body);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
@@ -316,4 +271,68 @@
 
 .disclaimer-button:hover {
   background: var(--accent-red-hover);
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .games-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-stats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 600px) {
+  .predictions-page {
+    padding: 1rem;
+  }
+
+  .date-nav-container {
+    flex-wrap: wrap;
+    padding: 1rem;
+  }
+
+  .date-nav-arrow {
+    width: 36px;
+    height: 36px;
+  }
+
+  .date-display {
+    font-size: 1rem;
+  }
+
+  .quick-nav-btn {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .summary-stats {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .summary-stats .stat-card {
+    padding: 1rem;
+  }
+
+  .summary-stats .stat-value {
+    font-size: 1.5rem;
+  }
+
+  .no-games {
+    padding: 3rem 1.5rem;
+  }
+}
+
+@media (max-width: 400px) {
+  .summary-stats {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .date-quick-nav {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
 }

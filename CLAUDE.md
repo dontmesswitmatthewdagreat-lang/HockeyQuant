@@ -72,6 +72,14 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - `GET /api/accuracy/last-game-time/{date}` - Game day cutoff time
 - `GET /api/accuracy/debug` - Supabase connection diagnostics
 
+**User Models (auth required):**
+- `GET /api/models` - List user's models with accuracy stats
+- `POST /api/models` - Create new model (weights must sum to 100)
+- `GET /api/models/{id}` - Get model details with accuracy
+- `PUT /api/models/{id}` - Update model name/description/weights
+- `DELETE /api/models/{id}` - Delete model and its predictions
+- `GET /api/models/{id}/predictions/{date}` - Get predictions using custom weights
+
 ### Database
 Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 
@@ -88,6 +96,16 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 
 **`profiles` table** - User profiles for authentication:
 - `id`, `username`, `favorite_team`, `created_at`
+
+**`user_models` table** - Custom user prediction models:
+- `id`, `user_id`, `name`, `description`
+- `weights` (JSON): `{offense, defense, goaltending, points_pct, win_rate}` - must sum to 100
+- `is_active`, `created_at`, `updated_at`
+
+**`model_predictions` table** - Track predictions per model:
+- `id`, `model_id`, `game_id`, `game_date`
+- `away_team`, `home_team`, `pick`, `away_score`, `home_score`, `confidence`
+- `actual_winner`, `correct` (filled after games)
 
 ### Deployment
 - Frontend: Vercel (hockeyquant.vercel.app)
@@ -114,13 +132,12 @@ Predictions become "official" 15 minutes before each individual game start time:
 
 ## Frontend Features
 
-### Pages (8 total)
+### Pages (7 total)
 | Page | Route | Features |
 |------|-------|----------|
-| Home | `/` | Navigation cards, data source attribution, "Coming Soon" placeholders |
-| Predictions | `/predictions` | Date picker, client caching (5-min TTL), official/estimated status banners |
+| Games | `/` | Main landing, date navigation, summary stats, 2-column game cards with team logos |
 | Teams | `/teams` | Conference/division grouping, team detail modal, goalie stats, injuries |
-| Accuracy | `/accuracy` | Quick stats cards, confidence breakdown, filters, trend chart, recent predictions table |
+| Models | `/models` | Custom prediction models with configurable weights, accuracy tracking per model |
 | About | `/about` | About me section, model methodology explanation |
 | Account | `/account` | User settings, favorite team selector, profile management (auth required) |
 | Login | `/login` | Email/password auth via Supabase |
@@ -155,17 +172,20 @@ Predictions become "official" 15 minutes before each individual game start time:
 | `backend/routers/predictions.py` | Prediction API endpoints with caching |
 | `backend/routers/teams.py` | Team and goalie API endpoints |
 | `backend/routers/accuracy.py` | Accuracy tracking, storage, trend analysis |
+| `backend/routers/models.py` | User custom models CRUD, predictions with custom weights |
 
 ### Frontend
 | File | Purpose |
 |------|---------|
 | `frontend/src/api.js` | API client with all endpoint functions |
 | `frontend/src/context/AuthContext.jsx` | Supabase auth state management |
-| `frontend/src/pages/Predictions.jsx` | Predictions UI with caching (official model, no goalie overrides) |
-| `frontend/src/pages/Accuracy.jsx` | Accuracy dashboard with filters and charts |
+| `frontend/src/pages/Predictions.jsx` | Games UI with date nav, summary stats, 2-column grid |
 | `frontend/src/pages/Teams.jsx` | Team browser with detail modals |
-| `frontend/src/components/GameCard.jsx` | Individual game prediction card |
-| `frontend/src/components/AccuracyChart.jsx` | Trend visualization with Recharts |
+| `frontend/src/pages/Models.jsx` | User custom models with weight sliders |
+| `frontend/src/components/GameCard.jsx` | Game card with team logos, win probability badges |
+| `frontend/src/components/ModelCard.jsx` | Model display with weight distribution bars |
+| `frontend/src/components/CreateModelModal.jsx` | Create/edit model form with weight sliders |
+| `frontend/src/utils/teamLogos.js` | NHL CDN logo URLs and team name mappings |
 
 ## Data Sources
 

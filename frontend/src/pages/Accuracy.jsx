@@ -1,49 +1,25 @@
 import { useState, useEffect } from 'react';
-import { fetchAccuracyStats, fetchTeams } from '../api';
-import ProgressBar from '../components/ProgressBar';
+import { fetchAccuracyStats } from '../api';
+import { getTeamLogo, getTeamName } from '../utils/teamLogos';
 import AccuracyChart from '../components/AccuracyChart';
+import LoadingSpinner from '../components/LoadingSpinner';
 import './Accuracy.css';
 
 function Accuracy() {
   const [stats, setStats] = useState(null);
-  const [predictions, setPredictions] = useState([]);
-  const [teams, setTeams] = useState([]);
+  const [recentPredictions, setRecentPredictions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Filters
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [selectedTeam, setSelectedTeam] = useState('');
-  const [selectedConfidence, setSelectedConfidence] = useState('');
-
   useEffect(() => {
-    loadTeams();
-    loadStats();
+    loadAccuracyData();
   }, []);
 
-  async function loadTeams() {
+  async function loadAccuracyData() {
     try {
-      const data = await fetchTeams();
-      setTeams(data);
-    } catch (err) {
-      console.error('Failed to load teams:', err);
-    }
-  }
-
-  async function loadStats() {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = {};
-      if (startDate) params.startDate = startDate;
-      if (endDate) params.endDate = endDate;
-      if (selectedTeam) params.team = selectedTeam;
-      if (selectedConfidence) params.confidence = selectedConfidence;
-
-      const data = await fetchAccuracyStats(params);
+      const data = await fetchAccuracyStats();
       setStats(data.stats);
-      setPredictions(data.recent_predictions);
+      setRecentPredictions(data.recent_predictions || []);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -51,91 +27,105 @@ function Accuracy() {
     }
   }
 
-  function handleApplyFilters() {
-    loadStats();
+  if (loading) {
+    return <LoadingSpinner message="Loading accuracy data..." />;
   }
 
-  function handleClearFilters() {
-    setStartDate('');
-    setEndDate('');
-    setSelectedTeam('');
-    setSelectedConfidence('');
-    // Reload with no filters
-    setTimeout(() => loadStats(), 0);
-  }
-
-  if (loading && !stats) {
+  if (error) {
     return (
       <div className="accuracy-page">
-        <h1 className="page-title">Model Accuracy</h1>
-        <ProgressBar message="Loading accuracy data..." />
+        <div className="error-message">
+          <p>Error loading accuracy data: {error}</p>
+        </div>
       </div>
     );
   }
 
+  // Extract multi-window stats
+  const allTime = stats?.all_time || {};
+  const currentSeason = stats?.current_season || {};
+  const rolling30 = stats?.rolling_30 || {};
+
   return (
     <div className="accuracy-page">
-      <h1 className="page-title">Model Accuracy</h1>
-      <p className="page-subtitle">Track HockeyQuant's prediction performance</p>
+      {/* Header */}
+      <div className="accuracy-header">
+        <h1>Official Model Accuracy</h1>
+        <p className="accuracy-subtitle">
+          Track the performance of HockeyQuant's prediction model
+        </p>
+      </div>
 
-      {error && (
-        <div className="error-message">
-          <p>Error: {error}</p>
+      {/* Summary Stats */}
+      <div className="stats-summary">
+        <div className="stat-card highlight">
+          <span className="stat-label">All-Time</span>
+          <span className="stat-value">
+            {allTime.pct?.toFixed(1) || '0.0'}%
+          </span>
+          <span className="stat-detail">
+            {allTime.correct || 0} / {allTime.total || 0} correct
+          </span>
         </div>
-      )}
+        <div className="stat-card">
+          <span className="stat-label">Current Season</span>
+          <span className="stat-value">
+            {currentSeason.pct?.toFixed(1) || '0.0'}%
+          </span>
+          <span className="stat-detail">
+            {currentSeason.correct || 0} / {currentSeason.total || 0} correct
+          </span>
+        </div>
+        <div className="stat-card">
+          <span className="stat-label">Last 30 Games</span>
+          <span className="stat-value">
+            {rolling30.pct?.toFixed(1) || '0.0'}%
+          </span>
+          <span className="stat-detail">
+            {rolling30.correct || 0} / {rolling30.total || 0} correct
+          </span>
+        </div>
+      </div>
 
-      {/* Filters */}
-      <div className="filters-section">
-        <div className="filter-row">
-          <div className="filter-group">
-            <label>Start Date</label>
-            <input
-              type="date"
-              value={startDate}
-              onChange={(e) => setStartDate(e.target.value)}
-            />
+      {/* Confidence Breakdown */}
+      <div className="confidence-section">
+        <h2 className="section-title">Accuracy by Confidence Level</h2>
+        <div className="confidence-cards">
+          <div className="confidence-card strong">
+            <div className="confidence-header">
+              <span className="confidence-label">STRONG</span>
+              <span className="confidence-badge">High Confidence</span>
+            </div>
+            <span className="confidence-value">
+              {stats?.strong_pct?.toFixed(1) || '0.0'}%
+            </span>
+            <span className="confidence-detail">
+              {stats?.strong_correct || 0} / {stats?.strong_total || 0} picks
+            </span>
           </div>
-          <div className="filter-group">
-            <label>End Date</label>
-            <input
-              type="date"
-              value={endDate}
-              onChange={(e) => setEndDate(e.target.value)}
-            />
+          <div className="confidence-card moderate">
+            <div className="confidence-header">
+              <span className="confidence-label">MODERATE</span>
+              <span className="confidence-badge">Medium Confidence</span>
+            </div>
+            <span className="confidence-value">
+              {stats?.moderate_pct?.toFixed(1) || '0.0'}%
+            </span>
+            <span className="confidence-detail">
+              {stats?.moderate_correct || 0} / {stats?.moderate_total || 0} picks
+            </span>
           </div>
-          <div className="filter-group">
-            <label>Team Picked</label>
-            <select
-              value={selectedTeam}
-              onChange={(e) => setSelectedTeam(e.target.value)}
-            >
-              <option value="">All Teams</option>
-              {teams.map((team) => (
-                <option key={team.abbrev} value={team.abbrev}>
-                  {team.abbrev} - {team.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="filter-group">
-            <label>Confidence</label>
-            <select
-              value={selectedConfidence}
-              onChange={(e) => setSelectedConfidence(e.target.value)}
-            >
-              <option value="">All</option>
-              <option value="STRONG">Strong</option>
-              <option value="MODERATE">Moderate</option>
-              <option value="CLOSE">Close</option>
-            </select>
-          </div>
-          <div className="filter-buttons">
-            <button className="apply-btn" onClick={handleApplyFilters}>
-              Apply
-            </button>
-            <button className="clear-btn" onClick={handleClearFilters}>
-              Clear
-            </button>
+          <div className="confidence-card close">
+            <div className="confidence-header">
+              <span className="confidence-label">CLOSE</span>
+              <span className="confidence-badge">Low Confidence</span>
+            </div>
+            <span className="confidence-value">
+              {stats?.close_pct?.toFixed(1) || '0.0'}%
+            </span>
+            <span className="confidence-detail">
+              {stats?.close_correct || 0} / {stats?.close_total || 0} picks
+            </span>
           </div>
         </div>
       </div>
@@ -143,125 +133,81 @@ function Accuracy() {
       {/* Accuracy Trend Chart */}
       <AccuracyChart />
 
-      {stats && (
-        <>
-          {/* Quick Stats Cards */}
-          <div className="quick-stats">
-            <div className="quick-stat-card">
-              <div className="quick-stat-label">All-Time</div>
-              <div className="quick-stat-value">{stats.all_time?.pct || 0}%</div>
-              <div className="quick-stat-detail">
-                {stats.all_time?.correct || 0} / {stats.all_time?.total || 0} games
-              </div>
-            </div>
-            <div className="quick-stat-card">
-              <div className="quick-stat-label">This Season</div>
-              <div className="quick-stat-value">{stats.current_season?.pct || 0}%</div>
-              <div className="quick-stat-detail">
-                {stats.current_season?.correct || 0} / {stats.current_season?.total || 0} games
-              </div>
-            </div>
-            <div className="quick-stat-card">
-              <div className="quick-stat-label">Last 30 Games</div>
-              <div className="quick-stat-value">{stats.rolling_30?.pct || 0}%</div>
-              <div className="quick-stat-detail">
-                {stats.rolling_30?.correct || 0} / {stats.rolling_30?.total || 0} games
-              </div>
-            </div>
+      {/* Recent Predictions */}
+      {recentPredictions.length > 0 && (
+        <div className="recent-section">
+          <h2 className="section-title">Recent Predictions</h2>
+          <div className="recent-table-container">
+            <table className="recent-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Matchup</th>
+                  <th>Pick</th>
+                  <th>Confidence</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentPredictions.slice(0, 20).map((pred, idx) => (
+                  <tr key={idx} className={pred.correct ? 'correct' : pred.correct === false ? 'incorrect' : ''}>
+                    <td className="date-cell">{pred.game_date}</td>
+                    <td className="matchup-cell">
+                      <div className="matchup">
+                        <img
+                          src={getTeamLogo(pred.away_team)}
+                          alt={pred.away_team}
+                          className="team-logo-small"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                        <span className="team-abbrev">{pred.away_team}</span>
+                        <span className="vs">@</span>
+                        <img
+                          src={getTeamLogo(pred.home_team)}
+                          alt={pred.home_team}
+                          className="team-logo-small"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                        <span className="team-abbrev">{pred.home_team}</span>
+                      </div>
+                    </td>
+                    <td className="pick-cell">
+                      <span className={`pick-badge ${pred.pick === pred.home_team ? 'home' : 'away'}`}>
+                        {getTeamName(pred.pick)}
+                      </span>
+                    </td>
+                    <td className="confidence-cell">
+                      <span className={`confidence-tag ${pred.confidence?.toLowerCase()}`}>
+                        {pred.confidence}
+                      </span>
+                    </td>
+                    <td className="result-cell">
+                      {pred.correct === true && (
+                        <span className="result-badge correct">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                          </svg>
+                          Win
+                        </span>
+                      )}
+                      {pred.correct === false && (
+                        <span className="result-badge incorrect">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                          </svg>
+                          Loss
+                        </span>
+                      )}
+                      {pred.correct === null && (
+                        <span className="result-badge pending">Pending</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-
-          {/* Main Stats (filtered) */}
-          <div className="stats-overview">
-            <div className="main-stat">
-              <div className="stat-number">{stats.accuracy_pct}%</div>
-              <div className="stat-label">Filtered Accuracy</div>
-              <div className="stat-detail">{stats.correct_picks} / {stats.total_games} games</div>
-            </div>
-          </div>
-
-          {/* Confidence Breakdown */}
-          <div className="confidence-breakdown">
-            <h2 className="section-title">Accuracy by Confidence Level</h2>
-            <div className="confidence-cards">
-              <div className="confidence-card strong">
-                <div className="confidence-header">STRONG</div>
-                <div className="confidence-pct">{stats.strong_pct}%</div>
-                <div className="confidence-detail">
-                  {stats.strong_correct} / {stats.strong_total} picks
-                </div>
-              </div>
-              <div className="confidence-card moderate">
-                <div className="confidence-header">MODERATE</div>
-                <div className="confidence-pct">{stats.moderate_pct}%</div>
-                <div className="confidence-detail">
-                  {stats.moderate_correct} / {stats.moderate_total} picks
-                </div>
-              </div>
-              <div className="confidence-card close">
-                <div className="confidence-header">CLOSE</div>
-                <div className="confidence-pct">{stats.close_pct}%</div>
-                <div className="confidence-detail">
-                  {stats.close_correct} / {stats.close_total} picks
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Recent Predictions Table */}
-          <div className="predictions-section">
-            <h2 className="section-title">Recent Predictions</h2>
-            {predictions.length === 0 ? (
-              <p className="no-data">No predictions recorded yet. Predictions are stored automatically before each game day.</p>
-            ) : (
-              <div className="predictions-table-wrapper">
-                <table className="predictions-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Matchup</th>
-                      <th>Pick</th>
-                      <th>Confidence</th>
-                      <th>Result</th>
-                      <th>Correct</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {predictions.map((pred, i) => (
-                      <tr key={i} className={pred.correct === true ? 'correct' : pred.correct === false ? 'incorrect' : ''}>
-                        <td data-label="Date">{pred.game_date}</td>
-                        <td data-label="Matchup">{pred.away_team} @ {pred.home_team}</td>
-                        <td data-label="Pick" className="pick-cell">{pred.pick}</td>
-                        <td data-label="Confidence">
-                          <span className={`confidence-badge ${pred.confidence.toLowerCase()}`}>
-                            {pred.confidence}
-                          </span>
-                        </td>
-                        <td data-label="Result">
-                          {pred.away_final !== null ? (
-                            `${pred.away_final} - ${pred.home_final}`
-                          ) : (
-                            <span className="pending">Pending</span>
-                          )}
-                        </td>
-                        <td data-label="Correct">
-                          {pred.correct === true && <span className="result-icon correct-icon">✓</span>}
-                          {pred.correct === false && <span className="result-icon incorrect-icon">✗</span>}
-                          {pred.correct === null && <span className="result-icon pending-icon">-</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        </>
-      )}
-
-      {!stats && !loading && (
-        <div className="no-data-message">
-          <p>No accuracy data available yet.</p>
-          <p>Predictions will be stored automatically before game days.</p>
         </div>
       )}
     </div>
