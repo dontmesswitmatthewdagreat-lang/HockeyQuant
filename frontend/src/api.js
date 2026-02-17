@@ -1,9 +1,9 @@
 /**
  * HockeyQuant API Client
- * Connects to the backend at hockeyquant.onrender.com
+ * Uses VITE_API_URL env var for local dev, falls back to production
  */
 
-const API_BASE = 'https://hockeyquant.onrender.com';
+const API_BASE = import.meta.env.VITE_API_URL || 'https://hockeyquant.onrender.com';
 
 export async function fetchPredictions(date) {
   const response = await fetch(`${API_BASE}/api/predictions/${date}`);

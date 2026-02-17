@@ -7,6 +7,7 @@ export const useAuth = () => useContext(AuthContext);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -17,8 +18,9 @@ export function AuthProvider({ children }) {
     async function initAuth() {
       try {
         // Get initial session
-        const { data: { session } } = await supabase.auth.getSession();
-        setUser(session?.user ?? null);
+        const { data: { session: currentSession } } = await supabase.auth.getSession();
+        setSession(currentSession ?? null);
+        setUser(currentSession?.user ?? null);
 
         if (session?.user) {
           await fetchProfile(session.user.id);
@@ -42,10 +44,11 @@ export function AuthProvider({ children }) {
 
     // Listen for auth changes - with defensive check
     try {
-      const authListener = supabase.auth.onAuthStateChange(async (event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchProfile(session.user.id);
+      const authListener = supabase.auth.onAuthStateChange(async (event, newSession) => {
+        setSession(newSession ?? null);
+        setUser(newSession?.user ?? null);
+        if (newSession?.user) {
+          await fetchProfile(newSession.user.id);
         } else {
           setProfile(null);
           setLoading(false);
@@ -174,6 +177,7 @@ export function AuthProvider({ children }) {
 
   const value = {
     user,
+    session,
     profile,
     loading,
     signUp,

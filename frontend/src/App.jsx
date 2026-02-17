@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
+import Home from './pages/Home';
 import Predictions from './pages/Predictions';
 import Teams from './pages/Teams';
 import Accuracy from './pages/Accuracy';
@@ -19,7 +20,8 @@ function App() {
           <Navbar />
           <main className="main-content">
             <Routes>
-              <Route path="/" element={<Predictions />} />
+              <Route path="/" element={<Home />} />
+              <Route path="/games" element={<Predictions />} />
               <Route path="/teams" element={<Teams />} />
               <Route path="/accuracy" element={<Accuracy />} />
               <Route path="/models" element={<Models />} />

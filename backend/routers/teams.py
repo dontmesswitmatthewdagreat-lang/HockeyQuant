@@ -26,6 +26,20 @@ class TeamBasicInfo(BaseModel):
     conference: str
 
 
+class TeamListItem(BaseModel):
+    abbrev: str
+    name: str
+    division: str
+    conference: str
+    wins: int = 0
+    losses: int = 0
+    otl: int = 0
+    points: int = 0
+    points_pct: float = 0.0
+    goals_for: int = 0
+    goals_against: int = 0
+
+
 class TeamStats(BaseModel):
     abbrev: str
     name: str
@@ -73,20 +87,40 @@ def get_team_conference(abbrev: str) -> str:
     return "Unknown"
 
 
-@router.get("/teams", response_model=List[TeamBasicInfo])
+@router.get("/teams", response_model=List[TeamListItem])
 async def list_teams():
-    """Get list of all NHL teams"""
+    """Get list of all NHL teams with standings stats"""
+    data_loader = get_data_loader()
+    data_loader.load_all_data()
+    analyzer = NHLAnalyzer(data_loader)
+
     teams = []
     for abbrev in ALL_TEAMS:
-        teams.append(TeamBasicInfo(
+        item = TeamListItem(
             abbrev=abbrev,
             name=TEAM_FULL_NAMES.get(abbrev, abbrev),
             division=get_team_division(abbrev),
             conference=get_team_conference(abbrev),
-        ))
+        )
+        stats = analyzer.get_team_stats(abbrev)
+        if stats:
+            wins = stats.get('wins', 0)
+            losses = stats.get('losses', 0)
+            otl = stats.get('otLosses', 0)
+            gf = stats.get('goalFor', 0)
+            ga = stats.get('goalAgainst', 0)
+            points = stats.get('points', 0)
+            total_games = wins + losses + otl
+            item.wins = wins
+            item.losses = losses
+            item.otl = otl
+            item.points = points
+            item.points_pct = round(points / (total_games * 2), 3) if total_games > 0 else 0.0
+            item.goals_for = gf
+            item.goals_against = ga
+        teams.append(item)
 
-    # Sort by division, then name
-    teams.sort(key=lambda t: (t.conference, t.division, t.name))
+    teams.sort(key=lambda t: (-t.points, -t.points_pct, t.name))
     return teams
 
 

@@ -1,6 +1,7 @@
 .DS_Store
 __pycache__/
 *.pyc
+backend/.env
 injury_cache.json
 goalie_ir_cache.json
 build/

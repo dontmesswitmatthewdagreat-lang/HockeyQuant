@@ -36,7 +36,7 @@ TEAM_NAMES_DF = {
     'NYR': 'new-york-rangers', 'OTT': 'ottawa-senators', 'PHI': 'philadelphia-flyers',
     'PIT': 'pittsburgh-penguins', 'SJS': 'san-jose-sharks', 'SEA': 'seattle-kraken',
     'STL': 'st-louis-blues', 'TBL': 'tampa-bay-lightning', 'TOR': 'toronto-maple-leafs',
-    'UTA': 'utah-hockey-club', 'VAN': 'vancouver-canucks', 'VGK': 'vegas-golden-knights',
+    'UTA': 'utah-mammoth', 'VAN': 'vancouver-canucks', 'VGK': 'vegas-golden-knights',
     'WSH': 'washington-capitals', 'WPG': 'winnipeg-jets',
 }
 
@@ -51,7 +51,7 @@ ESPN_TEAM_MAPPING = {
     'New York Rangers': 'NYR', 'Ottawa Senators': 'OTT', 'Philadelphia Flyers': 'PHI',
     'Pittsburgh Penguins': 'PIT', 'San Jose Sharks': 'SJS', 'Seattle Kraken': 'SEA',
     'St. Louis Blues': 'STL', 'Tampa Bay Lightning': 'TBL', 'Toronto Maple Leafs': 'TOR',
-    'Utah Hockey Club': 'UTA', 'Vancouver Canucks': 'VAN', 'Vegas Golden Knights': 'VGK',
+    'Utah Hockey Club': 'UTA', 'Utah Mammoth': 'UTA', 'Vancouver Canucks': 'VAN', 'Vegas Golden Knights': 'VGK',
     'Washington Capitals': 'WSH', 'Winnipeg Jets': 'WPG',
 }
 
