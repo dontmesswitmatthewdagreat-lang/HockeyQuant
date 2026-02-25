@@ -15,6 +15,7 @@ function GameCard({ prediction }) {
     is_official,
     goalie_status_away,
     goalie_status_home,
+    betting_lines,
   } = prediction;
 
   const [showSummary, setShowSummary] = useState(false);
@@ -159,6 +160,85 @@ function GameCard({ prediction }) {
           </div>
         </div>
       </div>
+
+      {/* Betting Lines */}
+      {betting_lines && (
+        <div className="betting-lines-section">
+          <div className="betting-lines-header">
+            <span>Betting Lines</span>
+            <span className="betting-source">
+              {betting_lines.puck_line_source !== 'Standard' && betting_lines.puck_line_source !== 'Model'
+                ? `via ${betting_lines.puck_line_source}`
+                : 'Model Estimated'}
+            </span>
+          </div>
+
+          <div className="betting-lines-grid">
+            {/* Expected Goals */}
+            <div className="betting-line-row expected-goals-row">
+              <span className="betting-label">Expected Goals</span>
+              <div className="expected-goals-display">
+                <span className="xg-team">{away.team} {betting_lines.away_expected_goals.toFixed(1)}</span>
+                <span className="xg-separator">|</span>
+                <span className="xg-team">{home.team} {betting_lines.home_expected_goals.toFixed(1)}</span>
+              </div>
+            </div>
+
+            {/* Puck Line */}
+            <div className="betting-line-row">
+              <div className="betting-line-main">
+                <span className="betting-label">Puck Line</span>
+                <span className="betting-value">
+                  {home.team} {betting_lines.puck_line > 0 ? '+' : ''}{betting_lines.puck_line}
+                </span>
+              </div>
+              <div className="betting-probs">
+                <span className={`prob-badge ${betting_lines.puck_line_home_cover_prob > 50 ? 'favorable' : ''}`}>
+                  {home.team} {betting_lines.puck_line_home_cover_prob}%
+                </span>
+                <span className={`prob-badge ${betting_lines.puck_line_away_cover_prob > 50 ? 'favorable' : ''}`}>
+                  {away.team} {betting_lines.puck_line_away_cover_prob}%
+                </span>
+              </div>
+              {betting_lines.optimal_spread !== betting_lines.puck_line && (
+                <div className="optimal-line">
+                  <span className="optimal-label">Optimal</span>
+                  <span className="optimal-value">
+                    {betting_lines.optimal_spread_side === 'home' ? home.team : away.team}{' '}
+                    {betting_lines.optimal_spread > 0 ? '+' : ''}{betting_lines.optimal_spread}
+                    {' '}({betting_lines.optimal_spread_prob}%)
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {/* Over/Under */}
+            <div className="betting-line-row">
+              <div className="betting-line-main">
+                <span className="betting-label">Over/Under</span>
+                <span className="betting-value">{betting_lines.over_under}</span>
+              </div>
+              <div className="betting-probs">
+                <span className={`prob-badge ${betting_lines.over_prob > 50 ? 'favorable' : ''}`}>
+                  OVER {betting_lines.over_prob}%
+                </span>
+                <span className={`prob-badge ${betting_lines.under_prob > 50 ? 'favorable' : ''}`}>
+                  UNDER {betting_lines.under_prob}%
+                </span>
+              </div>
+              {betting_lines.optimal_total !== betting_lines.over_under && (
+                <div className="optimal-line">
+                  <span className="optimal-label">Optimal</span>
+                  <span className="optimal-value">
+                    {betting_lines.optimal_total_rec} {betting_lines.optimal_total}
+                    {' '}({betting_lines.optimal_total_prob}%)
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Key Factors */}
       <div className="key-factors-section">

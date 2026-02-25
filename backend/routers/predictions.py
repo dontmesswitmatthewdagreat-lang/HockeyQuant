@@ -63,6 +63,33 @@ class TeamAnalysis(BaseModel):
     h2h_mult: float
 
 
+class BettingLines(BaseModel):
+    """Puck line and over/under predictions with Poisson probabilities"""
+    away_expected_goals: float
+    home_expected_goals: float
+    predicted_total: float
+    predicted_margin: float          # home - away (positive = home favored)
+    # Puck Line
+    puck_line: float                 # official spread (home perspective, e.g., -1.5)
+    puck_line_source: str            # "DraftKings", "FanDuel", or "Standard"
+    puck_line_home_cover_prob: float # percentage (0-100)
+    puck_line_away_cover_prob: float # percentage (0-100)
+    # Optimal alternate spread
+    optimal_spread: float
+    optimal_spread_prob: float       # percentage (0-100)
+    optimal_spread_side: str         # "home" or "away"
+    # Over/Under
+    over_under: float                # official total line (e.g., 6.5)
+    over_under_source: str           # "DraftKings", "FanDuel", or "Model"
+    over_prob: float                 # percentage (0-100)
+    under_prob: float                # percentage (0-100)
+    push_prob: float = 0.0           # percentage (0-100), nonzero for whole-number lines
+    # Optimal alternate total
+    optimal_total: float
+    optimal_total_prob: float        # percentage (0-100)
+    optimal_total_rec: str           # "OVER" or "UNDER"
+
+
 class GamePrediction(BaseModel):
     away: TeamAnalysis
     home: TeamAnalysis
@@ -70,12 +97,14 @@ class GamePrediction(BaseModel):
     diff: float
     confidence: str
     factors: List[str]
-    # New fields for per-game prediction timing
+    # Per-game prediction timing
     game_time: Optional[str] = None           # ISO timestamp of game start (UTC)
     is_official: bool = False                 # True if within 15-min window (locked)
     official_at: Optional[str] = None         # ISO timestamp when prediction becomes official
     goalie_status_away: str = "expected"      # "confirmed" | "expected"
     goalie_status_home: str = "expected"      # "confirmed" | "expected"
+    # Betting lines (puck line + over/under)
+    betting_lines: Optional[BettingLines] = None
 
 
 class PredictionStatus(BaseModel):
@@ -252,6 +281,10 @@ async def get_predictions(date_str: str):
             except Exception:
                 pass
 
+        # Build betting lines if available
+        betting_lines_data = r.get('betting_lines')
+        betting_lines = BettingLines(**betting_lines_data) if betting_lines_data else None
+
         predictions.append(GamePrediction(
             away=TeamAnalysis(**r['away']),
             home=TeamAnalysis(**r['home']),
@@ -264,6 +297,7 @@ async def get_predictions(date_str: str):
             official_at=official_at_str,
             goalie_status_away=r.get('goalie_status_away', 'expected'),
             goalie_status_home=r.get('goalie_status_home', 'expected'),
+            betting_lines=betting_lines,
         ))
 
     return PredictionsResponse(

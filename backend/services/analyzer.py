@@ -9,6 +9,11 @@ from typing import Optional, Dict, List, Any
 
 from .constants import TEAM_TIMEZONES, NHL_DIVISIONS, NHL_CONFERENCES
 from .data_loader import get_data_loader
+from .goal_predictor import (
+    GoalPredictor, calc_over_under_prob, calc_spread_prob,
+    find_optimal_total, find_optimal_spread,
+)
+from .odds_fetcher import fetch_nhl_odds
 
 
 def get_nhl_seasons():
@@ -768,6 +773,65 @@ class NHLAnalyzer:
             return "confirmed"
         return "expected"
 
+    def _build_betting_lines(self, goal_pred: Dict, market_odds, home_abbrev: str, away_abbrev: str) -> Dict:
+        """Build complete betting lines data from goal predictions and market odds."""
+        pred_away = goal_pred["away_expected_goals"]
+        pred_home = goal_pred["home_expected_goals"]
+
+        betting = {
+            "predicted_total": goal_pred["predicted_total"],
+            "predicted_margin": goal_pred["predicted_margin"],
+            "away_expected_goals": pred_away,
+            "home_expected_goals": pred_home,
+        }
+
+        # --- Puck Line ---
+        if market_odds and market_odds.spread_home is not None:
+            official_spread = market_odds.spread_home
+            betting["puck_line"] = official_spread
+            betting["puck_line_source"] = market_odds.bookmaker or "Market"
+        else:
+            # Default NHL puck line: favorite gets -1.5
+            if goal_pred["predicted_margin"] >= 0:
+                official_spread = -1.5  # home favored
+            else:
+                official_spread = 1.5   # away favored
+            betting["puck_line"] = official_spread
+            betting["puck_line_source"] = "Standard"
+
+        spread_probs = calc_spread_prob(pred_away, pred_home, official_spread)
+        betting["puck_line_home_cover_prob"] = round(spread_probs["home_cover"] * 100, 1)
+        betting["puck_line_away_cover_prob"] = round(spread_probs["away_cover"] * 100, 1)
+
+        # Optimal alternate spread
+        opt_line, opt_prob, opt_side = find_optimal_spread(pred_away, pred_home)
+        betting["optimal_spread"] = opt_line
+        betting["optimal_spread_prob"] = round(opt_prob * 100, 1)
+        betting["optimal_spread_side"] = opt_side
+
+        # --- Over/Under ---
+        if market_odds and market_odds.total is not None:
+            official_total = market_odds.total
+            betting["over_under"] = official_total
+            betting["over_under_source"] = market_odds.bookmaker or "Market"
+        else:
+            official_total = round(goal_pred["predicted_total"] * 2) / 2
+            betting["over_under"] = official_total
+            betting["over_under_source"] = "Model"
+
+        ou_probs = calc_over_under_prob(pred_away, pred_home, official_total)
+        betting["over_prob"] = round(ou_probs["over"] * 100, 1)
+        betting["under_prob"] = round(ou_probs["under"] * 100, 1)
+        betting["push_prob"] = round(ou_probs["push"] * 100, 1)
+
+        # Optimal alternate total
+        opt_total, opt_total_prob, opt_total_rec = find_optimal_total(pred_away, pred_home)
+        betting["optimal_total"] = opt_total
+        betting["optimal_total_prob"] = round(opt_total_prob * 100, 1)
+        betting["optimal_total_rec"] = opt_total_rec
+
+        return betting
+
     def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None) -> List[Dict]:
         """Analyze all games for a given date
 
@@ -835,6 +899,35 @@ class NHLAnalyzer:
             except Exception as e:
                 print(f"Error analyzing {game['away']} @ {game['home']}: {e}")
                 continue
+
+        # Compute betting lines (puck line + over/under) for each game
+        try:
+            goal_predictor = GoalPredictor(data_loader=self.data_loader, analyzer=self)
+            # Collect UTC dates from game times for odds matching
+            game_utc_dates = set()
+            for result in results:
+                gt = result.get('game_time', '')
+                if gt:
+                    game_utc_dates.add(gt[:10])
+            all_odds = fetch_nhl_odds(date_str, game_utc_dates or None)
+
+            for result in results:
+                try:
+                    goal_pred = goal_predictor.predict_goals(
+                        result['away']['team'], result['home']['team'],
+                        result['away'], result['home'],
+                    )
+                    game_key = f"{result['away']['team']}_{result['home']['team']}"
+                    market_odds = all_odds.get(game_key)
+                    result['betting_lines'] = self._build_betting_lines(
+                        goal_pred, market_odds,
+                        result['home']['team'], result['away']['team'],
+                    )
+                except Exception as e:
+                    print(f"Error computing betting lines: {e}")
+                    result['betting_lines'] = None
+        except Exception as e:
+            print(f"Error initializing betting lines: {e}")
 
         # Sort by confidence
         return sorted(results, key=lambda r: r['diff'], reverse=True)

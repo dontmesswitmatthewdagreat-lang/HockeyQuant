@@ -41,6 +41,20 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - Scoring formula: `base_score * fatigue_mult * streak_mult * st_mult * injury_mult * h2h_mult`
 - Confidence levels: STRONG (≥10pt diff), MODERATE (≥5pt), CLOSE (<5pt)
 
+### Goal Prediction Engine (Betting Lines)
+`backend/services/goal_predictor.py` - Dixon-Coles/Poisson model for actual goal predictions:
+- Separate from quality-score moneyline — predicts actual expected goals per team
+- Blends MoneyPuck xG (65%) with actual goals (35%) for offensive/defensive strength
+- Adjusts for: goalie GSAX, fatigue, injuries, special teams, home ice (+3%)
+- Poisson probability matrix (11×11) for spread and total probabilities
+- Used for: puck line predictions, over/under predictions, optimal alternate lines
+
+### Odds Fetcher
+`backend/services/odds_fetcher.py` - Fetches real sportsbook lines from The Odds API:
+- Free tier (500 req/month), 30-minute in-memory cache
+- Provides spreads (puck line) and totals (O/U) from DraftKings/FanDuel
+- Graceful fallback: defaults to ±1.5 puck line and model-estimated O/U if no API key
+
 ### API Endpoints
 
 **Predictions:**
@@ -55,6 +69,12 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - `is_official` - True if within 15-min window before game (locked)
 - `official_at` - ISO timestamp when prediction becomes official
 - `goalie_status_away/home` - "confirmed" or "expected" based on Daily Faceoff
+- `betting_lines` - Puck line and O/U predictions with Poisson probabilities:
+  - `away_expected_goals`, `home_expected_goals`, `predicted_total`, `predicted_margin`
+  - `puck_line`, `puck_line_source`, `puck_line_home_cover_prob`, `puck_line_away_cover_prob`
+  - `over_under`, `over_under_source`, `over_prob`, `under_prob`, `push_prob`
+  - `optimal_spread`, `optimal_spread_prob`, `optimal_spread_side`
+  - `optimal_total`, `optimal_total_prob`, `optimal_total_rec`
 
 **Teams:**
 - `GET /api/teams` - All 32 teams with division/conference info
@@ -114,7 +134,7 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - Frontend: Vercel (hockeyquant.vercel.app)
 - Backend: Render (hockeyquant.onrender.com)
 - CI/CD: GitHub Actions for accuracy automation and Windows builds
-- **Environment Variables (Render):** `GROQ_API_KEY` required for AI summaries
+- **Environment Variables (Render):** `GROQ_API_KEY` required for AI summaries, `ODDS_API_KEY` optional for real sportsbook lines
 
 ### Per-Game Prediction Scheduling
 Predictions become "official" 15 minutes before each individual game start time:
@@ -182,6 +202,8 @@ Predictions become "official" 15 minutes before each individual game start time:
 | `backend/routers/accuracy.py` | Accuracy tracking, storage, trend analysis |
 | `backend/routers/models.py` | User custom models CRUD, predictions with custom weights |
 | `backend/routers/summary.py` | AI game explanation endpoint (Groq/Llama), in-memory cache |
+| `backend/services/goal_predictor.py` | Dixon-Coles/Poisson goal prediction + probability math |
+| `backend/services/odds_fetcher.py` | The Odds API client for sportsbook lines |
 
 ### Frontend
 | File | Purpose |
@@ -203,6 +225,7 @@ Predictions become "official" 15 minutes before each individual game start time:
 - **MoneyPuck** (CSV feeds): xG (expected goals), goalie metrics (GSAX), skater stats
 - **ESPN** (web scraped): Injury reports with player importance scoring
 - **Daily Faceoff** (web scraped): Confirmed starting goalies
+- **The Odds API** (`api.the-odds-api.com`): Sportsbook spreads (puck line) and totals (O/U)
 
 ## Prediction Multipliers
 
