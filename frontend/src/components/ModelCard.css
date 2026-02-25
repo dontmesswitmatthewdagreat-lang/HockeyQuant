@@ -1,5 +1,5 @@
 .model-card {
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.5rem;
@@ -60,8 +60,8 @@
 }
 
 .delete-btn:hover {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
 }
 
 .model-description {

@@ -1,4 +1,5 @@
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -14,26 +15,28 @@ import './App.css';
 
 function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <div className="app">
-          <Navbar />
-          <main className="main-content">
-            <Routes>
-              <Route path="/" element={<Home />} />
-              <Route path="/games" element={<Predictions />} />
-              <Route path="/teams" element={<Teams />} />
-              <Route path="/accuracy" element={<Accuracy />} />
-              <Route path="/models" element={<Models />} />
-              <Route path="/about" element={<About />} />
-              <Route path="/account" element={<Account />} />
-              <Route path="/login" element={<LoginForm />} />
-              <Route path="/signup" element={<SignupForm />} />
-            </Routes>
-          </main>
-        </div>
-      </AuthProvider>
-    </Router>
+    <ThemeProvider>
+      <Router>
+        <AuthProvider>
+          <div className="app">
+            <Navbar />
+            <main className="main-content">
+              <Routes>
+                <Route path="/" element={<Home />} />
+                <Route path="/games" element={<Predictions />} />
+                <Route path="/teams" element={<Teams />} />
+                <Route path="/accuracy" element={<Accuracy />} />
+                <Route path="/models" element={<Models />} />
+                <Route path="/about" element={<About />} />
+                <Route path="/account" element={<Account />} />
+                <Route path="/login" element={<LoginForm />} />
+                <Route path="/signup" element={<SignupForm />} />
+              </Routes>
+            </main>
+          </div>
+        </AuthProvider>
+      </Router>
+    </ThemeProvider>
   );
 }
 

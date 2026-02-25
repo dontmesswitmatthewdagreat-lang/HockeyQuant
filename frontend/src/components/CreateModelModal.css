@@ -13,7 +13,7 @@
 }
 
 .modal-content {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 2rem;
   width: 100%;
@@ -57,6 +57,8 @@
   border-radius: 8px;
   font-size: 0.95rem;
   font-family: var(--font-body);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
   transition: border-color 0.2s ease;
   box-sizing: border-box;
 }
@@ -92,17 +94,17 @@
   font-size: 1.1rem;
   padding: 0.25rem 0.75rem;
   border-radius: 6px;
-  background: white;
+  background: var(--bg-card);
 }
 
 .weights-total.valid {
   color: var(--accent-green);
-  background: #dcfce7;
+  background: var(--success-bg);
 }
 
 .weights-total.invalid {
-  color: #dc2626;
-  background: #fef2f2;
+  color: var(--error-text);
+  background: var(--error-bg);
 }
 
 /* Weight Slider Rows */
@@ -139,7 +141,7 @@
   height: 8px;
   -webkit-appearance: none;
   appearance: none;
-  background: #e5e7eb;
+  background: var(--border-color);
   border-radius: 4px;
   outline: none;
 }
@@ -174,6 +176,8 @@
   font-size: 0.9rem;
   text-align: center;
   font-family: var(--font-body);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
 }
 
 .weight-input:focus {
@@ -203,13 +207,13 @@
 
 /* Error Message */
 .form-error {
-  background: #fef2f2;
-  color: #dc2626;
+  background: var(--error-bg);
+  color: var(--error-text);
   padding: 0.75rem 1rem;
   border-radius: 8px;
   font-size: 0.9rem;
   margin-bottom: 1rem;
-  border: 1px solid #fecaca;
+  border: 1px solid var(--error-border);
 }
 
 /* Modal Actions */
@@ -223,7 +227,7 @@
 .btn-cancel {
   padding: 0.75rem 1.5rem;
   border: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-card);
   color: var(--text-primary);
   border-radius: 8px;
   font-size: 0.95rem;

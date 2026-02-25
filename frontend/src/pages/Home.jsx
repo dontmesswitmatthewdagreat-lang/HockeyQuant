@@ -7,7 +7,7 @@ function Home() {
       {/* Hero Section */}
       <section className="hero">
         <img src="/logo.png" alt="HockeyQuant" className="hero-logo" />
-        <h1 className="hero-title">AI-Powered NHL Predictions</h1>
+        <h1 className="hero-title">Unorthodox Predictions and Statistics</h1>
         <p className="hero-subtitle">
           Data-driven game predictions using real-time stats, goalie tracking, injury reports, and advanced analytics.
         </p>

@@ -11,7 +11,7 @@
   justify-content: center;
   gap: 1rem;
   padding: 1.5rem;
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   margin-bottom: 1.5rem;
@@ -21,7 +21,7 @@
   width: 40px;
   height: 40px;
   border: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-card);
   border-radius: 8px;
   cursor: pointer;
   display: flex;
@@ -70,7 +70,7 @@
 .quick-nav-btn {
   padding: 0.5rem 1rem;
   border: 1px solid var(--border-color);
-  background: white;
+  background: var(--bg-card);
   border-radius: 20px;
   font-size: 0.85rem;
   font-weight: 500;
@@ -99,7 +99,7 @@
 }
 
 .summary-stats .stat-card {
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1.25rem;
@@ -135,7 +135,7 @@
 .no-games {
   text-align: center;
   padding: 4rem 2rem;
-  background: white;
+  background: var(--bg-card);
   border: 1px solid var(--border-color);
   border-radius: 12px;
 }
@@ -168,13 +168,13 @@
 .error-message {
   text-align: center;
   padding: 2rem;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: var(--error-bg);
+  border: 1px solid var(--error-border);
   border-radius: 12px;
 }
 
 .error-message p {
-  color: #dc2626;
+  color: var(--error-text);
   font-family: var(--font-body);
   margin: 0 0 1rem 0;
 }
@@ -216,7 +216,7 @@
 }
 
 .disclaimer-modal {
-  background: white;
+  background: var(--bg-card);
   border-radius: 16px;
   padding: 2rem;
   max-width: 420px;

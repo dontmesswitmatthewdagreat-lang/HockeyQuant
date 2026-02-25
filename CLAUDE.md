@@ -58,9 +58,12 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 
 **Teams:**
 - `GET /api/teams` - All 32 teams with division/conference info
-- `GET /api/teams/{abbrev}` - Team details (standings, xG, goalies, injuries, form)
+- `GET /api/teams/{abbrev}` - Team details (standings, xG, goalies, injuries, form, advanced stats)
 - `GET /api/teams/{abbrev}/goalies` - Team's goalie stats (GSAX, SV%, GAA)
 - `GET /api/divisions` - NHL division structure
+
+**AI Summary:**
+- `POST /api/summary` - Generate AI explanation for a prediction pick (Groq/Llama, cached per game per day)
 
 **Accuracy:**
 - `GET /api/accuracy/stats` - Accuracy with filters (date range, team, confidence)
@@ -111,6 +114,7 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - Frontend: Vercel (hockeyquant.vercel.app)
 - Backend: Render (hockeyquant.onrender.com)
 - CI/CD: GitHub Actions for accuracy automation and Windows builds
+- **Environment Variables (Render):** `GROQ_API_KEY` required for AI summaries
 
 ### Per-Game Prediction Scheduling
 Predictions become "official" 15 minutes before each individual game start time:
@@ -147,13 +151,17 @@ Predictions become "official" 15 minutes before each individual game start time:
 | Component | Purpose |
 |-----------|---------|
 | `Navbar.jsx` | Responsive nav with hamburger menu, auth-aware user menu |
-| `GameCard.jsx` | Prediction display with status banner (official/estimated), confidence badge, goalie confirmation indicators |
+| `GameCard.jsx` | Prediction display with confidence banners, "Predicted Winner" label, per-team goalie badges, expandable AI summary ("Why [team]?") |
 | `AccuracyChart.jsx` | Recharts line chart with rolling/cumulative accuracy, window selector |
 | `ProgressBar.jsx` | Animated loading with cycling status messages |
 | `UserMenu.jsx` | Avatar dropdown with account links and logout |
 | `LoginForm.jsx` / `SignupForm.jsx` | Supabase authentication forms |
 
 ### Advanced Frontend Features
+- **Dark Mode**: Toggle via ThemeContext, persisted to localStorage, CSS variables with `[data-theme="dark"]` selectors
+- **AI Game Summaries**: Expandable "Why [team]?" button on each GameCard, powered by Groq (llama-3.1-8b-instant), cached per game per day
+- **GameCard Redesign**: Confidence color banners (green/yellow/gray), "Predicted Winner" centered label, 100px team logos, per-team goalie status badges (confirmed ✓ / expected ?)
+- **Advanced Team Stats**: Tabbed view in team detail modal — Overview, Advanced (Corsi%, Fenwick%, xG%, PDO), Goalies
 - **Client-side Caching**: Module-level cache with 5-min TTL, cache indicators in UI
 - **Per-Game Status Display**: Official (green) vs Estimated (yellow) status banners, goalie confirmation badges
 - **Authentication**: Supabase auth with session management, protected routes, user profiles
@@ -173,12 +181,14 @@ Predictions become "official" 15 minutes before each individual game start time:
 | `backend/routers/teams.py` | Team and goalie API endpoints |
 | `backend/routers/accuracy.py` | Accuracy tracking, storage, trend analysis |
 | `backend/routers/models.py` | User custom models CRUD, predictions with custom weights |
+| `backend/routers/summary.py` | AI game explanation endpoint (Groq/Llama), in-memory cache |
 
 ### Frontend
 | File | Purpose |
 |------|---------|
 | `frontend/src/api.js` | API client with all endpoint functions |
 | `frontend/src/context/AuthContext.jsx` | Supabase auth state management |
+| `frontend/src/context/ThemeContext.jsx` | Dark mode toggle, localStorage persistence, `data-theme` attribute |
 | `frontend/src/pages/Predictions.jsx` | Games UI with date nav, summary stats, 2-column grid |
 | `frontend/src/pages/Teams.jsx` | Team browser with detail modals |
 | `frontend/src/pages/Models.jsx` | User custom models with weight sliders |
@@ -211,6 +221,7 @@ Predictions become "official" 15 minutes before each individual game start time:
 - pandas, requests, httpx (data processing)
 - beautifulsoup4 (web scraping)
 - pydantic (validation)
+- groq (AI summary generation via Groq API)
 
 ### Frontend
 - react 19, react-dom, react-router-dom 7 (UI framework)

@@ -15,6 +15,7 @@ function Teams() {
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDivision, setSelectedDivision] = useState('All');
+  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
     loadTeams();
@@ -33,6 +34,7 @@ function Teams() {
 
   async function handleTeamClick(abbrev) {
     setSelectedTeam(abbrev);
+    setActiveTab('overview');
     setDetailsLoading(true);
     try {
       const data = await fetchTeam(abbrev);
@@ -245,70 +247,206 @@ function Teams() {
                   </div>
                 </div>
 
-                <div className="stats-grid">
-                  <div className="stat-box">
-                    <span className="stat-label">Record</span>
-                    <span className="stat-value">
-                      {teamDetails.stats.wins}-{teamDetails.stats.losses}-{teamDetails.stats.otl}
-                    </span>
-                  </div>
-                  <div className="stat-box">
-                    <span className="stat-label">Points</span>
-                    <span className="stat-value">{teamDetails.stats.points}</span>
-                  </div>
-                  <div className="stat-box">
-                    <span className="stat-label">Points %</span>
-                    <span className="stat-value">
-                      {(teamDetails.stats.points_pct * 100).toFixed(1)}%
-                    </span>
-                  </div>
-                  <div className="stat-box">
-                    <span className="stat-label">Goal Diff</span>
-                    <span className={`stat-value ${teamDetails.stats.goal_diff >= 0 ? 'positive' : 'negative'}`}>
-                      {teamDetails.stats.goal_diff >= 0 ? '+' : ''}{teamDetails.stats.goal_diff}
-                    </span>
-                  </div>
-                  {teamDetails.stats.xgf && (
-                    <div className="stat-box">
-                      <span className="stat-label">xGF</span>
-                      <span className="stat-value">{teamDetails.stats.xgf}</span>
-                    </div>
-                  )}
-                  {teamDetails.stats.xga && (
-                    <div className="stat-box">
-                      <span className="stat-label">xGA</span>
-                      <span className="stat-value">{teamDetails.stats.xga}</span>
-                    </div>
-                  )}
+                {/* Tab Navigation */}
+                <div className="detail-tabs">
+                  <button
+                    className={`detail-tab ${activeTab === 'overview' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('overview')}
+                  >
+                    Overview
+                  </button>
+                  <button
+                    className={`detail-tab ${activeTab === 'advanced' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('advanced')}
+                  >
+                    Advanced Stats
+                  </button>
+                  <button
+                    className={`detail-tab ${activeTab === 'roster' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('roster')}
+                  >
+                    Goalies & Injuries
+                  </button>
                 </div>
 
-                <h3 className="section-title">Goalies</h3>
-                <div className="goalies-list">
-                  {teamDetails.goalies.map((goalie, i) => (
-                    <div key={i} className="goalie-row">
-                      <span className="goalie-name">
-                        {goalie.name} {goalie.is_starter && <span className="starter-badge">Starter</span>}
-                      </span>
-                      <div className="goalie-stats">
-                        <span className="goalie-stat">GSAx: {goalie.gsax.toFixed(1)}</span>
-                        <span className="goalie-stat">Sv%: {(goalie.sv_pct * 100).toFixed(1)}%</span>
-                        <span className="goalie-stat">GAA: {goalie.gaa.toFixed(2)}</span>
+                {/* Overview Tab */}
+                {activeTab === 'overview' && (
+                  <>
+                    <div className="stats-grid">
+                      <div className="stat-box">
+                        <span className="stat-label">Record</span>
+                        <span className="stat-value">
+                          {teamDetails.stats.wins}-{teamDetails.stats.losses}-{teamDetails.stats.otl}
+                        </span>
+                      </div>
+                      <div className="stat-box">
+                        <span className="stat-label">Points</span>
+                        <span className="stat-value">{teamDetails.stats.points}</span>
+                      </div>
+                      <div className="stat-box">
+                        <span className="stat-label">Points %</span>
+                        <span className="stat-value">
+                          {(teamDetails.stats.points_pct * 100).toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="stat-box">
+                        <span className="stat-label">Goal Diff</span>
+                        <span className={`stat-value ${teamDetails.stats.goal_diff >= 0 ? 'positive' : 'negative'}`}>
+                          {teamDetails.stats.goal_diff >= 0 ? '+' : ''}{teamDetails.stats.goal_diff}
+                        </span>
+                      </div>
+                      {teamDetails.stats.xgf && (
+                        <div className="stat-box">
+                          <span className="stat-label">xGF</span>
+                          <span className="stat-value">{teamDetails.stats.xgf}</span>
+                        </div>
+                      )}
+                      {teamDetails.stats.xga && (
+                        <div className="stat-box">
+                          <span className="stat-label">xGA</span>
+                          <span className="stat-value">{teamDetails.stats.xga}</span>
+                        </div>
+                      )}
+                    </div>
+                    <h3 className="section-title">Recent Form</h3>
+                    <p className="recent-form">{teamDetails.recent_form}</p>
+                  </>
+                )}
+
+                {/* Advanced Stats Tab */}
+                {activeTab === 'advanced' && teamDetails.advanced_stats && (
+                  <div className="advanced-stats-content">
+                    <div className="advanced-section">
+                      <h4 className="advanced-section-title">Possession</h4>
+                      <div className="stats-grid three-col">
+                        <div className="stat-box">
+                          <span className="stat-label">Corsi%</span>
+                          <span className={`stat-value ${teamDetails.advanced_stats.corsi_pct > 50 ? 'positive' : teamDetails.advanced_stats.corsi_pct < 50 ? 'negative' : ''}`}>
+                            {teamDetails.advanced_stats.corsi_pct}%
+                          </span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">Fenwick%</span>
+                          <span className={`stat-value ${teamDetails.advanced_stats.fenwick_pct > 50 ? 'positive' : teamDetails.advanced_stats.fenwick_pct < 50 ? 'negative' : ''}`}>
+                            {teamDetails.advanced_stats.fenwick_pct}%
+                          </span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">xG%</span>
+                          <span className={`stat-value ${teamDetails.advanced_stats.xg_pct > 50 ? 'positive' : teamDetails.advanced_stats.xg_pct < 50 ? 'negative' : ''}`}>
+                            {teamDetails.advanced_stats.xg_pct}%
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  ))}
-                </div>
 
-                <h3 className="section-title">Recent Form</h3>
-                <p className="recent-form">{teamDetails.recent_form}</p>
+                    <div className="advanced-section">
+                      <h4 className="advanced-section-title">Efficiency</h4>
+                      <div className="stats-grid three-col">
+                        <div className="stat-box">
+                          <span className="stat-label">PDO</span>
+                          <span className={`stat-value ${teamDetails.advanced_stats.pdo > 100.5 ? 'positive' : teamDetails.advanced_stats.pdo < 99.5 ? 'negative' : ''}`}>
+                            {teamDetails.advanced_stats.pdo}
+                          </span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">Sh%</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.shooting_pct}%</span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">Sv%</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.save_pct}%</span>
+                        </div>
+                      </div>
+                    </div>
 
-                {teamDetails.injuries.length > 0 && (
+                    <div className="advanced-section">
+                      <h4 className="advanced-section-title">High Danger</h4>
+                      <div className="stats-grid three-col">
+                        <div className="stat-box">
+                          <span className="stat-label">HD CF%</span>
+                          <span className={`stat-value ${teamDetails.advanced_stats.hd_cf_pct > 50 ? 'positive' : teamDetails.advanced_stats.hd_cf_pct < 50 ? 'negative' : ''}`}>
+                            {teamDetails.advanced_stats.hd_cf_pct}%
+                          </span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">HD GF</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.hd_goals_for}</span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">HD GA</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.hd_goals_against}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="advanced-section">
+                      <h4 className="advanced-section-title">Special Teams</h4>
+                      <div className="stats-grid two-col">
+                        <div className="stat-box">
+                          <span className="stat-label">PP%</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.pp_pct}%</span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">PK%</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.pk_pct}%</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="advanced-section">
+                      <h4 className="advanced-section-title">Shot Rates (per game)</h4>
+                      <div className="stats-grid two-col">
+                        <div className="stat-box">
+                          <span className="stat-label">SOG For/G</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.shots_for_pg}</span>
+                        </div>
+                        <div className="stat-box">
+                          <span className="stat-label">SOG Against/G</span>
+                          <span className="stat-value">{teamDetails.advanced_stats.shots_against_pg}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'advanced' && !teamDetails.advanced_stats && (
+                  <p className="recent-form">Advanced stats are not available for this team.</p>
+                )}
+
+                {/* Goalies & Injuries Tab */}
+                {activeTab === 'roster' && (
                   <>
-                    <h3 className="section-title">Injuries</h3>
-                    <div className="injuries-list">
-                      {teamDetails.injuries.map((injury, i) => (
-                        <span key={i} className="injury-tag">{injury}</span>
+                    <h3 className="section-title">Goalies</h3>
+                    <div className="goalies-list">
+                      {teamDetails.goalies.map((goalie, i) => (
+                        <div key={i} className="goalie-row">
+                          <span className="goalie-name">
+                            {goalie.name} {goalie.is_starter && <span className="starter-badge">Starter</span>}
+                          </span>
+                          <div className="goalie-stats">
+                            <span className="goalie-stat">GSAx: {goalie.gsax.toFixed(1)}</span>
+                            <span className="goalie-stat">Sv%: {(goalie.sv_pct * 100).toFixed(1)}%</span>
+                            <span className="goalie-stat">GAA: {goalie.gaa.toFixed(2)}</span>
+                          </div>
+                        </div>
                       ))}
                     </div>
+
+                    {teamDetails.injuries.length > 0 && (
+                      <>
+                        <h3 className="section-title">Injuries</h3>
+                        <div className="injuries-list">
+                          {teamDetails.injuries.map((injury, i) => (
+                            <span key={i} className="injury-tag">{injury}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {teamDetails.injuries.length === 0 && (
+                      <p className="recent-form" style={{ marginTop: '1rem' }}>No injuries reported.</p>
+                    )}
                   </>
                 )}
               </div>

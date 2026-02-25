@@ -3,7 +3,9 @@
  * Uses VITE_API_URL env var for local dev, falls back to production
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || 'https://hockeyquant.onrender.com';
+const isLocal = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+const API_BASE = import.meta.env.VITE_API_URL
+  || (isLocal ? 'http://localhost:8000' : 'https://hockeyquant.onrender.com');
 
 export async function fetchPredictions(date) {
   const response = await fetch(`${API_BASE}/api/predictions/${date}`);
@@ -205,6 +207,50 @@ export async function deleteModel(token, modelId) {
   });
   if (!response.ok) {
     throw new Error('Failed to delete model');
+  }
+  return response.json();
+}
+
+/**
+ * Generate an AI summary explaining the prediction pick
+ * @param {object} prediction - Full prediction object from the predictions API
+ */
+export async function fetchGameSummary(prediction) {
+  const response = await fetch(`${API_BASE}/api/summary`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      away: {
+        team: prediction.away.team,
+        final_score: prediction.away.final_score,
+        goalie: prediction.away.goalie,
+        goalie_gsax: prediction.away.goalie_gsax,
+        goalie_sv_pct: prediction.away.goalie_sv_pct,
+        fatigue: prediction.away.fatigue,
+        streak: prediction.away.streak,
+        injuries: prediction.away.injuries,
+        h2h: prediction.away.h2h,
+      },
+      home: {
+        team: prediction.home.team,
+        final_score: prediction.home.final_score,
+        goalie: prediction.home.goalie,
+        goalie_gsax: prediction.home.goalie_gsax,
+        goalie_sv_pct: prediction.home.goalie_sv_pct,
+        fatigue: prediction.home.fatigue,
+        streak: prediction.home.streak,
+        injuries: prediction.home.injuries,
+        h2h: prediction.home.h2h,
+      },
+      pick: prediction.pick,
+      diff: prediction.diff,
+      confidence: prediction.confidence,
+      factors: prediction.factors || [],
+      game_time: prediction.game_time,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to generate summary');
   }
   return response.json();
 }

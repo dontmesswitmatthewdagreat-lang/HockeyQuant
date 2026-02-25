@@ -64,12 +64,40 @@ class GoalieStats(BaseModel):
     is_starter: bool
 
 
+class AdvancedStats(BaseModel):
+    corsi_for: float
+    corsi_against: float
+    corsi_pct: float
+    fenwick_for: float
+    fenwick_against: float
+    fenwick_pct: float
+    xg_for: float
+    xg_against: float
+    xg_pct: float
+    pdo: float
+    shooting_pct: float
+    save_pct: float
+    hd_chances_for: int
+    hd_chances_against: int
+    hd_goals_for: int
+    hd_goals_against: int
+    hd_cf_pct: float
+    pp_pct: float
+    pk_pct: float
+    shots_for_pg: float
+    shots_against_pg: float
+    shot_attempts_for_pg: float
+    shot_attempts_against_pg: float
+    games_played: int
+
+
 class TeamDetailResponse(BaseModel):
     team: TeamBasicInfo
     stats: TeamStats
     goalies: List[GoalieStats]
     injuries: List[str]
     recent_form: str
+    advanced_stats: Optional[AdvancedStats] = None
 
 
 def get_team_division(abbrev: str) -> str:
@@ -85,6 +113,107 @@ def get_team_conference(abbrev: str) -> str:
         if div in divs:
             return conf
     return "Unknown"
+
+
+def calculate_advanced_stats(data_loader, team_abbrev: str) -> Optional[AdvancedStats]:
+    """Calculate advanced analytics from MoneyPuck data."""
+    team_data = data_loader.team_data
+    pp_data = data_loader.pp_data
+    pk_data = data_loader.pk_data
+
+    if team_data is None:
+        return None
+
+    row = team_data[team_data['team'] == team_abbrev]
+    if row.empty:
+        return None
+
+    r = row.iloc[0]
+    games = int(r['games_played'])
+    if games == 0:
+        return None
+
+    # Possession (Corsi = shot attempts, Fenwick = unblocked shot attempts)
+    cf = float(r['shotAttemptsFor'])
+    ca = float(r['shotAttemptsAgainst'])
+    corsi_pct = (cf / (cf + ca) * 100) if (cf + ca) > 0 else 50.0
+
+    ff = float(r['unblockedShotAttemptsFor'])
+    fa = float(r['unblockedShotAttemptsAgainst'])
+    fenwick_pct = (ff / (ff + fa) * 100) if (ff + fa) > 0 else 50.0
+
+    # Expected Goals
+    xgf = float(r['xGoalsFor'])
+    xga = float(r['xGoalsAgainst'])
+    xg_pct = (xgf / (xgf + xga) * 100) if (xgf + xga) > 0 else 50.0
+
+    # PDO = Sh% + Sv%
+    gf = float(r['goalsFor'])
+    ga = float(r['goalsAgainst'])
+    sog_for = float(r['shotsOnGoalFor'])
+    sog_against = float(r['shotsOnGoalAgainst'])
+
+    sh_pct = (gf / sog_for * 100) if sog_for > 0 else 8.0
+    sv_pct = ((sog_against - ga) / sog_against * 100) if sog_against > 0 else 91.0
+    pdo = sh_pct + sv_pct
+
+    # High Danger
+    hd_for = int(r['highDangerShotsFor'])
+    hd_against = int(r['highDangerShotsAgainst'])
+    hd_gf = int(r['highDangerGoalsFor'])
+    hd_ga = int(r['highDangerGoalsAgainst'])
+    hd_cf_pct = (hd_for / (hd_for + hd_against) * 100) if (hd_for + hd_against) > 0 else 50.0
+
+    # Special Teams (from PP/PK situation data)
+    pp_pct_val = 0.0
+    pk_pct_val = 0.0
+    if pp_data is not None and pk_data is not None:
+        team_pp = pp_data[pp_data['team'] == team_abbrev]
+        team_pk = pk_data[pk_data['team'] == team_abbrev]
+
+        if not team_pp.empty:
+            pp_goals = float(team_pp.iloc[0]['goalsFor'])
+            pp_shots = float(team_pp.iloc[0]['shotsOnGoalFor'])
+            # Use a reasonable PP opportunity estimate from games and penalties
+            pp_gp = float(team_pp.iloc[0]['games_played'])
+            if pp_gp > 0 and pp_shots > 0:
+                # PP% approximation: goals / (shots / ~3 shots per opportunity)
+                pp_opps = pp_shots / 3.0  # rough estimate
+                pp_pct_val = (pp_goals / pp_opps) * 100 if pp_opps > 0 else 0.0
+
+        if not team_pk.empty:
+            pk_ga = float(team_pk.iloc[0]['goalsAgainst'])
+            pk_shots_against = float(team_pk.iloc[0]['shotsOnGoalAgainst'])
+            if pk_shots_against > 0:
+                pk_opps = pk_shots_against / 3.0
+                pk_pct_val = (1 - pk_ga / pk_opps) * 100 if pk_opps > 0 else 0.0
+
+    return AdvancedStats(
+        corsi_for=round(cf, 0),
+        corsi_against=round(ca, 0),
+        corsi_pct=round(corsi_pct, 1),
+        fenwick_for=round(ff, 0),
+        fenwick_against=round(fa, 0),
+        fenwick_pct=round(fenwick_pct, 1),
+        xg_for=round(xgf, 1),
+        xg_against=round(xga, 1),
+        xg_pct=round(xg_pct, 1),
+        pdo=round(pdo, 1),
+        shooting_pct=round(sh_pct, 1),
+        save_pct=round(sv_pct, 1),
+        hd_chances_for=hd_for,
+        hd_chances_against=hd_against,
+        hd_goals_for=hd_gf,
+        hd_goals_against=hd_ga,
+        hd_cf_pct=round(hd_cf_pct, 1),
+        pp_pct=round(pp_pct_val, 1),
+        pk_pct=round(pk_pct_val, 1),
+        shots_for_pg=round(sog_for / games, 1),
+        shots_against_pg=round(sog_against / games, 1),
+        shot_attempts_for_pg=round(cf / games, 1),
+        shot_attempts_against_pg=round(ca / games, 1),
+        games_played=games,
+    )
 
 
 @router.get("/teams", response_model=List[TeamListItem])
@@ -182,6 +311,9 @@ async def get_team(abbrev: str):
     # Get recent form
     streak_mult, streak_summary, _ = analyzer.calculate_streak_multiplier(abbrev, team_stats)
 
+    # Calculate advanced stats from MoneyPuck data
+    advanced = calculate_advanced_stats(data_loader, abbrev)
+
     wins = team_stats.get('wins', 0)
     losses = team_stats.get('losses', 0)
     otl = team_stats.get('otLosses', 0)
@@ -214,6 +346,7 @@ async def get_team(abbrev: str):
         goalies=goalies,
         injuries=injuries,
         recent_form=streak_summary,
+        advanced_stats=advanced,
     )
 
 
