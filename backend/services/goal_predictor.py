@@ -128,10 +128,9 @@ def find_optimal_spread(pred_away: float, pred_home: float) -> Tuple[float, floa
     """
     predicted_margin = pred_home - pred_away  # positive = home favored
 
-    # Round the absolute margin to nearest 0.5, then apply sign
+    # Always use half-lines (0.5, 1.5, 2.5, ...) — no push scenarios
     abs_margin = abs(predicted_margin)
-    rounded = round(abs_margin * 2) / 2
-    rounded = max(0.5, rounded)  # minimum 0.5 spread
+    rounded = int(abs_margin) + 0.5  # nearest half-line, minimum 0.5
 
     if predicted_margin >= 0:
         # Home favored: negative line (e.g., -1.5)
