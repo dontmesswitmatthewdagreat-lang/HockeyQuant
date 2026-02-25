@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { fetchUserModels, deleteModel } from '../api';
 import ModelCard from '../components/ModelCard';
@@ -69,29 +68,6 @@ function Models() {
   const bestAccuracy = models.length > 0
     ? Math.max(...models.map(m => m.accuracy?.accuracy_pct || 0))
     : 0;
-
-  // Not logged in
-  if (!user) {
-    return (
-      <div className="models-page">
-        <div className="models-login-prompt">
-          <div className="login-prompt-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <line x1="18" y1="20" x2="18" y2="10"></line>
-              <line x1="12" y1="20" x2="12" y2="4"></line>
-              <line x1="6" y1="20" x2="6" y2="14"></line>
-            </svg>
-          </div>
-          <h2>Prediction Models</h2>
-          <p>Create custom prediction models with your own weight configurations and track their accuracy over time.</p>
-          <div className="login-prompt-actions">
-            <Link to="/login" className="btn-primary">Log In</Link>
-            <Link to="/signup" className="btn-secondary">Sign Up</Link>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="models-page">
@@ -174,7 +150,7 @@ function Models() {
       {showCreateModal && (
         <CreateModelModal
           model={editingModel}
-          token={session.access_token}
+          token={session?.access_token || null}
           onClose={handleModalClose}
           onSaved={handleModelSaved}
         />

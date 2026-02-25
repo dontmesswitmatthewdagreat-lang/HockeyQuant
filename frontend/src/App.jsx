@@ -1,7 +1,9 @@
+import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
+import WelcomeModal from './components/WelcomeModal';
 import Home from './pages/Home';
 import Predictions from './pages/Predictions';
 import Teams from './pages/Teams';
@@ -14,12 +16,15 @@ import SignupForm from './components/Auth/SignupForm';
 import './App.css';
 
 function App() {
+  const [showWelcome, setShowWelcome] = useState(true);
+
   return (
     <ThemeProvider>
       <Router>
         <AuthProvider>
           <div className="app">
             <Navbar />
+            {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             <main className="main-content">
               <Routes>
                 <Route path="/" element={<Home />} />

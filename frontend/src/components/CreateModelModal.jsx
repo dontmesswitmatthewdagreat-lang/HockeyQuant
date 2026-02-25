@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { createModel, updateModel } from '../api';
 import './CreateModelModal.css';
 
@@ -64,11 +65,18 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
     setWeights({ ...DEFAULT_WEIGHTS });
   };
 
+  const isGuest = !token;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!isValid) {
       setError('Weights must sum to exactly 100%');
+      return;
+    }
+
+    if (isGuest) {
+      setError('guest');
       return;
     }
 
@@ -183,9 +191,20 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
           </div>
 
           {/* Error Message */}
-          {error && (
+          {error && error !== 'guest' && (
             <div className="form-error">
               {error}
+            </div>
+          )}
+
+          {/* Guest Save Prompt */}
+          {error === 'guest' && (
+            <div className="guest-save-prompt">
+              <p>Sign up or log in to save your model.</p>
+              <div className="guest-save-links">
+                <Link to="/signup" className="btn-submit" onClick={onClose}>Sign Up</Link>
+                <Link to="/login" className="btn-cancel" onClick={onClose}>Log In</Link>
+              </div>
             </div>
           )}
 
@@ -195,7 +214,7 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
               Cancel
             </button>
             <button type="submit" className="btn-submit" disabled={!isValid || saving}>
-              {saving ? 'Saving...' : isEditing ? 'Save Changes' : 'Create Model'}
+              {saving ? 'Saving...' : isEditing ? 'Save Changes' : isGuest ? 'Sign Up to Save' : 'Create Model'}
             </button>
           </div>
         </form>

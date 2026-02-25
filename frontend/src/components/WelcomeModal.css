@@ -1,0 +1,123 @@
+.welcome-modal {
+  background: var(--bg-card);
+  border-radius: 16px;
+  padding: 2.5rem 2rem;
+  width: 100%;
+  max-width: 440px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.2);
+  text-align: center;
+}
+
+.welcome-logo {
+  width: 80px;
+  height: 80px;
+  margin-bottom: 1rem;
+}
+
+.welcome-modal h2 {
+  font-family: var(--font-heading);
+  font-size: 1.75rem;
+  margin: 0 0 0.5rem;
+  color: var(--text-primary);
+}
+
+.welcome-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  margin: 0 0 1.5rem;
+}
+
+.welcome-features {
+  text-align: left;
+  margin: 0 auto 1.75rem;
+  max-width: 340px;
+}
+
+.welcome-feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+.welcome-feature svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  stroke: var(--accent-green, #22c55e);
+}
+
+.welcome-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.btn-welcome-signup {
+  padding: 0.75rem 2rem;
+  border: none;
+  background: var(--accent-red);
+  color: white;
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.btn-welcome-signup:hover {
+  background: var(--accent-red-hover);
+}
+
+.btn-welcome-login {
+  padding: 0.75rem 2rem;
+  border: 1px solid var(--border-color);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  border-radius: 8px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-welcome-login:hover {
+  background: var(--bg-secondary);
+  border-color: var(--text-secondary);
+}
+
+.btn-welcome-guest {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0.5rem;
+  transition: color 0.2s ease;
+}
+
+.btn-welcome-guest:hover {
+  color: var(--text-primary);
+  text-decoration: underline;
+}
+
+@media (max-width: 480px) {
+  .welcome-modal {
+    padding: 2rem 1.5rem;
+    max-width: 95%;
+  }
+
+  .welcome-actions {
+    flex-direction: column;
+  }
+
+  .btn-welcome-signup,
+  .btn-welcome-login {
+    width: 100%;
+  }
+}
