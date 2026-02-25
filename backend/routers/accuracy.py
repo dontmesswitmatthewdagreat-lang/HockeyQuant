@@ -240,6 +240,7 @@ async def store_predictions(date_str: str):
             "official_at": official_at_str,
             "goalie_status_away": r.get('goalie_status_away', 'expected'),
             "goalie_status_home": r.get('goalie_status_home', 'expected'),
+            "betting_lines": r.get('betting_lines'),
         })
 
     # Get first game time for this date
