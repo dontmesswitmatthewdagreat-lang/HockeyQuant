@@ -13,7 +13,7 @@ import {
 import { fetchAccuracyTrend } from '../api';
 import './AccuracyChart.css';
 
-function AccuracyChart() {
+function AccuracyChart({ predType = 'moneyline' }) {
   const [trendData, setTrendData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,13 +21,13 @@ function AccuracyChart() {
 
   useEffect(() => {
     loadTrendData();
-  }, [windowSize]);
+  }, [windowSize, predType]);
 
   async function loadTrendData() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchAccuracyTrend(windowSize);
+      const data = await fetchAccuracyTrend(windowSize, predType);
       setTrendData(data);
     } catch (err) {
       setError(err.message);
@@ -97,7 +97,9 @@ function AccuracyChart() {
   return (
     <div className="chart-container">
       <div className="chart-header">
-        <h2 className="chart-title">Accuracy Trend</h2>
+        <h2 className="chart-title">
+          {predType === 'puck_line' ? 'Puck Line' : predType === 'ou' ? 'Over/Under' : 'Moneyline'} Accuracy Trend
+        </h2>
         <div className="window-selector">
           <label>Window:</label>
           <select value={windowSize} onChange={(e) => setWindowSize(Number(e.target.value))}>

@@ -117,7 +117,7 @@ function GameCard({ prediction }) {
                 {awayIsHot && <span className="hot-indicator" title="Hot streak">&#128293;</span>}
               </span>
               <span className="team-record">{formatRecord(away)}</span>
-              <span className={`goalie-status-badge ${goalie_status_away}`}>
+              <span className={`goalie-status-badge ${goalie_status_away === 'confirmed' ? 'confirmed' : 'expected'}`}>
                 {goalie_status_away === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
               </span>
             </div>
@@ -146,7 +146,7 @@ function GameCard({ prediction }) {
                 {homeIsHot && <span className="hot-indicator" title="Hot streak">&#128293;</span>}
               </span>
               <span className="team-record">{formatRecord(home)}</span>
-              <span className={`goalie-status-badge ${goalie_status_home}`}>
+              <span className={`goalie-status-badge ${goalie_status_home === 'confirmed' ? 'confirmed' : 'expected'}`}>
                 {goalie_status_home === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
               </span>
             </div>

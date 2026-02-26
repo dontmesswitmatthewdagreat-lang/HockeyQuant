@@ -10,6 +10,7 @@ function Accuracy() {
   const [recentPredictions, setRecentPredictions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [chartPredType, setChartPredType] = useState('moneyline');
 
   useEffect(() => {
     loadAccuracyData();
@@ -130,8 +131,111 @@ function Accuracy() {
         </div>
       </div>
 
+      {/* Puck Line Accuracy */}
+      <div className="confidence-section">
+        <h2 className="section-title">
+          Puck Line Accuracy <span className="section-subtitle">official ±1.5 line</span>
+        </h2>
+        {(stats?.puck_line_total || 0) === 0 ? (
+          <p className="no-data-note">No puck line results tracked yet. Results populate as games are recorded.</p>
+        ) : (
+          <div className="confidence-cards">
+            <div className="confidence-card strong">
+              <div className="confidence-header">
+                <span className="confidence-label">STRONG</span>
+                <span className="confidence-badge">High Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.puck_line_strong_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.puck_line_strong_correct || 0} / {stats?.puck_line_strong_total || 0} picks</span>
+            </div>
+            <div className="confidence-card moderate">
+              <div className="confidence-header">
+                <span className="confidence-label">MODERATE</span>
+                <span className="confidence-badge">Medium Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.puck_line_moderate_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.puck_line_moderate_correct || 0} / {stats?.puck_line_moderate_total || 0} picks</span>
+            </div>
+            <div className="confidence-card close">
+              <div className="confidence-header">
+                <span className="confidence-label">CLOSE</span>
+                <span className="confidence-badge">Low Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.puck_line_close_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.puck_line_close_correct || 0} / {stats?.puck_line_close_total || 0} picks</span>
+            </div>
+          </div>
+        )}
+        {(stats?.puck_line_total || 0) > 0 && (
+          <p className="section-overall">
+            Overall: <strong>{stats?.puck_line_pct?.toFixed(1)}%</strong> ({stats?.puck_line_correct_count} / {stats?.puck_line_total} picks)
+          </p>
+        )}
+      </div>
+
+      {/* Over/Under Accuracy */}
+      <div className="confidence-section">
+        <h2 className="section-title">Over/Under Accuracy</h2>
+        {(stats?.ou_total || 0) === 0 ? (
+          <p className="no-data-note">No O/U results tracked yet. Results populate as games are recorded.</p>
+        ) : (
+          <div className="confidence-cards">
+            <div className="confidence-card strong">
+              <div className="confidence-header">
+                <span className="confidence-label">STRONG</span>
+                <span className="confidence-badge">High Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.ou_strong_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.ou_strong_correct || 0} / {stats?.ou_strong_total || 0} picks</span>
+            </div>
+            <div className="confidence-card moderate">
+              <div className="confidence-header">
+                <span className="confidence-label">MODERATE</span>
+                <span className="confidence-badge">Medium Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.ou_moderate_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.ou_moderate_correct || 0} / {stats?.ou_moderate_total || 0} picks</span>
+            </div>
+            <div className="confidence-card close">
+              <div className="confidence-header">
+                <span className="confidence-label">CLOSE</span>
+                <span className="confidence-badge">Low Confidence</span>
+              </div>
+              <span className="confidence-value">{stats?.ou_close_pct?.toFixed(1) || '0.0'}%</span>
+              <span className="confidence-detail">{stats?.ou_close_correct || 0} / {stats?.ou_close_total || 0} picks</span>
+            </div>
+          </div>
+        )}
+        {(stats?.ou_total || 0) > 0 && (
+          <p className="section-overall">
+            Overall: <strong>{stats?.ou_pct?.toFixed(1)}%</strong> ({stats?.ou_correct_count} / {stats?.ou_total} picks)
+          </p>
+        )}
+      </div>
+
       {/* Accuracy Trend Chart */}
-      <AccuracyChart />
+      <div className="chart-type-selector">
+        <span className="chart-type-label">Chart:</span>
+        <button
+          className={`chart-type-btn ${chartPredType === 'moneyline' ? 'active' : ''}`}
+          onClick={() => setChartPredType('moneyline')}
+        >
+          Moneyline
+        </button>
+        <button
+          className={`chart-type-btn ${chartPredType === 'puck_line' ? 'active' : ''}`}
+          onClick={() => setChartPredType('puck_line')}
+        >
+          Puck Line
+        </button>
+        <button
+          className={`chart-type-btn ${chartPredType === 'ou' ? 'active' : ''}`}
+          onClick={() => setChartPredType('ou')}
+        >
+          Over/Under
+        </button>
+      </div>
+      <AccuracyChart predType={chartPredType} />
 
       {/* Recent Predictions */}
       {recentPredictions.length > 0 && (
@@ -144,12 +248,23 @@ function Accuracy() {
                   <th>Date</th>
                   <th>Matchup</th>
                   <th>Pick</th>
-                  <th>Confidence</th>
-                  <th>Result</th>
+                  <th>Conf</th>
+                  <th>ML</th>
+                  <th>Puck Line</th>
+                  <th>O/U</th>
                 </tr>
               </thead>
               <tbody>
-                {recentPredictions.slice(0, 20).map((pred, idx) => (
+                {recentPredictions.slice(0, 20).map((pred, idx) => {
+                  const plSide = pred.puck_line_pick;
+                  const plLine = pred.puck_line_line;
+                  const plLabel = plSide && plLine != null
+                    ? `${plSide === 'home' ? pred.home_team : pred.away_team} ${plLine > 0 ? '+' : ''}${plLine}`
+                    : null;
+                  const ouLabel = pred.ou_pick && pred.ou_line != null
+                    ? `${pred.ou_pick.toUpperCase()} ${pred.ou_line}`
+                    : null;
+                  return (
                   <tr key={idx} className={pred.correct ? 'correct' : pred.correct === false ? 'incorrect' : ''}>
                     <td className="date-cell">{pred.game_date}</td>
                     <td className="matchup-cell">
@@ -187,7 +302,6 @@ function Accuracy() {
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                             <polyline points="20 6 9 17 4 12"></polyline>
                           </svg>
-                          Win
                         </span>
                       )}
                       {pred.correct === false && (
@@ -196,15 +310,57 @@ function Accuracy() {
                             <line x1="18" y1="6" x2="6" y2="18"></line>
                             <line x1="6" y1="6" x2="18" y2="18"></line>
                           </svg>
-                          Loss
                         </span>
                       )}
-                      {pred.correct === null && (
-                        <span className="result-badge pending">Pending</span>
-                      )}
+                      {pred.correct == null && <span className="result-badge pending">—</span>}
+                    </td>
+                    <td className="result-cell">
+                      {plLabel ? (
+                        pred.puck_line_correct === true ? (
+                          <span className="result-badge correct" title={plLabel}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span className="badge-label">{plLabel}</span>
+                          </span>
+                        ) : pred.puck_line_correct === false ? (
+                          <span className="result-badge incorrect" title={plLabel}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                            <span className="badge-label">{plLabel}</span>
+                          </span>
+                        ) : (
+                          <span className="result-badge pending">{plLabel}</span>
+                        )
+                      ) : <span className="result-badge pending">—</span>}
+                    </td>
+                    <td className="result-cell">
+                      {ouLabel ? (
+                        pred.ou_correct === true ? (
+                          <span className="result-badge correct" title={ouLabel}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            <span className="badge-label">{ouLabel}</span>
+                          </span>
+                        ) : pred.ou_correct === false ? (
+                          <span className="result-badge incorrect" title={ouLabel}>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                              <line x1="18" y1="6" x2="6" y2="18"></line>
+                              <line x1="6" y1="6" x2="18" y2="18"></line>
+                            </svg>
+                            <span className="badge-label">{ouLabel}</span>
+                          </span>
+                        ) : (
+                          <span className="result-badge pending">{ouLabel}</span>
+                        )
+                      ) : <span className="result-badge pending">—</span>}
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

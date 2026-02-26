@@ -60,6 +60,14 @@ class PredictionRecord(BaseModel):
     home_final: Optional[int] = None
     actual_winner: Optional[str] = None
     correct: Optional[bool] = None
+    # Puck line tracking
+    puck_line_pick: Optional[str] = None      # "home" or "away"
+    puck_line_line: Optional[float] = None    # home-perspective line (e.g., -1.5)
+    puck_line_correct: Optional[bool] = None
+    # Over/Under tracking
+    ou_pick: Optional[str] = None             # "over" or "under"
+    ou_line: Optional[float] = None           # total line (e.g., 6.5)
+    ou_correct: Optional[bool] = None
 
 
 class WindowStats(BaseModel):
@@ -85,6 +93,32 @@ class AccuracyStats(BaseModel):
     rolling_30: Optional[WindowStats] = None
     current_season: Optional[WindowStats] = None
     all_time: Optional[WindowStats] = None
+    # Puck line accuracy
+    puck_line_total: int = 0
+    puck_line_correct_count: int = 0
+    puck_line_pct: float = 0.0
+    puck_line_strong_total: int = 0
+    puck_line_strong_correct: int = 0
+    puck_line_strong_pct: float = 0.0
+    puck_line_moderate_total: int = 0
+    puck_line_moderate_correct: int = 0
+    puck_line_moderate_pct: float = 0.0
+    puck_line_close_total: int = 0
+    puck_line_close_correct: int = 0
+    puck_line_close_pct: float = 0.0
+    # Over/Under accuracy
+    ou_total: int = 0
+    ou_correct_count: int = 0
+    ou_pct: float = 0.0
+    ou_strong_total: int = 0
+    ou_strong_correct: int = 0
+    ou_strong_pct: float = 0.0
+    ou_moderate_total: int = 0
+    ou_moderate_correct: int = 0
+    ou_moderate_pct: float = 0.0
+    ou_close_total: int = 0
+    ou_close_correct: int = 0
+    ou_close_pct: float = 0.0
 
 
 class AccuracyResponse(BaseModel):
@@ -206,6 +240,25 @@ async def store_predictions(date_str: str):
         # 1. Within 15-min window (is_official)
         # 2. Not already stored
         if is_official and game_id not in existing_game_ids:
+            # Extract puck line pick from betting_lines
+            bl = r.get('betting_lines') or {}
+            puck_line_pick = None
+            puck_line_line = None
+            if bl:
+                puck_line_line = bl.get('puck_line')
+                home_cover_prob = bl.get('puck_line_home_cover_prob', 0)
+                away_cover_prob = bl.get('puck_line_away_cover_prob', 0)
+                puck_line_pick = 'home' if home_cover_prob >= away_cover_prob else 'away'
+
+            # Extract O/U pick from betting_lines
+            ou_pick = None
+            ou_line = None
+            if bl:
+                ou_line = bl.get('over_under')
+                over_prob = bl.get('over_prob', 0)
+                under_prob = bl.get('under_prob', 0)
+                ou_pick = 'over' if over_prob >= under_prob else 'under'
+
             record = {
                 "game_date": date_str,
                 "game_id": game_id,
@@ -219,6 +272,10 @@ async def store_predictions(date_str: str):
                 "predicted_at": now.isoformat(),
                 "goalie_confirmed_away": r.get('goalie_status_away') == 'confirmed',
                 "goalie_confirmed_home": r.get('goalie_status_home') == 'confirmed',
+                "puck_line_pick": puck_line_pick,
+                "puck_line_line": puck_line_line,
+                "ou_pick": ou_pick,
+                "ou_line": ou_line,
             }
             try:
                 supabase.table("predictions").insert([record])
@@ -330,15 +387,37 @@ async def update_results(date_str: str):
 
         prediction = pred.data[0]
 
-        # Determine if prediction was correct
+        # Determine if moneyline prediction was correct
         correct = prediction['pick'] == game_result['actual_winner']
+
+        home_final = game_result['home_final']
+        away_final = game_result['away_final']
+
+        # Determine puck line correctness
+        # margin + line > 0 means home covered (e.g., margin=2, line=-1.5 → 0.5 > 0)
+        puck_line_correct = None
+        if prediction.get('puck_line_pick') and prediction.get('puck_line_line') is not None:
+            margin = home_final - away_final
+            line = float(prediction['puck_line_line'])
+            home_covers = (margin + line) > 0
+            puck_line_correct = home_covers if prediction['puck_line_pick'] == 'home' else not home_covers
+
+        # Determine O/U correctness (push = null, not counted)
+        ou_correct = None
+        if prediction.get('ou_pick') and prediction.get('ou_line') is not None:
+            total = home_final + away_final
+            ou_line = float(prediction['ou_line'])
+            if total != ou_line:
+                ou_correct = (total > ou_line) if prediction['ou_pick'] == 'over' else (total < ou_line)
 
         # Update the record
         update_data = {
-            "away_final": game_result['away_final'],
-            "home_final": game_result['home_final'],
+            "away_final": away_final,
+            "home_final": home_final,
             "actual_winner": game_result['actual_winner'],
             "correct": correct,
+            "puck_line_correct": puck_line_correct,
+            "ou_correct": ou_correct,
         }
 
         try:
@@ -466,6 +545,21 @@ async def get_accuracy_stats(
         pct=round((season_correct / len(season_preds) * 100) if season_preds else 0, 1)
     )
 
+    def _pct(correct_count, total_count):
+        return round((correct_count / total_count * 100) if total_count > 0 else 0, 1)
+
+    # Puck line stats — only predictions where puck_line_correct is not null
+    pl_preds = [p for p in predictions if p.get('puck_line_correct') is not None]
+    pl_strong = [p for p in pl_preds if p.get('confidence') == 'STRONG']
+    pl_moderate = [p for p in pl_preds if p.get('confidence') == 'MODERATE']
+    pl_close = [p for p in pl_preds if p.get('confidence') == 'CLOSE']
+
+    # O/U stats — only predictions where ou_correct is not null
+    ou_preds = [p for p in predictions if p.get('ou_correct') is not None]
+    ou_strong = [p for p in ou_preds if p.get('confidence') == 'STRONG']
+    ou_moderate = [p for p in ou_preds if p.get('confidence') == 'MODERATE']
+    ou_close = [p for p in ou_preds if p.get('confidence') == 'CLOSE']
+
     stats = AccuracyStats(
         total_games=total,
         correct_picks=correct,
@@ -482,6 +576,32 @@ async def get_accuracy_stats(
         rolling_30=rolling_30_stats,
         current_season=current_season_stats,
         all_time=all_time_stats,
+        # Puck line
+        puck_line_total=len(pl_preds),
+        puck_line_correct_count=sum(1 for p in pl_preds if p.get('puck_line_correct')),
+        puck_line_pct=_pct(sum(1 for p in pl_preds if p.get('puck_line_correct')), len(pl_preds)),
+        puck_line_strong_total=len(pl_strong),
+        puck_line_strong_correct=sum(1 for p in pl_strong if p.get('puck_line_correct')),
+        puck_line_strong_pct=_pct(sum(1 for p in pl_strong if p.get('puck_line_correct')), len(pl_strong)),
+        puck_line_moderate_total=len(pl_moderate),
+        puck_line_moderate_correct=sum(1 for p in pl_moderate if p.get('puck_line_correct')),
+        puck_line_moderate_pct=_pct(sum(1 for p in pl_moderate if p.get('puck_line_correct')), len(pl_moderate)),
+        puck_line_close_total=len(pl_close),
+        puck_line_close_correct=sum(1 for p in pl_close if p.get('puck_line_correct')),
+        puck_line_close_pct=_pct(sum(1 for p in pl_close if p.get('puck_line_correct')), len(pl_close)),
+        # Over/Under
+        ou_total=len(ou_preds),
+        ou_correct_count=sum(1 for p in ou_preds if p.get('ou_correct')),
+        ou_pct=_pct(sum(1 for p in ou_preds if p.get('ou_correct')), len(ou_preds)),
+        ou_strong_total=len(ou_strong),
+        ou_strong_correct=sum(1 for p in ou_strong if p.get('ou_correct')),
+        ou_strong_pct=_pct(sum(1 for p in ou_strong if p.get('ou_correct')), len(ou_strong)),
+        ou_moderate_total=len(ou_moderate),
+        ou_moderate_correct=sum(1 for p in ou_moderate if p.get('ou_correct')),
+        ou_moderate_pct=_pct(sum(1 for p in ou_moderate if p.get('ou_correct')), len(ou_moderate)),
+        ou_close_total=len(ou_close),
+        ou_close_correct=sum(1 for p in ou_close if p.get('ou_correct')),
+        ou_close_pct=_pct(sum(1 for p in ou_close if p.get('ou_correct')), len(ou_close)),
     )
 
     # Get ALL recent predictions (including pending) for the table
@@ -515,6 +635,12 @@ async def get_accuracy_stats(
             home_final=p.get('home_final'),
             actual_winner=p.get('actual_winner'),
             correct=p.get('correct'),
+            puck_line_pick=p.get('puck_line_pick'),
+            puck_line_line=p.get('puck_line_line'),
+            puck_line_correct=p.get('puck_line_correct'),
+            ou_pick=p.get('ou_pick'),
+            ou_line=p.get('ou_line'),
+            ou_correct=p.get('ou_correct'),
         )
         for p in all_predictions[:50]
     ]
@@ -575,23 +701,36 @@ async def get_last_game_time_endpoint(date_str: str):
 @router.get("/accuracy/trend", response_model=TrendResponse)
 async def get_accuracy_trend(
     window: int = Query(30, description="Rolling window size (number of games)", ge=5, le=100),
+    prediction_type: str = Query("moneyline", description="Type: moneyline, puck_line, or ou"),
 ):
     """
     Get rolling accuracy data for graphing.
 
     - **window**: Number of games in the rolling window (default 30)
-
-    Returns data points with rolling accuracy calculated at each game,
-    suitable for creating trend charts.
+    - **prediction_type**: moneyline (default), puck_line, or ou
     """
     try:
         supabase = get_supabase()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase init error: {str(e)}")
 
-    # Fetch all completed predictions ordered by date (oldest first for rolling calc)
+    # Choose which correctness column to use
+    if prediction_type == "puck_line":
+        correct_col = "puck_line_correct"
+    elif prediction_type == "ou":
+        correct_col = "ou_correct"
+    else:
+        correct_col = "correct"
+
+    # Fetch all completed predictions for this type (not null), oldest first
     try:
-        result = supabase.table("predictions").select("*").not_is("correct", "null").order("game_date", desc=False).execute()
+        result = (
+            supabase.table("predictions")
+            .select("*")
+            .not_is(correct_col, "null")
+            .order("game_date", desc=False)
+            .execute()
+        )
         predictions = result.data or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
@@ -605,7 +744,7 @@ async def get_accuracy_trend(
 
     for i, pred in enumerate(predictions):
         # Update cumulative
-        if pred.get('correct'):
+        if pred.get(correct_col):
             cumulative_correct += 1
         cumulative_total = i + 1
         cumulative_pct = round((cumulative_correct / cumulative_total) * 100, 1)
@@ -613,7 +752,7 @@ async def get_accuracy_trend(
         # Calculate rolling window
         window_start = max(0, i - window + 1)
         window_preds = predictions[window_start:i + 1]
-        window_correct = sum(1 for p in window_preds if p.get('correct'))
+        window_correct = sum(1 for p in window_preds if p.get(correct_col))
         window_total = len(window_preds)
         rolling_pct = round((window_correct / window_total) * 100, 1) if window_total > 0 else 0
 
@@ -625,7 +764,6 @@ async def get_accuracy_trend(
             cumulative_games=cumulative_total,
         ))
 
-    # Return data points (most recent last for charting)
     return TrendResponse(
         window_size=window,
         total_games=len(predictions),

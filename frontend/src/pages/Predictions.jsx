@@ -134,7 +134,13 @@ function Predictions() {
         return sum + (total > 0 ? (winnerScore / total) * 100 : 50);
       }, 0) / predictions.length)
     : 0;
-  const liveGames = predictions.filter(p => p.is_live).length;
+  const now = Date.now();
+  const liveGames = predictions.filter(p => {
+    if (!p.game_time) return false;
+    const start = new Date(p.game_time).getTime();
+    const end = start + 3.5 * 60 * 60 * 1000; // ~3.5 hour game window
+    return now >= start && now <= end;
+  }).length;
 
   return (
     <div className="predictions-page">
