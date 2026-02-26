@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { fetchAccuracyStats } from '../api';
 import { getTeamLogo, getTeamName, TEAM_NAMES } from '../utils/teamLogos';
+import AccuracyChart from '../components/AccuracyChart';
+import LoadingSpinner from '../components/LoadingSpinner';
+import './Accuracy.css';
 
 const ALL_TEAMS = Object.entries(TEAM_NAMES)
   .map(([abbrev, name]) => ({ abbrev, name }))
   .sort((a, b) => a.name.localeCompare(b.name));
-import AccuracyChart from '../components/AccuracyChart';
-import LoadingSpinner from '../components/LoadingSpinner';
-import './Accuracy.css';
 
 function Accuracy() {
   const [stats, setStats] = useState(null);
@@ -35,20 +35,6 @@ function Accuracy() {
     }
   }
 
-  if (loading) {
-    return <LoadingSpinner message="Loading accuracy data..." />;
-  }
-
-  if (error) {
-    return (
-      <div className="accuracy-page">
-        <div className="error-message">
-          <p>Error loading accuracy data: {error}</p>
-        </div>
-      </div>
-    );
-  }
-
   // Extract multi-window stats
   const allTime = stats?.all_time || {};
   const currentSeason = stats?.current_season || {};
@@ -64,7 +50,7 @@ function Accuracy() {
         </p>
       </div>
 
-      {/* Team Filter */}
+      {/* Team Filter — always visible */}
       <div className="accuracy-filters">
         <div className="team-filter">
           {selectedTeam && (
@@ -97,6 +83,14 @@ function Accuracy() {
           </p>
         )}
       </div>
+
+      {/* Inline loading / error states */}
+      {loading && <LoadingSpinner message="Loading accuracy data..." />}
+      {!loading && error && (
+        <div className="error-message">
+          <p>Error loading accuracy data: {error}</p>
+        </div>
+      )}
 
       {/* Summary Stats */}
       <div className="stats-summary">

@@ -60,6 +60,11 @@ class TableQuery:
         self.params[column] = f"not.is.{value}"
         return self
 
+    def or_(self, filter_str: str) -> "TableQuery":
+        """PostgREST OR filter. filter_str e.g. 'away_team.eq.TOR,home_team.eq.TOR'"""
+        self.params["or"] = f"({filter_str})"
+        return self
+
     def order(self, column: str, desc: bool = False) -> "TableQuery":
         direction = "desc" if desc else "asc"
         self.params["order"] = f"{column}.{direction}"
