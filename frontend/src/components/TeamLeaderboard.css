@@ -1,0 +1,174 @@
+.leaderboard-section {
+  margin-top: 2rem;
+}
+
+.leaderboard-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  margin: 0 0 0.75rem 0;
+}
+
+.leaderboard-loading,
+.leaderboard-error {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.leaderboard-error {
+  color: var(--error-text);
+}
+
+/* Table container */
+.leaderboard-table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.leaderboard-table thead {
+  background: var(--bg-secondary);
+}
+
+.leaderboard-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.rank-th {
+  width: 40px;
+}
+
+.num-th {
+  text-align: right;
+}
+
+.leaderboard-table td {
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.leaderboard-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Clickable rows */
+.leaderboard-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.leaderboard-row:hover {
+  background: var(--accent-red-light);
+}
+
+.leaderboard-row.selected {
+  background: var(--accent-red-light);
+  border-left: 3px solid var(--accent-red);
+}
+
+/* Rank number */
+.rank-num {
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Team cell */
+.lb-team-cell {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.lb-logo {
+  width: 24px;
+  height: 24px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.lb-team-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+/* Number cells — right-aligned */
+.num-cell {
+  text-align: right;
+}
+
+/* Percentage display */
+.lb-pct {
+  display: block;
+  font-weight: 700;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.lb-pct.best {
+  color: var(--accent-green);
+}
+
+.lb-pct.worst {
+  color: var(--error-text);
+}
+
+/* Sub-line: "correct/total" */
+.lb-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+
+/* Games count cell */
+.lb-count {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* Dash for missing data */
+.lb-dash {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .leaderboard-table-container {
+    overflow-x: auto;
+  }
+
+  .leaderboard-table {
+    min-width: 520px;
+  }
+}
+
+@media (max-width: 650px) {
+  .leaderboard-table th,
+  .leaderboard-table td {
+    padding: 0.625rem 0.75rem;
+  }
+
+  .lb-team-name {
+    font-size: 0.85rem;
+  }
+}

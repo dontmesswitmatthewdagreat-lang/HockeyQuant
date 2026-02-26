@@ -11,9 +11,10 @@ import {
   ReferenceLine,
 } from 'recharts';
 import { fetchAccuracyTrend } from '../api';
+import { getTeamName } from '../utils/teamLogos';
 import './AccuracyChart.css';
 
-function AccuracyChart({ predType = 'moneyline' }) {
+function AccuracyChart({ predType = 'moneyline', team = '' }) {
   const [trendData, setTrendData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,13 +22,13 @@ function AccuracyChart({ predType = 'moneyline' }) {
 
   useEffect(() => {
     loadTrendData();
-  }, [windowSize, predType]);
+  }, [windowSize, predType, team]);
 
   async function loadTrendData() {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchAccuracyTrend(windowSize, predType);
+      const data = await fetchAccuracyTrend(windowSize, predType, team);
       setTrendData(data);
     } catch (err) {
       setError(err.message);
@@ -98,6 +99,7 @@ function AccuracyChart({ predType = 'moneyline' }) {
     <div className="chart-container">
       <div className="chart-header">
         <h2 className="chart-title">
+          {team ? `${getTeamName(team)} — ` : ''}
           {predType === 'puck_line' ? 'Puck Line' : predType === 'ou' ? 'Over/Under' : 'Moneyline'} Accuracy Trend
         </h2>
         <div className="window-selector">

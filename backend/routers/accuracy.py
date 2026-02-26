@@ -5,7 +5,7 @@ Endpoints for tracking prediction accuracy
 
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta, timezone
 
 from services import NHLAnalyzer, get_data_loader
@@ -707,12 +707,14 @@ async def get_last_game_time_endpoint(date_str: str):
 async def get_accuracy_trend(
     window: int = Query(30, description="Rolling window size (number of games)", ge=5, le=100),
     prediction_type: str = Query("moneyline", description="Type: moneyline, puck_line, or ou"),
+    team: Optional[str] = Query(None, description="Filter by team (home or away)"),
 ):
     """
     Get rolling accuracy data for graphing.
 
     - **window**: Number of games in the rolling window (default 30)
     - **prediction_type**: moneyline (default), puck_line, or ou
+    - **team**: Optional team abbreviation to filter (games where team was home or away)
     """
     try:
         supabase = get_supabase()
@@ -729,14 +731,16 @@ async def get_accuracy_trend(
 
     # Fetch all completed predictions for this type (not null), oldest first
     try:
-        result = (
+        query = (
             supabase.table("predictions")
             .select("*")
             .not_is(correct_col, "null")
             .order("game_date", desc=False)
-            .execute()
         )
-        predictions = result.data or []
+        if team:
+            t = team.upper()
+            query = query.or_(f"away_team.eq.{t},home_team.eq.{t}")
+        predictions = query.execute().data or []
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
@@ -774,3 +778,64 @@ async def get_accuracy_trend(
         total_games=len(predictions),
         data_points=data_points
     )
+
+
+@router.get("/accuracy/leaderboard")
+async def get_accuracy_leaderboard():
+    """Per-team accuracy stats for all teams, ranked by moneyline accuracy."""
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    try:
+        all_preds = (
+            supabase.table("predictions")
+            .select("*")
+            .not_is("correct", "null")
+            .execute()
+            .data or []
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
+
+    # Aggregate per team — each game counted once for each team involved
+    team_stats: Dict[str, Any] = {}
+    for pred in all_preds:
+        for t in [pred.get('away_team'), pred.get('home_team')]:
+            if not t:
+                continue
+            if t not in team_stats:
+                team_stats[t] = {
+                    'ml_correct': 0, 'ml_total': 0,
+                    'pl_correct': 0, 'pl_total': 0,
+                    'ou_correct': 0, 'ou_total': 0,
+                }
+            s = team_stats[t]
+            s['ml_total'] += 1
+            if pred.get('correct'):
+                s['ml_correct'] += 1
+            if pred.get('puck_line_correct') is not None:
+                s['pl_total'] += 1
+                if pred['puck_line_correct']:
+                    s['pl_correct'] += 1
+            if pred.get('ou_correct') is not None:
+                s['ou_total'] += 1
+                if pred['ou_correct']:
+                    s['ou_correct'] += 1
+
+    result = []
+    for team_abbrev, s in team_stats.items():
+        result.append({
+            'team': team_abbrev,
+            'ml_pct': round(s['ml_correct'] / s['ml_total'] * 100, 1) if s['ml_total'] else 0,
+            'ml_correct': s['ml_correct'],
+            'ml_total': s['ml_total'],
+            'pl_pct': round(s['pl_correct'] / s['pl_total'] * 100, 1) if s['pl_total'] else None,
+            'pl_correct': s['pl_correct'],
+            'pl_total': s['pl_total'],
+            'ou_pct': round(s['ou_correct'] / s['ou_total'] * 100, 1) if s['ou_total'] else None,
+            'ou_correct': s['ou_correct'],
+            'ou_total': s['ou_total'],
+        })
+
+    return sorted(result, key=lambda x: (-x['ml_pct'], -x['ml_total']))

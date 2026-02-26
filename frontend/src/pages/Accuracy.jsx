@@ -3,6 +3,7 @@ import { fetchAccuracyStats } from '../api';
 import { getTeamLogo, getTeamName, TEAM_NAMES } from '../utils/teamLogos';
 import AccuracyChart from '../components/AccuracyChart';
 import LoadingSpinner from '../components/LoadingSpinner';
+import TeamLeaderboard from '../components/TeamLeaderboard';
 import './Accuracy.css';
 
 const ALL_TEAMS = Object.entries(TEAM_NAMES)
@@ -270,7 +271,7 @@ function Accuracy() {
           Over/Under
         </button>
       </div>
-      <AccuracyChart predType={chartPredType} />
+      <AccuracyChart predType={chartPredType} team={selectedTeam} />
 
       {/* Recent Predictions */}
       {recentPredictions.length > 0 && (
@@ -401,6 +402,9 @@ function Accuracy() {
           </div>
         </div>
       )}
+
+      {/* Team Leaderboard */}
+      <TeamLeaderboard selectedTeam={selectedTeam} onSelectTeam={setSelectedTeam} />
     </div>
   );
 }
