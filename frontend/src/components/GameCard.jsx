@@ -125,7 +125,9 @@ function GameCard({ prediction }) {
               </span>
               <span className="team-record">{formatRecord(away)}</span>
               <span className={`goalie-status-badge ${awayGoalieStatus}`}>
-                {awayGoalieStatus === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
+                {awayGoalieStatus === 'confirmed'
+                  ? `✓ ${away.goalie || 'Goalie Confirmed'}`
+                  : `? ${away.goalie || 'Goalie Expected'}`}
               </span>
             </div>
           </div>
@@ -154,7 +156,9 @@ function GameCard({ prediction }) {
               </span>
               <span className="team-record">{formatRecord(home)}</span>
               <span className={`goalie-status-badge ${homeGoalieStatus}`}>
-                {homeGoalieStatus === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
+                {homeGoalieStatus === 'confirmed'
+                  ? `✓ ${home.goalie || 'Goalie Confirmed'}`
+                  : `? ${home.goalie || 'Goalie Expected'}`}
               </span>
             </div>
           </div>
