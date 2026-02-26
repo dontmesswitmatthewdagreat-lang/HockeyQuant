@@ -45,7 +45,7 @@ function TeamLeaderboard({ selectedTeam, onSelectTeam }) {
     <div className="leaderboard-section">
       <h2 className="section-title">Team Prediction Leaderboard</h2>
       <p className="leaderboard-hint">
-        <strong>In Games</strong>: model accuracy in all games involving this team (win or lose). <strong>As Pick</strong>: accuracy when this team was the model's predicted winner. Click any row to filter stats above.
+        <strong>Correct Outcome</strong>: model accuracy in all games involving this team (win or lose). <strong>As Win Prediction</strong>: accuracy when this team was the model's predicted winner. Click any row to filter stats above.
         {selectedTeam && (
           <> Click the highlighted row again to clear.</>
         )}
@@ -62,8 +62,8 @@ function TeamLeaderboard({ selectedTeam, onSelectTeam }) {
                 <th className="rank-th">#</th>
                 <th>Team</th>
                 <th className="num-th">Games</th>
-                <th className="num-th" title="How often the model was correct in games involving this team">In Games</th>
-                <th className="num-th" title="How often the model was correct when it picked this team to win">As Pick</th>
+                <th className="num-th" title="How often the model was correct in games involving this team">Correct Outcome</th>
+                <th className="num-th" title="How often the model was correct when it picked this team to win">As Win Prediction</th>
                 <th className="num-th">Puck Line</th>
                 <th className="num-th">O/U</th>
               </tr>
