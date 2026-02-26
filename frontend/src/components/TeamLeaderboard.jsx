@@ -45,9 +45,9 @@ function TeamLeaderboard({ selectedTeam, onSelectTeam }) {
     <div className="leaderboard-section">
       <h2 className="section-title">Team Prediction Leaderboard</h2>
       <p className="leaderboard-hint">
-        Click any row to filter all stats above by that team.
+        <strong>In Games</strong>: model accuracy in all games involving this team (win or lose). <strong>As Pick</strong>: accuracy when this team was the model's predicted winner. Click any row to filter stats above.
         {selectedTeam && (
-          <> Click the highlighted row again to clear the filter.</>
+          <> Click the highlighted row again to clear.</>
         )}
       </p>
 
@@ -62,7 +62,8 @@ function TeamLeaderboard({ selectedTeam, onSelectTeam }) {
                 <th className="rank-th">#</th>
                 <th>Team</th>
                 <th className="num-th">Games</th>
-                <th className="num-th">Moneyline</th>
+                <th className="num-th" title="How often the model was correct in games involving this team">In Games</th>
+                <th className="num-th" title="How often the model was correct when it picked this team to win">As Pick</th>
                 <th className="num-th">Puck Line</th>
                 <th className="num-th">O/U</th>
               </tr>
@@ -97,6 +98,16 @@ function TeamLeaderboard({ selectedTeam, onSelectTeam }) {
                         {entry.ml_pct.toFixed(1)}%
                       </span>
                       <span className="lb-sub">{entry.ml_correct}/{entry.ml_total}</span>
+                    </td>
+                    <td className="num-cell">
+                      {entry.pick_pct != null ? (
+                        <>
+                          <span className="lb-pct">{entry.pick_pct.toFixed(1)}%</span>
+                          <span className="lb-sub">{entry.pick_correct}/{entry.pick_total}</span>
+                        </>
+                      ) : (
+                        <span className="lb-dash">—</span>
+                      )}
                     </td>
                     <td className="num-cell">
                       {entry.pl_pct != null ? (

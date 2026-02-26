@@ -807,6 +807,7 @@ async def get_accuracy_leaderboard():
             if t not in team_stats:
                 team_stats[t] = {
                     'ml_correct': 0, 'ml_total': 0,
+                    'pick_correct': 0, 'pick_total': 0,
                     'pl_correct': 0, 'pl_total': 0,
                     'ou_correct': 0, 'ou_total': 0,
                 }
@@ -814,6 +815,10 @@ async def get_accuracy_leaderboard():
             s['ml_total'] += 1
             if pred.get('correct'):
                 s['ml_correct'] += 1
+            if pred.get('pick') == t:
+                s['pick_total'] += 1
+                if pred.get('correct'):
+                    s['pick_correct'] += 1
             if pred.get('puck_line_correct') is not None:
                 s['pl_total'] += 1
                 if pred['puck_line_correct']:
@@ -830,6 +835,9 @@ async def get_accuracy_leaderboard():
             'ml_pct': round(s['ml_correct'] / s['ml_total'] * 100, 1) if s['ml_total'] else 0,
             'ml_correct': s['ml_correct'],
             'ml_total': s['ml_total'],
+            'pick_pct': round(s['pick_correct'] / s['pick_total'] * 100, 1) if s['pick_total'] else None,
+            'pick_correct': s['pick_correct'],
+            'pick_total': s['pick_total'],
             'pl_pct': round(s['pl_correct'] / s['pl_total'] * 100, 1) if s['pl_total'] else None,
             'pl_correct': s['pl_correct'],
             'pl_total': s['pl_total'],
