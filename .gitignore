@@ -9,3 +9,9 @@ dist/
 *.spec
 icon.iconset/
 icon_original_converted.png
+
+# Large data files
+*.csv
+*.zip
+shots_2018-2024.csv
+2007-2024 shot data.zip
