@@ -64,6 +64,13 @@ function GameCard({ prediction }) {
   const winProb = calculateWinProb();
   const confidenceLevel = (confidence || 'CLOSE').toLowerCase();
 
+  // Once a game has started, goalies are definitionally confirmed (they're playing).
+  // Daily Faceoff removes "Confirmed" text after puck drop, so the scraper always
+  // returns "expected" for in-progress or finished games.
+  const gameStarted = game_time ? Date.now() >= new Date(game_time).getTime() : false;
+  const awayGoalieStatus = gameStarted ? 'confirmed' : (goalie_status_away === 'confirmed' ? 'confirmed' : 'expected');
+  const homeGoalieStatus = gameStarted ? 'confirmed' : (goalie_status_home === 'confirmed' ? 'confirmed' : 'expected');
+
   // Determine if a team is the predicted winner
   const awayIsWinner = pick === away.team;
   const homeIsWinner = pick === home.team;
@@ -117,8 +124,8 @@ function GameCard({ prediction }) {
                 {awayIsHot && <span className="hot-indicator" title="Hot streak">&#128293;</span>}
               </span>
               <span className="team-record">{formatRecord(away)}</span>
-              <span className={`goalie-status-badge ${goalie_status_away === 'confirmed' ? 'confirmed' : 'expected'}`}>
-                {goalie_status_away === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
+              <span className={`goalie-status-badge ${awayGoalieStatus}`}>
+                {awayGoalieStatus === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
               </span>
             </div>
           </div>
@@ -146,8 +153,8 @@ function GameCard({ prediction }) {
                 {homeIsHot && <span className="hot-indicator" title="Hot streak">&#128293;</span>}
               </span>
               <span className="team-record">{formatRecord(home)}</span>
-              <span className={`goalie-status-badge ${goalie_status_home === 'confirmed' ? 'confirmed' : 'expected'}`}>
-                {goalie_status_home === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
+              <span className={`goalie-status-badge ${homeGoalieStatus}`}>
+                {homeGoalieStatus === 'confirmed' ? '✓ Goalie Confirmed' : '? Goalie Expected'}
               </span>
             </div>
           </div>
