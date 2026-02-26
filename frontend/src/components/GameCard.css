@@ -436,6 +436,53 @@
   color: var(--accent-yellow);
 }
 
+/* Poisson Distribution Chart */
+.poisson-chart-wrapper {
+  margin-top: 0.625rem;
+  padding-top: 0.625rem;
+  border-top: 1px solid var(--border-color);
+}
+
+.poisson-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.25rem;
+}
+
+.poisson-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.poisson-legend {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.poisson-legend-away,
+.poisson-legend-home {
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.poisson-legend-away {
+  color: #60a5fa;
+}
+
+.poisson-legend-home {
+  color: #f87171;
+}
+
+.poisson-legend-away::before,
+.poisson-legend-home::before {
+  content: '■ ';
+  font-size: 0.6rem;
+}
+
 /* Responsive */
 @media (max-width: 480px) {
   .game-card {

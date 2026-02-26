@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { getTeamLogo, getTeamName } from '../utils/teamLogos';
 import { fetchGameSummary } from '../api';
+import PoissonChart from './PoissonChart';
 import './GameCard.css';
 
 function GameCard({ prediction }) {
@@ -211,16 +212,14 @@ function GameCard({ prediction }) {
                   {away.team} {betting_lines.puck_line_away_cover_prob}%
                 </span>
               </div>
-              {betting_lines.optimal_spread !== betting_lines.puck_line && (
-                <div className="optimal-line">
-                  <span className="optimal-label">Optimal</span>
-                  <span className="optimal-value">
-                    {betting_lines.optimal_spread_side === 'home' ? home.team : away.team}{' '}
-                    {betting_lines.optimal_spread > 0 ? '+' : ''}{betting_lines.optimal_spread}
-                    {' '}({betting_lines.optimal_spread_prob}%)
-                  </span>
-                </div>
-              )}
+              <div className="optimal-line">
+                <span className="optimal-label">Optimal</span>
+                <span className="optimal-value">
+                  {betting_lines.optimal_spread_side === 'home' ? home.team : away.team}{' '}
+                  {betting_lines.optimal_spread > 0 ? '+' : ''}{betting_lines.optimal_spread}
+                  {' '}({betting_lines.optimal_spread_prob}%)
+                </span>
+              </div>
             </div>
 
             {/* Over/Under */}
@@ -237,17 +236,23 @@ function GameCard({ prediction }) {
                   UNDER {betting_lines.under_prob}%
                 </span>
               </div>
-              {betting_lines.optimal_total !== betting_lines.over_under && (
-                <div className="optimal-line">
-                  <span className="optimal-label">Optimal</span>
-                  <span className="optimal-value">
-                    {betting_lines.optimal_total_rec} {betting_lines.optimal_total}
-                    {' '}({betting_lines.optimal_total_prob}%)
-                  </span>
-                </div>
-              )}
+              <div className="optimal-line">
+                <span className="optimal-label">Optimal</span>
+                <span className="optimal-value">
+                  {betting_lines.optimal_total_rec} {betting_lines.optimal_total}
+                  {' '}({betting_lines.optimal_total_prob}%)
+                </span>
+              </div>
             </div>
           </div>
+          {betting_lines.away_expected_goals != null && betting_lines.home_expected_goals != null && (
+            <PoissonChart
+              awayTeam={away.team}
+              homeTeam={home.team}
+              awayXG={betting_lines.away_expected_goals}
+              homeXG={betting_lines.home_expected_goals}
+            />
+          )}
         </div>
       )}
 
