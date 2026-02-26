@@ -423,7 +423,7 @@
 }
 
 .optimal-label {
-  font-size: 0.65rem;
+  font-size: 0.75rem;
   font-weight: 600;
   color: var(--accent-yellow);
   text-transform: uppercase;
@@ -431,8 +431,8 @@
 }
 
 .optimal-value {
-  font-size: 0.75rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--accent-yellow);
 }
 

@@ -138,7 +138,7 @@ function Predictions() {
   const liveGames = predictions.filter(p => {
     if (!p.game_time) return false;
     const start = new Date(p.game_time).getTime();
-    const end = start + 3.5 * 60 * 60 * 1000; // ~3.5 hour game window
+    const end = start + 2.5 * 60 * 60 * 1000; // ~2.5 hour game window (covers OT/SO)
     return now >= start && now <= end;
   }).length;
 
