@@ -290,6 +290,68 @@
   color: var(--text-muted);
 }
 
+/* Team Filter Bar */
+.accuracy-filters {
+  margin-bottom: 1.5rem;
+}
+
+.team-filter {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  margin-bottom: 0.5rem;
+}
+
+.filter-team-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.team-select {
+  padding: 0.5rem 0.875rem;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: var(--font-body);
+  cursor: pointer;
+  min-width: 210px;
+  transition: border-color 0.15s ease;
+}
+
+.team-select:focus {
+  outline: none;
+  border-color: var(--accent-red);
+}
+
+.clear-filter-btn {
+  padding: 0.5rem 0.75rem;
+  border: 1.5px solid var(--border-color);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.clear-filter-btn:hover {
+  border-color: var(--accent-red);
+  color: var(--accent-red);
+}
+
+.filter-context {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.filter-context strong {
+  color: var(--text-primary);
+}
+
 /* Section subtitle (e.g. "official ±1.5 line") */
 .section-subtitle {
   font-family: var(--font-body);

@@ -1,6 +1,10 @@
 import { useState, useEffect } from 'react';
 import { fetchAccuracyStats } from '../api';
-import { getTeamLogo, getTeamName } from '../utils/teamLogos';
+import { getTeamLogo, getTeamName, TEAM_NAMES } from '../utils/teamLogos';
+
+const ALL_TEAMS = Object.entries(TEAM_NAMES)
+  .map(([abbrev, name]) => ({ abbrev, name }))
+  .sort((a, b) => a.name.localeCompare(b.name));
 import AccuracyChart from '../components/AccuracyChart';
 import LoadingSpinner from '../components/LoadingSpinner';
 import './Accuracy.css';
@@ -11,14 +15,17 @@ function Accuracy() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [chartPredType, setChartPredType] = useState('moneyline');
+  const [selectedTeam, setSelectedTeam] = useState('');
 
   useEffect(() => {
     loadAccuracyData();
-  }, []);
+  }, [selectedTeam]);
 
   async function loadAccuracyData() {
+    setLoading(true);
+    setError(null);
     try {
-      const data = await fetchAccuracyStats();
+      const data = await fetchAccuracyStats({ team: selectedTeam || undefined });
       setStats(data.stats);
       setRecentPredictions(data.recent_predictions || []);
     } catch (err) {
@@ -55,6 +62,40 @@ function Accuracy() {
         <p className="accuracy-subtitle">
           Track the performance of HockeyQuant's prediction model
         </p>
+      </div>
+
+      {/* Team Filter */}
+      <div className="accuracy-filters">
+        <div className="team-filter">
+          {selectedTeam && (
+            <img
+              src={getTeamLogo(selectedTeam)}
+              alt={selectedTeam}
+              className="filter-team-logo"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          )}
+          <select
+            value={selectedTeam}
+            onChange={(e) => setSelectedTeam(e.target.value)}
+            className="team-select"
+          >
+            <option value="">All Teams</option>
+            {ALL_TEAMS.map(({ abbrev, name }) => (
+              <option key={abbrev} value={abbrev}>{name}</option>
+            ))}
+          </select>
+          {selectedTeam && (
+            <button className="clear-filter-btn" onClick={() => setSelectedTeam('')}>
+              ✕ Clear
+            </button>
+          )}
+        </div>
+        {selectedTeam && (
+          <p className="filter-context">
+            Showing accuracy for games involving <strong>{getTeamName(selectedTeam)}</strong>
+          </p>
+        )}
       </div>
 
       {/* Summary Stats */}

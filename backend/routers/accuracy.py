@@ -483,7 +483,8 @@ async def get_accuracy_stats(
         if end_date:
             query = query.lte("game_date", end_date)
         if team:
-            query = query.eq("pick", team.upper())
+            t = team.upper()
+            query = query.or_(f"away_team.eq.{t},home_team.eq.{t}")
         if confidence:
             query = query.eq("confidence", confidence.upper())
 
@@ -503,10 +504,13 @@ async def get_accuracy_stats(
     moderate = [p for p in predictions if p.get('confidence') == 'MODERATE']
     close = [p for p in predictions if p.get('confidence') == 'CLOSE']
 
-    # Calculate multi-window stats (from ALL predictions, ignoring filters)
+    # Calculate multi-window stats (respects team filter, ignores other filters)
     try:
-        all_completed = supabase.table("predictions").select("*").not_is("correct", "null").order("game_date", desc=True).execute()
-        all_preds = all_completed.data or []
+        all_completed_query = supabase.table("predictions").select("*").not_is("correct", "null").order("game_date", desc=True)
+        if team:
+            t = team.upper()
+            all_completed_query = all_completed_query.or_(f"away_team.eq.{t},home_team.eq.{t}")
+        all_preds = all_completed_query.execute().data or []
     except Exception:
         all_preds = predictions
 
@@ -612,7 +616,8 @@ async def get_accuracy_stats(
         if end_date:
             all_query = all_query.lte("game_date", end_date)
         if team:
-            all_query = all_query.eq("pick", team.upper())
+            t = team.upper()
+            all_query = all_query.or_(f"away_team.eq.{t},home_team.eq.{t}")
         if confidence:
             all_query = all_query.eq("confidence", confidence.upper())
         all_result = all_query.execute()
