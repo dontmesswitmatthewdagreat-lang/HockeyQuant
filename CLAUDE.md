@@ -240,6 +240,25 @@ Predictions become "official" 15 minutes before each individual game start time:
 | Injuries | 0.90-1.00 | Weighted by player importance (points, ice time, xG) |
 | Head-to-Head | 0.94-1.06 | Recent matchup history (division/conference aware) |
 
+## Important Caveats & Known Issues
+
+### Score Types — Quality Scores vs Expected Goals
+The system uses TWO different scoring systems that must not be confused:
+- **Quality scores** (`away_score`, `home_score` in `predictions` table): Range 30-70, produced by NHLAnalyzer. Used for moneyline pick (higher score = predicted winner). These are NOT goal predictions.
+- **Expected goals** (`away_expected_goals`, `home_expected_goals` in `betting_lines`): Range 1.5-5.5, produced by GoalPredictor. Used for puck line, O/U, and Poisson charts. These ARE actual goal predictions.
+
+Never feed quality scores into Poisson/goal-based math. The `betting_lines` object contains the expected goals; the top-level `away_score`/`home_score` do not.
+
+### Accuracy Tracking — Puck Line & O/U Data
+- Predictions stored before betting_lines was implemented (pre-Feb 2026) have `puck_line_pick = NULL` and `ou_pick = NULL`. These cannot be retroactively backfilled because only quality scores were stored, not expected goals.
+- Puck line and O/U accuracy data only exists for predictions stored AFTER betting_lines integration. The `/accuracy/backfill` endpoint can grade predictions with existing picks but cannot derive picks from quality scores.
+
+### GitHub Actions Cron — Timezone
+The accuracy automation workflow (`.github/workflows/accuracy-automation.yml`) must use `TZ='America/New_York'` when computing dates because the NHL API uses ET dates. Using UTC dates causes evening games (7 PM - 1 AM ET) to be stored under the wrong date since UTC midnight falls during prime game time.
+
+### Render Cold Starts
+The backend on Render free tier spins down after inactivity. The cron workflow includes a pre-warm step (`curl /api/health`) before calling heavy endpoints. All `curl` commands use `--max-time 300` to accommodate slow cold starts + data fetching.
+
 ## Dependencies
 
 ### Backend
