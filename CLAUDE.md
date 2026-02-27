@@ -90,7 +90,8 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - `GET /api/accuracy/trend` - Rolling accuracy trend data for charts
 - `POST /api/accuracy/store-predictions/{date}` - Store predictions before games (cron)
 - `POST /api/accuracy/update-results/{date}` - Update results after games (cron)
-- `POST /api/accuracy/update-all-pending` - Batch update all pending results
+- `POST /api/accuracy/update-all-pending` - Batch update all pending results + backfill PL/O/U grades
+- `POST /api/accuracy/backfill` - Backfill puck line and O/U picks and grades for existing predictions
 - `GET /api/accuracy/first-game-time/{date}` - For scheduling cron jobs
 - `GET /api/accuracy/last-game-time/{date}` - Game day cutoff time
 - `GET /api/accuracy/debug` - Supabase connection diagnostics
@@ -112,6 +113,8 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - `away_final`, `home_final`, `actual_winner`, `correct` (nullable, filled after games)
 - `predicted_at` - Timestamp when official prediction was locked
 - `goalie_confirmed_away`, `goalie_confirmed_home` - Boolean flags for goalie confirmation status
+- `puck_line_pick` ("home"/"away"), `puck_line_line` (float), `puck_line_correct` (nullable bool)
+- `ou_pick` ("over"/"under"), `ou_line` (float), `ou_correct` (nullable bool, null on pushes)
 
 **`daily_predictions` table** - Full JSON cache for instant API responses:
 - `game_date` (unique), `games_count`, `predictions` (JSON array)

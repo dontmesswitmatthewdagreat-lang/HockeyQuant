@@ -35,7 +35,13 @@ jobs:
     steps:
       - name: Get today's date
         id: date
-        run: echo "today=$(date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+        run: echo "today=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Wake up Render service
+        run: |
+          echo "Pre-warming Render service..."
+          curl -s --max-time 60 "https://hockeyquant.onrender.com/api/health" || true
+          sleep 5
 
       - name: Store predictions for games in window
         run: |
@@ -44,7 +50,7 @@ jobs:
 
           # Call the endpoint - it handles per-game logic internally
           # Only stores predictions for games within 15-min window that aren't already stored
-          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
+          RESPONSE=$(curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/accuracy/store-predictions/$DATE")
           echo "Response: $RESPONSE"
 
           # Parse response
@@ -63,8 +69,14 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event.schedule == '0 7 * * *' || github.event.inputs.action == 'update-results'
     steps:
+      - name: Wake up Render service
+        run: |
+          echo "Pre-warming Render service..."
+          curl -s --max-time 60 "https://hockeyquant.onrender.com/api/health" || true
+          sleep 5
+
       - name: Update all pending results
         run: |
           echo "Updating all pending results at $(date -u)"
-          RESPONSE=$(curl -s -X POST "https://hockeyquant.onrender.com/api/accuracy/update-all-pending")
+          RESPONSE=$(curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/accuracy/update-all-pending")
           echo "Response: $RESPONSE"
