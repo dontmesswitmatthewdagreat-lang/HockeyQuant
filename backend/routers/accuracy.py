@@ -11,7 +11,6 @@ from datetime import date, datetime, timedelta, timezone
 from services import NHLAnalyzer, get_data_loader
 from services.supabase_client import get_supabase
 from services.results_fetcher import fetch_game_results, get_first_game_time, get_last_game_time
-from services.goal_predictor import calc_spread_prob, calc_over_under_prob
 
 router = APIRouter()
 
@@ -863,11 +862,14 @@ async def get_accuracy_leaderboard():
 @router.post("/accuracy/backfill")
 async def backfill_predictions():
     """
-    Backfill puck line and O/U picks and grades for existing predictions.
+    Backfill puck line and O/U grades for existing predictions.
 
-    For predictions that have results (correct IS NOT NULL) but are missing
-    puck_line_pick/ou_pick or puck_line_correct/ou_correct, this endpoint
-    re-derives the picks from stored predicted scores and grades them.
+    Only grades predictions that already have picks stored (puck_line_pick/ou_pick).
+    Predictions stored before betting_lines existed have NULL picks and cannot
+    be meaningfully backfilled (stored scores are quality scores, not expected goals).
+
+    Also resets any bogus backfill data where ou_line > 10 (indicates quality scores
+    were mistakenly used as expected goals).
     """
     supabase = get_supabase()
     if not supabase:
@@ -885,8 +887,8 @@ async def backfill_predictions():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
-    updated_picks = 0
     updated_grades = 0
+    reset_count = 0
     errors = []
 
     for pred in all_preds:
@@ -899,40 +901,26 @@ async def backfill_predictions():
         if away_final is None or home_final is None:
             continue
 
-        # --- Backfill missing picks using stored predicted scores ---
-        if pred.get('puck_line_pick') is None or pred.get('ou_pick') is None:
-            # Use stored predicted scores as proxy for expected goals
-            pred_away = pred.get('away_score', 3.0)
-            pred_home = pred.get('home_score', 3.0)
+        # --- Reset bogus backfill data ---
+        # If ou_line > 10, it was derived from quality scores (30-70 range) not expected goals
+        ou_line_val = pred.get('ou_line')
+        if ou_line_val is not None and ou_line_val > 10:
+            update_data['puck_line_pick'] = None
+            update_data['puck_line_line'] = None
+            update_data['puck_line_correct'] = None
+            update_data['ou_pick'] = None
+            update_data['ou_line'] = None
+            update_data['ou_correct'] = None
+            reset_count += 1
+            try:
+                supabase.table("predictions").update(update_data).eq("game_id", game_id).execute()
+            except Exception as e:
+                errors.append(f"Reset {game_id}: {str(e)}")
+            continue
 
-            if pred.get('puck_line_pick') is None:
-                # Derive puck line pick from Poisson model
-                # Use standard -1.5 puck line
-                puck_line = -1.5
-                spread_probs = calc_spread_prob(pred_away, pred_home, puck_line)
-                home_cover_prob = spread_probs['home_cover']
-                away_cover_prob = spread_probs['away_cover']
-                puck_line_pick = 'home' if home_cover_prob >= away_cover_prob else 'away'
-                update_data['puck_line_pick'] = puck_line_pick
-                update_data['puck_line_line'] = puck_line
-
-            if pred.get('ou_pick') is None:
-                # Derive O/U pick from Poisson model
-                predicted_total = pred_away + pred_home
-                # Use nearest half-line as the O/U line
-                ou_line = round(predicted_total * 2) / 2
-                if ou_line == int(ou_line):
-                    ou_line = ou_line - 0.5 if predicted_total >= ou_line else ou_line + 0.5
-                ou_probs = calc_over_under_prob(pred_away, pred_home, ou_line)
-                ou_pick = 'over' if ou_probs['over'] >= ou_probs['under'] else 'under'
-                update_data['ou_pick'] = ou_pick
-                update_data['ou_line'] = ou_line
-
-            updated_picks += 1
-
-        # --- Grade puck line ---
-        pl_pick = update_data.get('puck_line_pick', pred.get('puck_line_pick'))
-        pl_line = update_data.get('puck_line_line', pred.get('puck_line_line'))
+        # --- Grade puck line (only if pick exists but grade is missing) ---
+        pl_pick = pred.get('puck_line_pick')
+        pl_line = pred.get('puck_line_line')
 
         if pl_pick and pl_line is not None and pred.get('puck_line_correct') is None:
             margin = home_final - away_final
@@ -941,9 +929,8 @@ async def backfill_predictions():
             update_data['puck_line_correct'] = puck_line_correct
             updated_grades += 1
 
-        # --- Grade O/U ---
-        ou_pick_val = update_data.get('ou_pick', pred.get('ou_pick'))
-        ou_line_val = update_data.get('ou_line', pred.get('ou_line'))
+        # --- Grade O/U (only if pick exists but grade is missing) ---
+        ou_pick_val = pred.get('ou_pick')
 
         if ou_pick_val and ou_line_val is not None and pred.get('ou_correct') is None:
             total = home_final + away_final
@@ -960,8 +947,8 @@ async def backfill_predictions():
                 errors.append(f"{game_id}: {str(e)}")
 
     return {
-        "message": f"Backfill complete: {updated_picks} picks derived, {updated_grades} grades calculated",
-        "updated_picks": updated_picks,
+        "message": f"Backfill complete: {reset_count} bogus records reset, {updated_grades} grades calculated",
+        "reset_count": reset_count,
         "updated_grades": updated_grades,
         "total_reviewed": len(all_preds),
         "errors": errors[:10] if errors else [],
