@@ -1,0 +1,146 @@
+.mdm-content {
+  max-width: 480px;
+}
+
+/* Header */
+.mdm-header {
+  margin-bottom: 1.5rem;
+}
+
+.mdm-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.25rem;
+}
+
+.mdm-title-row h2 {
+  margin: 0;
+}
+
+.mdm-own-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--accent-green, #22c55e);
+  color: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+.mdm-creator {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0 0 0.5rem;
+}
+
+.mdm-date {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Sections */
+.mdm-section {
+  margin-bottom: 1.5rem;
+}
+
+.mdm-section-title {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-secondary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Weight Distribution */
+.mdm-weights {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.mdm-weight-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.mdm-weight-label {
+  width: 140px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  flex-shrink: 0;
+}
+
+.mdm-weight-bar-container {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.mdm-weight-bar-fill {
+  height: 100%;
+  background: var(--accent-red);
+  border-radius: 4px;
+}
+
+.mdm-weight-value {
+  width: 38px;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* Accuracy Table */
+.mdm-accuracy-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mdm-accuracy-table tr + tr td {
+  border-top: 1px solid var(--border-color);
+}
+
+.mdm-accuracy-table td {
+  padding: 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.mdm-acc-label {
+  color: var(--text-secondary);
+  width: 90px;
+}
+
+.mdm-acc-pct {
+  font-weight: 700;
+  font-family: var(--font-heading);
+  color: var(--text-primary);
+  width: 70px;
+}
+
+.mdm-acc-fraction {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.mdm-no-accuracy {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+@media (max-width: 480px) {
+  .mdm-weight-label {
+    width: 110px;
+  }
+}

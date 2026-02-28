@@ -46,8 +46,17 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - Separate from quality-score moneyline — predicts actual expected goals per team
 - Blends MoneyPuck xG (65%) with actual goals (35%) for offensive/defensive strength
 - Adjusts for: goalie GSAX, fatigue, injuries, special teams, home ice (+3%)
-- Poisson probability matrix (11×11) for spread and total probabilities
-- Used for: puck line predictions, over/under predictions, optimal alternate lines
+- Poisson probability matrix (11×11) for spread, total, and moneyline probabilities
+- `calc_moneyline_prob()` — regulation win probability by summing matrix cells where home > away
+- Used for: puck line predictions, over/under predictions, optimal alternate lines, daily parlay optimizer
+
+### Daily Parlay Optimizer
+`backend/routers/accuracy.py` - `calc_optimal_parlay()` module-level helper:
+- Greedy LP optimizer (separable structure → greedy = exact LP optimum)
+- For each game: evaluates ML home, ML away, PL home, PL away, Over, Under
+- Picks the single best bet per game (highest probability ≥ MIN_PROB_THRESHOLD = 54%)
+- Adds legs in descending probability order; stops when combined probability < TARGET_COMBINED (15%) or MAX_LEGS (8) reached
+- Normalizes accuracy tracking across different game-day sizes (3-game days vs 16-game days)
 
 ### Odds Fetcher
 `backend/services/odds_fetcher.py` - Fetches real sportsbook lines from The Odds API:
@@ -75,6 +84,7 @@ python NHL_Moneyline_Generator_APP_Phase3.py
   - `over_under`, `over_under_source`, `over_prob`, `under_prob`, `push_prob`
   - `optimal_spread`, `optimal_spread_prob`, `optimal_spread_side`
   - `optimal_total`, `optimal_total_prob`, `optimal_total_rec`
+  - `ml_home_prob`, `ml_away_prob` — regulation win probability (0–100) from Poisson matrix
 
 **Teams:**
 - `GET /api/teams` - All 32 teams with division/conference info
@@ -90,8 +100,13 @@ python NHL_Moneyline_Generator_APP_Phase3.py
 - `GET /api/accuracy/trend` - Rolling accuracy trend data for charts
 - `POST /api/accuracy/store-predictions/{date}` - Store predictions before games (cron)
 - `POST /api/accuracy/update-results/{date}` - Update results after games (cron)
-- `POST /api/accuracy/update-all-pending` - Batch update all pending results + backfill PL/O/U grades
+- `POST /api/accuracy/update-all-pending` - Batch update all pending results + backfill PL/O/U grades + grade parlays
 - `POST /api/accuracy/backfill` - Backfill puck line and O/U picks and grades for existing predictions
+- `POST /api/accuracy/store-model-predictions/{date}` - Store official predictions for all active user models (cron)
+- `POST /api/accuracy/update-model-results/{date}` - Grade model_predictions with actual results
+- `GET /api/accuracy/parlay/{date}` - On-the-fly optimal parlay for the modal (no DB write)
+- `POST /api/accuracy/store-parlay/{date}` - Lock today's parlay for accuracy tracking (idempotent, cron)
+- `GET /api/accuracy/parlay-stats` - Historical parlay accuracy stats (hit rate, avg legs, recent table)
 - `GET /api/accuracy/first-game-time/{date}` - For scheduling cron jobs
 - `GET /api/accuracy/last-game-time/{date}` - Game day cutoff time
 - `GET /api/accuracy/debug` - Supabase connection diagnostics
@@ -132,6 +147,13 @@ Supabase (PostgreSQL) for storing predictions and tracking accuracy:
 - `id`, `model_id`, `game_id`, `game_date`
 - `away_team`, `home_team`, `pick`, `away_score`, `home_score`, `confidence`
 - `actual_winner`, `correct` (filled after games)
+- Auto-stored when user views model predictions; also stored by cron via `store-model-predictions`
+
+**`daily_parlays` table** - Optimal parlays for accuracy tracking:
+- `id`, `game_date` (UNIQUE), `legs` (JSONB array), `num_legs`, `combined_prob`
+- `correct` (nullable bool — null until graded), `legs_correct` (int)
+- `predicted_at`, `updated_at`
+- Each leg in JSONB: `game_id`, `away_team`, `home_team`, `game_time`, `type` (ML/PL/OU), `label`, `pick`, `prob`, `line`, `correct`
 
 ### Deployment
 - Frontend: Vercel (hockeyquant.vercel.app)
@@ -179,6 +201,9 @@ Predictions become "official" 15 minutes before each individual game start time:
 | `ProgressBar.jsx` | Animated loading with cycling status messages |
 | `UserMenu.jsx` | Avatar dropdown with account links and logout |
 | `LoginForm.jsx` / `SignupForm.jsx` | Supabase authentication forms |
+| `ParlayModal.jsx` | Daily optimal parlay modal — leg list with type badges (ML/PL/OU), probability bars, combined probability bar, info note |
+| `ModelsLeaderboard.jsx` | Public leaderboard of all user models ranked by prediction accuracy |
+| `ModelDetailModal.jsx` | Read-only detail view of a model from the leaderboard |
 
 ### Advanced Frontend Features
 - **Dark Mode**: Toggle via ThemeContext, persisted to localStorage, CSS variables with `[data-theme="dark"]` selectors
@@ -189,6 +214,9 @@ Predictions become "official" 15 minutes before each individual game start time:
 - **Per-Game Status Display**: Official (green) vs Estimated (yellow) status banners, goalie confirmation badges
 - **Authentication**: Supabase auth with session management, protected routes, user profiles
 - **Accuracy Visualization**: Multi-metric charts, window selection (10/20/30/50 games), date/team/confidence filters
+- **Daily Parlay Modal**: "Daily Parlay" button on predictions page opens a modal showing the LP-optimized parlay for the current date; legs show ML/PL/OU type badges, per-leg probability bars (green ≥65%, yellow 58–65%, gray <58%), and combined probability bar
+- **Parlay Accuracy Tracker**: Bottom section of Accuracy page shows hit rate, avg legs, avg combined prob, and an expandable recent parlays table with per-leg drill-down
+- **Models Leaderboard**: Public leaderboard on the Models page showing all user-created models ranked by accuracy; click a row to open a read-only detail modal
 - **Mobile Responsive**: Hamburger menu, touch-friendly UI, responsive tables and grids
 
 ## Key Files
@@ -214,12 +242,16 @@ Predictions become "official" 15 minutes before each individual game start time:
 | `frontend/src/api.js` | API client with all endpoint functions |
 | `frontend/src/context/AuthContext.jsx` | Supabase auth state management |
 | `frontend/src/context/ThemeContext.jsx` | Dark mode toggle, localStorage persistence, `data-theme` attribute |
-| `frontend/src/pages/Predictions.jsx` | Games UI with date nav, summary stats, 2-column grid |
+| `frontend/src/pages/Predictions.jsx` | Games UI with date nav, summary stats, 2-column grid, Daily Parlay button |
+| `frontend/src/pages/Accuracy.jsx` | Accuracy stats, charts, recent predictions, parlay accuracy section |
 | `frontend/src/pages/Teams.jsx` | Team browser with detail modals |
-| `frontend/src/pages/Models.jsx` | User custom models with weight sliders |
+| `frontend/src/pages/Models.jsx` | User custom models with weight sliders + public leaderboard |
 | `frontend/src/components/GameCard.jsx` | Game card with team logos, win probability badges |
 | `frontend/src/components/ModelCard.jsx` | Model display with weight distribution bars |
 | `frontend/src/components/CreateModelModal.jsx` | Create/edit model form with weight sliders |
+| `frontend/src/components/ParlayModal.jsx` | Daily optimal parlay modal with leg details and probability bars |
+| `frontend/src/components/ModelsLeaderboard.jsx` | Public leaderboard of all user models |
+| `frontend/src/components/ModelDetailModal.jsx` | Read-only model detail view from leaderboard |
 | `frontend/src/utils/teamLogos.js` | NHL CDN logo URLs and team name mappings |
 
 ## Data Sources
@@ -252,6 +284,18 @@ Never feed quality scores into Poisson/goal-based math. The `betting_lines` obje
 ### Accuracy Tracking — Puck Line & O/U Data
 - Predictions stored before betting_lines was implemented (pre-Feb 2026) have `puck_line_pick = NULL` and `ou_pick = NULL`. These cannot be retroactively backfilled because only quality scores were stored, not expected goals.
 - Puck line and O/U accuracy data only exists for predictions stored AFTER betting_lines integration. The `/accuracy/backfill` endpoint can grade predictions with existing picks but cannot derive picks from quality scores.
+
+### Model Predictions Lifecycle
+`model_predictions` are written in two ways:
+1. **On-demand**: When a user views their model's predictions page, `GET /api/models/{id}/predictions/{date}` auto-stores any official predictions not yet in the table (fire-and-forget, doesn't fail the request)
+2. **Cron**: `POST /api/accuracy/store-model-predictions/{date}` is called every 10 minutes alongside `store-predictions`, covering users who don't open their model before game time
+Grading happens nightly via `update-all-pending` → `update-model-results`.
+
+### Daily Parlays Lifecycle
+1. **Cron stores**: `POST /api/accuracy/store-parlay/{date}` is called each run alongside `store-predictions`, idempotent (skips if date already stored)
+2. **Modal reads on-the-fly**: `GET /api/accuracy/parlay/{date}` always recomputes from cache/analyzer — no auth required
+3. **Nightly grading**: `update-all-pending` grades ungraded parlay legs against game results; a parlay is only marked graded when ALL legs have results
+4. **Parlay cache invalidation**: If `daily_predictions` cache was stored before `ml_home_prob` was added, the ML options will be missing. Trigger `POST /api/accuracy/store-predictions/{date}` to refresh the cache.
 
 ### GitHub Actions Cron — Timezone
 The accuracy automation workflow (`.github/workflows/accuracy-automation.yml`) must use `TZ='America/New_York'` when computing dates because the NHL API uses ET dates. Using UTC dates causes evening games (7 PM - 1 AM ET) to be stored under the wrong date since UTC midnight falls during prime game time.

@@ -60,6 +60,12 @@ class TableQuery:
         self.params[column] = f"not.is.{value}"
         return self
 
+    def in_(self, column: str, values: list) -> "TableQuery":
+        """PostgREST IN filter: column=in.(val1,val2,...)"""
+        joined = ",".join(str(v) for v in values)
+        self.params[column] = f"in.({joined})"
+        return self
+
     def or_(self, filter_str: str) -> "TableQuery":
         """PostgREST OR filter. filter_str e.g. 'away_team.eq.TOR,home_team.eq.TOR'"""
         self.params["or"] = f"({filter_str})"
@@ -78,15 +84,39 @@ class TableQuery:
         url = f"{self.client.rest_url}/{self.table}"
         with httpx.Client(timeout=30.0) as http:
             response = http.get(url, headers=self.client.headers, params=self.params)
-            response.raise_for_status()
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
             return QueryResult(response.json())
 
     def insert(self, records: List[Dict[str, Any]]) -> "QueryResult":
         url = f"{self.client.rest_url}/{self.table}"
         with httpx.Client(timeout=30.0) as http:
             response = http.post(url, headers=self.client.headers, json=records)
-            response.raise_for_status()
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
             return QueryResult(response.json())
+
+    def upsert(self, records: List[Dict[str, Any]]) -> "QueryResult":
+        """Insert or update (merge on conflict) records."""
+        url = f"{self.client.rest_url}/{self.table}"
+        headers = {**self.client.headers, "Prefer": "resolution=merge-duplicates,return=representation"}
+        with httpx.Client(timeout=30.0) as http:
+            response = http.post(url, headers=headers, json=records)
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
+            return QueryResult(response.json() if response.text else [])
 
     def update(self, data: Dict[str, Any]) -> "UpdateQuery":
         return UpdateQuery(self.client, self.table, data, self.params)
@@ -111,7 +141,12 @@ class DeleteQuery:
         url = f"{self.client.rest_url}/{self.table}"
         with httpx.Client(timeout=30.0) as http:
             response = http.delete(url, headers=self.client.headers, params=self.params)
-            response.raise_for_status()
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
             return QueryResult(response.json() if response.text else [])
 
 
@@ -132,7 +167,12 @@ class UpdateQuery:
         url = f"{self.client.rest_url}/{self.table}"
         with httpx.Client(timeout=30.0) as http:
             response = http.patch(url, headers=self.client.headers, params=self.params, json=self.data)
-            response.raise_for_status()
+            if not response.is_success:
+                raise httpx.HTTPStatusError(
+                    f"{response.status_code} {response.text}",
+                    request=response.request,
+                    response=response,
+                )
             return QueryResult(response.json())
 
 
@@ -141,6 +181,10 @@ class QueryResult:
 
     def __init__(self, data: Any):
         self.data = data if isinstance(data, list) else [data] if data else []
+
+    def execute(self) -> "QueryResult":
+        """No-op for compatibility with insert/upsert chaining."""
+        return self
 
 
 # Global client instance

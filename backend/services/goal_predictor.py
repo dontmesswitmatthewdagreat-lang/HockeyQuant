@@ -92,6 +92,29 @@ def calc_spread_prob(pred_away: float, pred_home: float, line: float) -> Dict[st
     return {"home_cover": p_home_cover, "away_cover": p_away_cover, "push": p_push}
 
 
+def calc_moneyline_prob(pred_away: float, pred_home: float) -> Dict[str, float]:
+    """
+    Regulation win probability from Poisson score matrix.
+
+    Returns: {"home_win": float, "away_win": float, "push": float}
+    All values are fractions (0.0–1.0), not percentages.
+    """
+    matrix = _build_score_matrix(pred_away, pred_home)
+    p_home_win = 0.0
+    p_away_win = 0.0
+    p_push = 0.0
+    for a in range(len(matrix)):
+        for b in range(len(matrix[0])):
+            prob = matrix[a][b]
+            if b > a:    # home scores more in regulation
+                p_home_win += prob
+            elif a > b:  # away scores more
+                p_away_win += prob
+            else:
+                p_push += prob
+    return {"home_win": p_home_win, "away_win": p_away_win, "push": p_push}
+
+
 def find_optimal_total(pred_away: float, pred_home: float) -> Tuple[float, float, str]:
     """
     Find the optimal over/under line. Prefers half-lines (no push).

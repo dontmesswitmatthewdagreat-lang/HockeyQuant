@@ -45,6 +45,11 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
   const [name, setName] = useState(model?.name || '');
   const [description, setDescription] = useState(model?.description || '');
   const [weights, setWeights] = useState(model?.weights || { ...DEFAULT_WEIGHTS });
+  const [rawInputs, setRawInputs] = useState(
+    Object.fromEntries(
+      WEIGHT_CATEGORIES.map(({ key }) => [key, String(model?.weights?.[key] ?? DEFAULT_WEIGHTS[key])])
+    )
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
@@ -52,17 +57,32 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
   const totalWeight = Object.values(weights).reduce((sum, val) => sum + val, 0);
   const isValid = Math.abs(totalWeight - 100) < 0.01 && name.trim().length > 0;
 
-  const handleWeightChange = (key, value) => {
-    const numValue = Math.max(0, Math.min(100, parseInt(value) || 0));
-    setWeights(prev => ({ ...prev, [key]: numValue }));
+  const remaining = Math.max(0, 100 - totalWeight);
+
+  // Number input: just update the raw string — don't commit to weights yet
+  const handleInputChange = (key, value) => {
+    setRawInputs(prev => ({ ...prev, [key]: value }));
+  };
+
+  // On blur: parse, cap, and commit the raw value to weights
+  const handleInputBlur = (key) => {
+    const numValue = Math.max(0, parseInt(rawInputs[key]) || 0);
+    const maxVal = weights[key] + remaining;
+    const capped = Math.min(numValue, maxVal);
+    setWeights(prev => ({ ...prev, [key]: capped }));
+    setRawInputs(prev => ({ ...prev, [key]: String(capped) }));
   };
 
   const handleSliderChange = (key, value) => {
-    setWeights(prev => ({ ...prev, [key]: parseInt(value) }));
+    const maxVal = weights[key] + remaining;
+    const newVal = Math.min(parseInt(value), maxVal);
+    setWeights(prev => ({ ...prev, [key]: newVal }));
+    setRawInputs(prev => ({ ...prev, [key]: String(newVal) }));
   };
 
   const handleReset = () => {
     setWeights({ ...DEFAULT_WEIGHTS });
+    setRawInputs(Object.fromEntries(Object.keys(DEFAULT_WEIGHTS).map(k => [k, String(DEFAULT_WEIGHTS[k])])));
   };
 
   const isGuest = !token;
@@ -170,14 +190,16 @@ function CreateModelModal({ model, token, onClose, onSaved }) {
                     max="100"
                     value={weights[key]}
                     onChange={(e) => handleSliderChange(key, e.target.value)}
-                    className="weight-slider"
+                    className={`weight-slider${remaining === 0 ? ' at-limit' : ''}`}
                   />
                   <input
                     type="number"
                     min="0"
                     max="100"
-                    value={weights[key]}
-                    onChange={(e) => handleWeightChange(key, e.target.value)}
+                    value={rawInputs[key]}
+                    onChange={(e) => handleInputChange(key, e.target.value)}
+                    onBlur={() => handleInputBlur(key)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
                     className="weight-input"
                   />
                   <span className="weight-percent">%</span>

@@ -1,0 +1,179 @@
+.models-lb-loading,
+.models-lb-error {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 1rem 0;
+}
+
+.models-lb-error {
+  color: var(--error-text);
+}
+
+/* Table container */
+.models-lb-table-container {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.models-lb-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.models-lb-table thead {
+  background: var(--bg-secondary);
+}
+
+.models-lb-table th {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.models-lb-rank-th {
+  width: 40px;
+}
+
+.models-lb-num-th {
+  text-align: right;
+}
+
+.models-lb-table td {
+  padding: 0.75rem 1rem;
+  font-size: 0.9rem;
+  color: var(--text-primary);
+  border-bottom: 1px solid var(--border-color);
+  vertical-align: middle;
+}
+
+.models-lb-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+/* Clickable rows */
+.models-lb-row {
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.models-lb-row:hover {
+  background: var(--accent-red-light);
+}
+
+.models-lb-row.selected {
+  background: var(--accent-red-light);
+  border-left: 3px solid var(--accent-red);
+}
+
+.models-lb-row.own-row {
+  border-left: 3px solid var(--accent-green, #22c55e);
+}
+
+.models-lb-row.own-row.selected {
+  border-left: 3px solid var(--accent-red);
+}
+
+/* Rank */
+.models-lb-rank {
+  font-weight: 700;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+/* Creator cell */
+.models-lb-creator {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.models-lb-you-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  background: var(--accent-green, #22c55e);
+  color: white;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  margin-left: 0.35rem;
+  vertical-align: middle;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Model name */
+.models-lb-name {
+  font-weight: 600;
+}
+
+/* Number cells — right-aligned */
+.models-lb-num-cell {
+  text-align: right;
+}
+
+/* Percentage display */
+.models-lb-pct {
+  display: block;
+  font-weight: 700;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  color: var(--text-primary);
+}
+
+.models-lb-pct.best {
+  color: var(--accent-green, #22c55e);
+}
+
+.models-lb-pct.worst {
+  color: var(--error-text);
+}
+
+/* Sub-line: "correct/total" */
+.models-lb-sub {
+  display: block;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  margin-top: 0.125rem;
+}
+
+/* Dash for missing data */
+.models-lb-dash {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+/* Empty state */
+.models-lb-empty {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .models-lb-table-container {
+    overflow-x: auto;
+  }
+
+  .models-lb-table {
+    min-width: 580px;
+  }
+}
+
+@media (max-width: 650px) {
+  .models-lb-table th,
+  .models-lb-table td {
+    padding: 0.625rem 0.75rem;
+  }
+}

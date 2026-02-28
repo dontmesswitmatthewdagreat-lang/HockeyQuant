@@ -273,6 +273,30 @@
   background: var(--accent-red-hover);
 }
 
+/* Daily Parlay Button */
+.parlay-btn-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1.25rem;
+}
+
+.btn-parlay {
+  background: var(--accent-red);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.6rem 1.25rem;
+  font-size: 0.9rem;
+  font-weight: 700;
+  cursor: pointer;
+  letter-spacing: 0.02em;
+  transition: background 0.2s ease;
+}
+
+.btn-parlay:hover {
+  background: var(--accent-red-hover);
+}
+
 /* Responsive */
 @media (max-width: 900px) {
   .games-grid {

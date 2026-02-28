@@ -119,6 +119,14 @@ class AccuracyStats(BaseModel):
     ou_close_total: int = 0
     ou_close_correct: int = 0
     ou_close_pct: float = 0.0
+    # Multi-window stats for puck line
+    pl_all_time: Optional[WindowStats] = None
+    pl_current_season: Optional[WindowStats] = None
+    pl_rolling_30: Optional[WindowStats] = None
+    # Multi-window stats for O/U
+    ou_all_time: Optional[WindowStats] = None
+    ou_current_season: Optional[WindowStats] = None
+    ou_rolling_30: Optional[WindowStats] = None
 
 
 class AccuracyResponse(BaseModel):
@@ -142,6 +150,77 @@ class TrendResponse(BaseModel):
 
 # Shared analyzer instance
 _analyzer: Optional[NHLAnalyzer] = None
+
+# Parlay optimizer parameters
+_MIN_PROB = 54.0
+_MAX_LEGS = 8
+_TARGET_COMBINED = 15.0
+
+
+def calc_optimal_parlay(predictions: List[Dict], min_prob: float = _MIN_PROB,
+                        max_legs: int = _MAX_LEGS, target_combined: float = _TARGET_COMBINED) -> Dict:
+    """
+    Greedy LP optimizer: selects the best bet type (ML/PL/OU) per game,
+    then adds legs in descending probability order until the combined
+    probability would fall below target_combined or max_legs is reached.
+    """
+    candidates = []
+    for pred in predictions:
+        bl = pred.get("betting_lines") or {}
+        if not bl:
+            continue
+        away = pred.get("away", {})
+        home = pred.get("home", {})
+        away_team = away.get("team", "") if isinstance(away, dict) else str(away)
+        home_team = home.get("team", "") if isinstance(home, dict) else str(home)
+        pl_line = bl.get("puck_line", -1.5)
+        ou_line = bl.get("over_under")
+        date_str = (pred.get("game_time") or "")[:10]
+
+        away_pl = -pl_line  # from away perspective
+        options = [
+            {"type": "ML", "label": f"{home_team} ML",              "pick": home_team, "prob": bl.get("ml_home_prob", 0)},
+            {"type": "ML", "label": f"{away_team} ML",              "pick": away_team, "prob": bl.get("ml_away_prob", 0)},
+            {"type": "PL", "label": f"{home_team} {pl_line:+.1f}",  "pick": home_team, "prob": bl.get("puck_line_home_cover_prob", 0), "line": pl_line},
+            {"type": "PL", "label": f"{away_team} {away_pl:+.1f}", "pick": away_team, "prob": bl.get("puck_line_away_cover_prob", 0), "line": away_pl},
+        ]
+        if ou_line:
+            options += [
+                {"type": "OU", "label": f"Over {ou_line}",  "pick": "OVER",  "prob": bl.get("over_prob", 0),  "line": ou_line},
+                {"type": "OU", "label": f"Under {ou_line}", "pick": "UNDER", "prob": bl.get("under_prob", 0), "line": ou_line},
+            ]
+
+        valid = [o for o in options if o.get("prob", 0) >= min_prob]
+        if not valid:
+            continue
+        best = max(valid, key=lambda x: x["prob"])
+        candidates.append({
+            **best,
+            "game_id":   f"{date_str}_{away_team}_{home_team}",
+            "away_team": away_team,
+            "home_team": home_team,
+            "game_time": pred.get("game_time"),
+            "correct":   None,
+        })
+
+    candidates.sort(key=lambda x: x["prob"], reverse=True)
+
+    legs: List[Dict] = []
+    combined = 1.0
+    for c in candidates:
+        tentative = combined * (c["prob"] / 100)
+        if legs and tentative * 100 < target_combined:
+            break
+        combined = tentative
+        legs.append(c)
+        if len(legs) >= max_legs:
+            break
+
+    return {
+        "legs": legs,
+        "num_legs": len(legs),
+        "combined_prob": round(combined * 100, 1) if legs else 0.0,
+    }
 
 
 def get_analyzer() -> NHLAnalyzer:
@@ -456,11 +535,437 @@ async def update_all_pending():
     except Exception as e:
         print(f"Backfill error during update-all-pending: {e}")
 
+    # Step 3: Update model predictions
+    model_updated = 0
+    try:
+        mp_pending = supabase.table("model_predictions").select("game_date").is_("correct", "null").execute()
+        model_dates = list(set([p["game_date"] for p in mp_pending.data])) if mp_pending.data else []
+        for date_str in model_dates:
+            result = await update_model_results(date_str)
+            model_updated += result.get("updated", 0)
+    except Exception as e:
+        print(f"Model results update error: {e}")
+
+    # Step 4: Grade ungraded parlays
+    parlays_graded = 0
+    try:
+        ungraded = supabase.table("daily_parlays").select("*").is_("correct", "null").execute()
+        for parlay in ungraded.data or []:
+            game_date = parlay["game_date"]
+            results = fetch_game_results(game_date)
+            results_by_id = {
+                f"{game_date}_{r['away_team']}_{r['home_team']}": r
+                for r in results
+            }
+            legs = parlay.get("legs", [])
+            graded_legs = []
+            all_correct = True
+            legs_correct = 0
+            can_grade = True
+            for leg in legs:
+                result = results_by_id.get(leg.get("game_id"))
+                if not result:
+                    can_grade = False
+                    graded_legs.append(leg)
+                    continue
+                leg_type = leg.get("type")
+                if leg_type == "ML":
+                    leg_correct = leg["pick"] == result["actual_winner"]
+                elif leg_type == "PL":
+                    margin = result["home_final"] - result["away_final"]
+                    line = leg.get("line", 0)
+                    if leg["pick"] == leg["home_team"]:
+                        leg_correct = (margin + line) > 0
+                    else:
+                        leg_correct = (margin + line) < 0
+                else:  # OU
+                    total = result["home_final"] + result["away_final"]
+                    line = leg.get("line", 0)
+                    leg_correct = (total > line) if leg["pick"] == "OVER" else (total < line)
+                leg = {**leg, "correct": leg_correct}
+                if leg_correct:
+                    legs_correct += 1
+                else:
+                    all_correct = False
+                graded_legs.append(leg)
+            if can_grade and all(l.get("correct") is not None for l in graded_legs):
+                try:
+                    supabase.table("daily_parlays").update({
+                        "legs": graded_legs,
+                        "correct": all_correct,
+                        "legs_correct": legs_correct,
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id", parlay["id"]).execute()
+                    parlays_graded += 1
+                except Exception as e:
+                    print(f"Error grading parlay {parlay.get('id')}: {e}")
+    except Exception as e:
+        print(f"Parlay grading error: {e}")
+
     return {
-        "message": f"Updated {total_updated} results across {len(dates)} dates. Backfill: {backfill_result.get('updated_picks', 0)} picks, {backfill_result.get('updated_grades', 0)} grades.",
+        "message": f"Updated {total_updated} results across {len(dates)} dates. Backfill: {backfill_result.get('updated_picks', 0)} picks, {backfill_result.get('updated_grades', 0)} grades. Model predictions: {model_updated} updated. Parlays graded: {parlays_graded}.",
         "updated": total_updated,
         "backfill_picks": backfill_result.get("updated_picks", 0),
         "backfill_grades": backfill_result.get("updated_grades", 0),
+        "model_predictions_updated": model_updated,
+        "parlays_graded": parlays_graded,
+    }
+
+
+@router.post("/accuracy/update-model-results/{date_str}")
+async def update_model_results(date_str: str):
+    """
+    Update model_predictions with actual game results for a specific date.
+    Called by update-all-pending nightly cron.
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    supabase = get_supabase()
+    if not supabase:
+        return {"message": "Supabase not configured", "updated": 0}
+
+    results = fetch_game_results(date_str)
+    if not results:
+        return {"message": f"No completed games for {date_str}", "updated": 0}
+
+    results_by_id = {
+        f"{date_str}_{r['away_team']}_{r['home_team']}": r
+        for r in results
+    }
+
+    try:
+        pending = (
+            supabase.table("model_predictions")
+            .select("id,game_id,pick")
+            .eq("game_date", date_str)
+            .is_("correct", "null")
+            .execute()
+        )
+        records = pending.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Query error: {str(e)}")
+
+    if not records:
+        return {"message": f"No pending model predictions for {date_str}", "updated": 0}
+
+    updated = 0
+    for record in records:
+        game_id = record.get("game_id")
+        result = results_by_id.get(game_id)
+        if not result:
+            continue
+        try:
+            supabase.table("model_predictions").update({
+                "correct": record["pick"] == result["actual_winner"],
+                "actual_winner": result["actual_winner"],
+            }).eq("id", record["id"]).execute()
+            updated += 1
+        except Exception as e:
+            print(f"Error updating model prediction {record.get('id')}: {e}")
+
+    return {"message": f"Updated {updated} model predictions for {date_str}", "updated": updated}
+
+
+@router.post("/accuracy/store-model-predictions/{date_str}")
+async def store_model_predictions(date_str: str):
+    """
+    Store official predictions for all active user models for a given date.
+    Called by the store-predictions cron so model accuracy is tracked even
+    if the user doesn't open their model in the browser before game time.
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    supabase = get_supabase()
+    if not supabase:
+        return {"message": "Supabase not configured", "stored": 0}
+
+    try:
+        models_result = supabase.table("user_models").select("*").eq("is_active", True).execute()
+        models = models_result.data or []
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch models: {str(e)}")
+
+    if not models:
+        return {"message": "No active models", "stored": 0}
+
+    now = datetime.now(timezone.utc)
+
+    # Fetch already-stored (model_id, game_id) pairs to avoid duplicates
+    try:
+        existing = (
+            supabase.table("model_predictions")
+            .select("model_id,game_id")
+            .eq("game_date", date_str)
+            .execute()
+        )
+        existing_set = {(r["model_id"], r["game_id"]) for r in (existing.data or [])}
+    except Exception:
+        existing_set = set()
+
+    try:
+        analyzer = get_analyzer()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
+
+    total_stored = 0
+    for model in models:
+        model_id = model["id"]
+        weights_data = {
+            "offense": float(model.get("weight_offensive", 40)),
+            "defense": float(model.get("weight_defensive", 15)),
+            "goaltending": float(model.get("weight_goaltending", 30)),
+            "points_pct": float(model.get("weight_points_pct", 10)),
+            "win_rate": float(model.get("weight_win_rate", 5)),
+        }
+        try:
+            results = analyzer.analyze_date(date_str, custom_weights=weights_data)
+        except Exception as e:
+            print(f"Analyzer error for model {model_id}: {e}")
+            continue
+
+        if not results:
+            continue
+
+        to_insert = []
+        for r in results:
+            game_time_str = r.get("game_time")
+            if not game_time_str:
+                continue
+            try:
+                game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+                is_official = now >= (game_time - timedelta(minutes=15))
+            except Exception:
+                is_official = False
+
+            if not is_official:
+                continue
+
+            game_id = f"{date_str}_{r['away']['team']}_{r['home']['team']}"
+            if (model_id, game_id) in existing_set:
+                continue
+
+            diff = r["diff"]
+            if diff >= 10:
+                confidence = "STRONG"
+            elif diff >= 5:
+                confidence = "MODERATE"
+            else:
+                confidence = "CLOSE"
+
+            to_insert.append({
+                "model_id": model_id,
+                "game_id": game_id,
+                "game_date": date_str,
+                "away_team": r["away"]["team"],
+                "home_team": r["home"]["team"],
+                "pick": r["pick"],
+                "away_score": r["away"]["final_score"],
+                "home_score": r["home"]["final_score"],
+                "confidence": confidence,
+            })
+
+        if to_insert:
+            try:
+                supabase.table("model_predictions").insert(to_insert).execute()
+                total_stored += len(to_insert)
+                for item in to_insert:
+                    existing_set.add((item["model_id"], item["game_id"]))
+            except Exception as e:
+                print(f"Insert error for model {model_id}: {e}")
+
+    return {
+        "message": f"Stored {total_stored} model predictions for {date_str} across {len(models)} models",
+        "stored": total_stored,
+        "models_processed": len(models),
+    }
+
+
+@router.get("/accuracy/parlay/{date_str}")
+async def get_daily_parlay(date_str: str):
+    """
+    Return the optimal parlay for a given date (on-the-fly, no DB write).
+    Uses cached daily_predictions if available, else runs the analyzer.
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    predictions = []
+
+    # Fast path: try daily_predictions cache first
+    supabase = get_supabase()
+    if supabase:
+        try:
+            result = supabase.table("daily_predictions").select("predictions").eq("game_date", date_str).execute()
+            if result.data and result.data[0].get("predictions"):
+                predictions = result.data[0]["predictions"]
+        except Exception:
+            pass
+
+    # Fall back to analyzer
+    if not predictions:
+        try:
+            analyzer = get_analyzer()
+            raw = analyzer.analyze_date(date_str)
+            for r in raw:
+                predictions.append({
+                    "away": r.get("away"),
+                    "home": r.get("home"),
+                    "game_time": r.get("game_time"),
+                    "betting_lines": r.get("betting_lines"),
+                })
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
+
+    if not predictions:
+        return {"date": date_str, "legs": [], "num_legs": 0, "combined_prob": 0.0}
+
+    result = calc_optimal_parlay(predictions)
+    return {"date": date_str, **result}
+
+
+@router.post("/accuracy/store-parlay/{date_str}")
+async def store_daily_parlay(date_str: str):
+    """
+    Compute and persist today's optimal parlay for accuracy tracking.
+    Idempotent: skips if already stored for this date.
+    Only uses is_official predictions.
+    """
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+
+    supabase = get_supabase()
+    if not supabase:
+        return {"message": "Supabase not configured", "stored": False}
+
+    # Idempotency check
+    try:
+        existing = supabase.table("daily_parlays").select("id").eq("game_date", date_str).execute()
+        if existing.data and len(existing.data) > 0:
+            return {"message": f"Parlay already stored for {date_str}", "already_stored": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
+
+    predictions = []
+
+    # Try cache first (official predictions only)
+    try:
+        result = supabase.table("daily_predictions").select("predictions").eq("game_date", date_str).execute()
+        if result.data and result.data[0].get("predictions"):
+            all_preds = result.data[0]["predictions"]
+            # Filter to official only
+            now = datetime.now(timezone.utc)
+            for p in all_preds:
+                gt = p.get("game_time")
+                if gt:
+                    try:
+                        game_time = datetime.fromisoformat(gt.replace("Z", "+00:00"))
+                        if now >= (game_time - timedelta(minutes=15)):
+                            predictions.append(p)
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # Fall back to analyzer
+    if not predictions:
+        try:
+            analyzer = get_analyzer()
+            raw = analyzer.analyze_date(date_str)
+            now = datetime.now(timezone.utc)
+            for r in raw:
+                gt = r.get("game_time")
+                if gt:
+                    try:
+                        game_time = datetime.fromisoformat(gt.replace("Z", "+00:00"))
+                        if now >= (game_time - timedelta(minutes=15)):
+                            predictions.append({
+                                "away": r.get("away"),
+                                "home": r.get("home"),
+                                "game_time": gt,
+                                "betting_lines": r.get("betting_lines"),
+                            })
+                    except Exception:
+                        pass
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
+
+    if not predictions:
+        return {"message": f"No official predictions for {date_str}", "stored": False, "num_legs": 0}
+
+    parlay = calc_optimal_parlay(predictions)
+
+    if not parlay["legs"]:
+        return {"message": f"No qualifying bets for {date_str}", "stored": False, "num_legs": 0, "legs": []}
+
+    try:
+        supabase.table("daily_parlays").insert([{
+            "game_date": date_str,
+            "legs": parlay["legs"],
+            "num_legs": parlay["num_legs"],
+            "combined_prob": parlay["combined_prob"],
+            "predicted_at": datetime.now(timezone.utc).isoformat(),
+        }]).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Insert error: {str(e)}")
+
+    return {
+        "message": f"Stored parlay for {date_str}",
+        "stored": True,
+        "num_legs": parlay["num_legs"],
+        "combined_prob": parlay["combined_prob"],
+    }
+
+
+@router.get("/accuracy/parlay-stats")
+async def get_parlay_stats():
+    """
+    Historical parlay accuracy stats for the Accuracy page.
+    Returns summary stats and the 10 most recent graded parlays.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    try:
+        all_parlays = (
+            supabase.table("daily_parlays")
+            .select("*")
+            .order("game_date", desc=True)
+            .execute()
+            .data or []
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
+
+    graded = [p for p in all_parlays if p.get("correct") is not None]
+
+    hit_count = sum(1 for p in graded if p.get("correct"))
+    hit_pct = round(hit_count / len(graded) * 100, 1) if graded else 0.0
+    avg_legs = round(sum(p.get("num_legs", 0) for p in graded) / len(graded), 1) if graded else 0.0
+    avg_combined_prob = round(sum(p.get("combined_prob", 0) for p in graded) / len(graded), 1) if graded else 0.0
+    avg_legs_correct = round(sum(p.get("legs_correct", 0) for p in graded) / len(graded), 1) if graded else 0.0
+
+    recent_10 = all_parlays[:10]
+
+    return {
+        "total_parlays": len(all_parlays),
+        "graded_parlays": len(graded),
+        "hit_count": hit_count,
+        "hit_pct": hit_pct,
+        "avg_legs": avg_legs,
+        "avg_combined_prob": avg_combined_prob,
+        "avg_legs_correct": avg_legs_correct,
+        "recent": recent_10,
     }
 
 
@@ -574,6 +1079,46 @@ async def get_accuracy_stats(
     ou_moderate = [p for p in ou_preds if p.get('confidence') == 'MODERATE']
     ou_close = [p for p in ou_preds if p.get('confidence') == 'CLOSE']
 
+    # Puck line multi-window stats (using all_preds which ignores date/confidence filters)
+    pl_all = [p for p in all_preds if p.get('puck_line_correct') is not None]
+    pl_last_30 = pl_all[:30]
+    pl_season = [p for p in pl_all if season_start.isoformat() <= p['game_date'] <= season_end.isoformat()]
+    pl_all_time_stats = WindowStats(
+        correct=sum(1 for p in pl_all if p.get('puck_line_correct')),
+        total=len(pl_all),
+        pct=_pct(sum(1 for p in pl_all if p.get('puck_line_correct')), len(pl_all))
+    )
+    pl_rolling_30_stats = WindowStats(
+        correct=sum(1 for p in pl_last_30 if p.get('puck_line_correct')),
+        total=len(pl_last_30),
+        pct=_pct(sum(1 for p in pl_last_30 if p.get('puck_line_correct')), len(pl_last_30))
+    )
+    pl_current_season_stats = WindowStats(
+        correct=sum(1 for p in pl_season if p.get('puck_line_correct')),
+        total=len(pl_season),
+        pct=_pct(sum(1 for p in pl_season if p.get('puck_line_correct')), len(pl_season))
+    )
+
+    # O/U multi-window stats (using all_preds which ignores date/confidence filters)
+    ou_all = [p for p in all_preds if p.get('ou_correct') is not None]
+    ou_last_30 = ou_all[:30]
+    ou_season = [p for p in ou_all if season_start.isoformat() <= p['game_date'] <= season_end.isoformat()]
+    ou_all_time_stats = WindowStats(
+        correct=sum(1 for p in ou_all if p.get('ou_correct')),
+        total=len(ou_all),
+        pct=_pct(sum(1 for p in ou_all if p.get('ou_correct')), len(ou_all))
+    )
+    ou_rolling_30_stats = WindowStats(
+        correct=sum(1 for p in ou_last_30 if p.get('ou_correct')),
+        total=len(ou_last_30),
+        pct=_pct(sum(1 for p in ou_last_30 if p.get('ou_correct')), len(ou_last_30))
+    )
+    ou_current_season_stats = WindowStats(
+        correct=sum(1 for p in ou_season if p.get('ou_correct')),
+        total=len(ou_season),
+        pct=_pct(sum(1 for p in ou_season if p.get('ou_correct')), len(ou_season))
+    )
+
     stats = AccuracyStats(
         total_games=total,
         correct_picks=correct,
@@ -616,6 +1161,14 @@ async def get_accuracy_stats(
         ou_close_total=len(ou_close),
         ou_close_correct=sum(1 for p in ou_close if p.get('ou_correct')),
         ou_close_pct=_pct(sum(1 for p in ou_close if p.get('ou_correct')), len(ou_close)),
+        # Puck line multi-window
+        pl_all_time=pl_all_time_stats,
+        pl_current_season=pl_current_season_stats,
+        pl_rolling_30=pl_rolling_30_stats,
+        # O/U multi-window
+        ou_all_time=ou_all_time_stats,
+        ou_current_season=ou_current_season_stats,
+        ou_rolling_30=ou_rolling_30_stats,
     )
 
     # Get ALL recent predictions (including pending) for the table

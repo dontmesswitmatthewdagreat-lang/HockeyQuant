@@ -11,7 +11,7 @@ from .constants import TEAM_TIMEZONES, NHL_DIVISIONS, NHL_CONFERENCES
 from .data_loader import get_data_loader
 from .goal_predictor import (
     GoalPredictor, calc_over_under_prob, calc_spread_prob,
-    find_optimal_total, find_optimal_spread,
+    calc_moneyline_prob, find_optimal_total, find_optimal_spread,
 )
 from .odds_fetcher import fetch_nhl_odds
 
@@ -829,6 +829,11 @@ class NHLAnalyzer:
         betting["optimal_total"] = opt_total
         betting["optimal_total_prob"] = round(opt_total_prob * 100, 1)
         betting["optimal_total_rec"] = opt_total_rec
+
+        # --- Moneyline win probabilities (regulation) ---
+        ml_probs = calc_moneyline_prob(pred_away, pred_home)
+        betting["ml_home_prob"] = round(ml_probs["home_win"] * 100, 1)
+        betting["ml_away_prob"] = round(ml_probs["away_win"] * 100, 1)
 
         return betting
 

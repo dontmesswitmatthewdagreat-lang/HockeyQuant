@@ -88,6 +88,9 @@ class BettingLines(BaseModel):
     optimal_total: float
     optimal_total_prob: float        # percentage (0-100)
     optimal_total_rec: str           # "OVER" or "UNDER"
+    # Moneyline win probabilities (regulation)
+    ml_home_prob: float = 0.0        # regulation win probability for home team (0-100)
+    ml_away_prob: float = 0.0        # regulation win probability for away team (0-100)
 
 
 class GamePrediction(BaseModel):

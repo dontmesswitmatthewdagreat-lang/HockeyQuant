@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { fetchAccuracyStats } from '../api';
+import { useState, useEffect, useRef, Fragment } from 'react';
+import { fetchAccuracyStats, fetchParlayStats } from '../api';
 import { getTeamLogo, getTeamName, TEAM_NAMES } from '../utils/teamLogos';
 import AccuracyChart from '../components/AccuracyChart';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -17,10 +17,30 @@ function Accuracy() {
   const [error, setError] = useState(null);
   const [chartPredType, setChartPredType] = useState('moneyline');
   const [selectedTeam, setSelectedTeam] = useState('');
+  const [showPlInfo, setShowPlInfo] = useState(false);
+  const [showOuInfo, setShowOuInfo] = useState(false);
+  const [parlayStats, setParlayStats] = useState(null);
+  const [expandedParlayIdx, setExpandedParlayIdx] = useState(null);
+  const chartRef = useRef(null);
+
+  function handleLeaderboardSelect(team) {
+    setSelectedTeam(team);
+    if (team) {
+      setTimeout(() => {
+        chartRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }, 50);
+    }
+  }
 
   useEffect(() => {
     loadAccuracyData();
   }, [selectedTeam]);
+
+  useEffect(() => {
+    fetchParlayStats()
+      .then(data => setParlayStats(data))
+      .catch(() => {});
+  }, []);
 
   async function loadAccuracyData() {
     setLoading(true);
@@ -40,6 +60,12 @@ function Accuracy() {
   const allTime = stats?.all_time || {};
   const currentSeason = stats?.current_season || {};
   const rolling30 = stats?.rolling_30 || {};
+  const plAllTime = stats?.pl_all_time || {};
+  const plCurrentSeason = stats?.pl_current_season || {};
+  const plRolling30 = stats?.pl_rolling_30 || {};
+  const ouAllTime = stats?.ou_all_time || {};
+  const ouCurrentSeason = stats?.ou_current_season || {};
+  const ouRolling30 = stats?.ou_rolling_30 || {};
 
   return (
     <div className="accuracy-page">
@@ -94,6 +120,7 @@ function Accuracy() {
       )}
 
       {/* Summary Stats */}
+      <p className="stat-section-label">Moneyline Predictions</p>
       <div className="stats-summary">
         <div className="stat-card highlight">
           <span className="stat-label">All-Time</span>
@@ -104,7 +131,7 @@ function Accuracy() {
             {allTime.correct || 0} / {allTime.total || 0} correct
           </span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card highlight-blue">
           <span className="stat-label">Current Season</span>
           <span className="stat-value">
             {currentSeason.pct?.toFixed(1) || '0.0'}%
@@ -113,7 +140,7 @@ function Accuracy() {
             {currentSeason.correct || 0} / {currentSeason.total || 0} correct
           </span>
         </div>
-        <div className="stat-card">
+        <div className="stat-card highlight-grey">
           <span className="stat-label">Last 30 Games</span>
           <span className="stat-value">
             {rolling30.pct?.toFixed(1) || '0.0'}%
@@ -169,38 +196,65 @@ function Accuracy() {
 
       {/* Puck Line Accuracy */}
       <div className="confidence-section">
-        <h2 className="section-title">
-          Puck Line Accuracy <span className="section-subtitle">official ±1.5 line</span>
-        </h2>
+        <div className="section-title-row">
+          <h2 className="section-title">
+            Puck Line Accuracy <span className="section-subtitle">official ±1.5 line</span>
+          </h2>
+          <button className="info-btn" onClick={() => setShowPlInfo(v => !v)} title="How is confidence calculated?">i</button>
+        </div>
+        {showPlInfo && (
+          <div className="confidence-info-panel">
+            The <strong>STRONG / MODERATE / CLOSE</strong> labels are inherited from the moneyline prediction for each game — they reflect the quality score gap between the two teams, not the puck line probability itself. <strong>STRONG</strong> = ≥10 pt gap, <strong>MODERATE</strong> = ≥5 pt gap, <strong>CLOSE</strong> = &lt;5 pt gap. The puck line pick (which side covers ±1.5) is determined separately by the Poisson model.
+          </div>
+        )}
         {(stats?.puck_line_total || 0) === 0 ? (
           <p className="no-data-note">No puck line results tracked yet. Results populate as games are recorded.</p>
         ) : (
-          <div className="confidence-cards">
-            <div className="confidence-card strong">
-              <div className="confidence-header">
-                <span className="confidence-label">STRONG</span>
-                <span className="confidence-badge">High Confidence</span>
+          <>
+            <div className="stats-summary">
+              <div className="stat-card highlight">
+                <span className="stat-label">All-Time</span>
+                <span className="stat-value">{plAllTime.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{plAllTime.correct || 0} / {plAllTime.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.puck_line_strong_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.puck_line_strong_correct || 0} / {stats?.puck_line_strong_total || 0} picks</span>
-            </div>
-            <div className="confidence-card moderate">
-              <div className="confidence-header">
-                <span className="confidence-label">MODERATE</span>
-                <span className="confidence-badge">Medium Confidence</span>
+              <div className="stat-card highlight-blue">
+                <span className="stat-label">Current Season</span>
+                <span className="stat-value">{plCurrentSeason.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{plCurrentSeason.correct || 0} / {plCurrentSeason.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.puck_line_moderate_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.puck_line_moderate_correct || 0} / {stats?.puck_line_moderate_total || 0} picks</span>
-            </div>
-            <div className="confidence-card close">
-              <div className="confidence-header">
-                <span className="confidence-label">CLOSE</span>
-                <span className="confidence-badge">Low Confidence</span>
+              <div className="stat-card highlight-grey">
+                <span className="stat-label">Last 30 Games</span>
+                <span className="stat-value">{plRolling30.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{plRolling30.correct || 0} / {plRolling30.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.puck_line_close_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.puck_line_close_correct || 0} / {stats?.puck_line_close_total || 0} picks</span>
             </div>
-          </div>
+            <div className="confidence-cards">
+              <div className="confidence-card strong">
+                <div className="confidence-header">
+                  <span className="confidence-label">STRONG</span>
+                  <span className="confidence-badge">High Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.puck_line_strong_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.puck_line_strong_correct || 0} / {stats?.puck_line_strong_total || 0} picks</span>
+              </div>
+              <div className="confidence-card moderate">
+                <div className="confidence-header">
+                  <span className="confidence-label">MODERATE</span>
+                  <span className="confidence-badge">Medium Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.puck_line_moderate_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.puck_line_moderate_correct || 0} / {stats?.puck_line_moderate_total || 0} picks</span>
+              </div>
+              <div className="confidence-card close">
+                <div className="confidence-header">
+                  <span className="confidence-label">CLOSE</span>
+                  <span className="confidence-badge">Low Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.puck_line_close_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.puck_line_close_correct || 0} / {stats?.puck_line_close_total || 0} picks</span>
+              </div>
+            </div>
+          </>
         )}
         {(stats?.puck_line_total || 0) > 0 && (
           <p className="section-overall">
@@ -211,36 +265,63 @@ function Accuracy() {
 
       {/* Over/Under Accuracy */}
       <div className="confidence-section">
-        <h2 className="section-title">Over/Under Accuracy</h2>
+        <div className="section-title-row">
+          <h2 className="section-title">Over/Under Accuracy</h2>
+          <button className="info-btn" onClick={() => setShowOuInfo(v => !v)} title="How is confidence calculated?">i</button>
+        </div>
+        {showOuInfo && (
+          <div className="confidence-info-panel">
+            The <strong>STRONG / MODERATE / CLOSE</strong> labels are inherited from the moneyline prediction for each game — they reflect the quality score gap between the two teams, not the O/U probability itself. <strong>STRONG</strong> = ≥10 pt gap, <strong>MODERATE</strong> = ≥5 pt gap, <strong>CLOSE</strong> = &lt;5 pt gap. The over/under pick is determined separately by the Poisson model's total goal probabilities.
+          </div>
+        )}
         {(stats?.ou_total || 0) === 0 ? (
           <p className="no-data-note">No O/U results tracked yet. Results populate as games are recorded.</p>
         ) : (
-          <div className="confidence-cards">
-            <div className="confidence-card strong">
-              <div className="confidence-header">
-                <span className="confidence-label">STRONG</span>
-                <span className="confidence-badge">High Confidence</span>
+          <>
+            <div className="stats-summary">
+              <div className="stat-card highlight">
+                <span className="stat-label">All-Time</span>
+                <span className="stat-value">{ouAllTime.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{ouAllTime.correct || 0} / {ouAllTime.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.ou_strong_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.ou_strong_correct || 0} / {stats?.ou_strong_total || 0} picks</span>
-            </div>
-            <div className="confidence-card moderate">
-              <div className="confidence-header">
-                <span className="confidence-label">MODERATE</span>
-                <span className="confidence-badge">Medium Confidence</span>
+              <div className="stat-card highlight-blue">
+                <span className="stat-label">Current Season</span>
+                <span className="stat-value">{ouCurrentSeason.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{ouCurrentSeason.correct || 0} / {ouCurrentSeason.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.ou_moderate_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.ou_moderate_correct || 0} / {stats?.ou_moderate_total || 0} picks</span>
-            </div>
-            <div className="confidence-card close">
-              <div className="confidence-header">
-                <span className="confidence-label">CLOSE</span>
-                <span className="confidence-badge">Low Confidence</span>
+              <div className="stat-card highlight-grey">
+                <span className="stat-label">Last 30 Games</span>
+                <span className="stat-value">{ouRolling30.pct?.toFixed(1) || '0.0'}%</span>
+                <span className="stat-detail">{ouRolling30.correct || 0} / {ouRolling30.total || 0} correct</span>
               </div>
-              <span className="confidence-value">{stats?.ou_close_pct?.toFixed(1) || '0.0'}%</span>
-              <span className="confidence-detail">{stats?.ou_close_correct || 0} / {stats?.ou_close_total || 0} picks</span>
             </div>
-          </div>
+            <div className="confidence-cards">
+              <div className="confidence-card strong">
+                <div className="confidence-header">
+                  <span className="confidence-label">STRONG</span>
+                  <span className="confidence-badge">High Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.ou_strong_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.ou_strong_correct || 0} / {stats?.ou_strong_total || 0} picks</span>
+              </div>
+              <div className="confidence-card moderate">
+                <div className="confidence-header">
+                  <span className="confidence-label">MODERATE</span>
+                  <span className="confidence-badge">Medium Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.ou_moderate_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.ou_moderate_correct || 0} / {stats?.ou_moderate_total || 0} picks</span>
+              </div>
+              <div className="confidence-card close">
+                <div className="confidence-header">
+                  <span className="confidence-label">CLOSE</span>
+                  <span className="confidence-badge">Low Confidence</span>
+                </div>
+                <span className="confidence-value">{stats?.ou_close_pct?.toFixed(1) || '0.0'}%</span>
+                <span className="confidence-detail">{stats?.ou_close_correct || 0} / {stats?.ou_close_total || 0} picks</span>
+              </div>
+            </div>
+          </>
         )}
         {(stats?.ou_total || 0) > 0 && (
           <p className="section-overall">
@@ -250,6 +331,7 @@ function Accuracy() {
       </div>
 
       {/* Accuracy Trend Chart */}
+      <div ref={chartRef}>
       <div className="chart-type-selector">
         <span className="chart-type-label">Chart:</span>
         <button
@@ -272,6 +354,7 @@ function Accuracy() {
         </button>
       </div>
       <AccuracyChart predType={chartPredType} team={selectedTeam} />
+      </div>
 
       {/* Recent Predictions */}
       {recentPredictions.length > 0 && (
@@ -404,7 +487,112 @@ function Accuracy() {
       )}
 
       {/* Team Leaderboard */}
-      <TeamLeaderboard selectedTeam={selectedTeam} onSelectTeam={setSelectedTeam} />
+      <TeamLeaderboard selectedTeam={selectedTeam} onSelectTeam={handleLeaderboardSelect} />
+
+      {/* Parlay Accuracy */}
+      <div className="confidence-section parlay-section">
+        <h2 className="section-title">Daily Parlay Accuracy</h2>
+        <p className="section-desc">Optimal parlays generated by the LP optimizer, graded nightly</p>
+
+        {parlayStats && (
+          <>
+            {parlayStats.graded_parlays === 0 ? (
+              <p className="no-data-note">No graded parlays yet — check back after the first game day.</p>
+            ) : (
+              <>
+                <div className="stats-summary parlay-summary-grid">
+                  <div className="stat-card highlight">
+                    <span className="stat-label">Hit Rate</span>
+                    <span className="stat-value">{parlayStats.hit_pct?.toFixed(1) || '0.0'}%</span>
+                    <span className="stat-detail">{parlayStats.hit_count} / {parlayStats.graded_parlays} parlays</span>
+                  </div>
+                  <div className="stat-card highlight-blue">
+                    <span className="stat-label">Avg Legs</span>
+                    <span className="stat-value">{parlayStats.avg_legs || 0}</span>
+                    <span className="stat-detail">per parlay</span>
+                  </div>
+                  <div className="stat-card highlight-grey">
+                    <span className="stat-label">Avg Est. Prob</span>
+                    <span className="stat-value">{parlayStats.avg_combined_prob || 0}%</span>
+                    <span className="stat-detail">combined probability</span>
+                  </div>
+                  <div className="stat-card">
+                    <span className="stat-label">Avg Legs Correct</span>
+                    <span className="stat-value">{parlayStats.avg_legs_correct || 0}</span>
+                    <span className="stat-detail">per parlay</span>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {parlayStats.recent && parlayStats.recent.length > 0 && (
+              <div className="recent-section parlay-recent">
+                <h3 className="section-title" style={{ fontSize: '1rem', marginBottom: '0.75rem' }}>Recent Parlays</h3>
+                <div className="recent-table-container">
+                  <table className="recent-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Legs</th>
+                        <th>Est. Prob</th>
+                        <th>Result</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parlayStats.recent.map((p, idx) => {
+                        const isExpanded = expandedParlayIdx === idx;
+                        const graded = p.correct !== null && p.correct !== undefined;
+                        const legsCorrect = p.legs_correct ?? 0;
+                        return (
+                          <Fragment key={idx}>
+                            <tr
+                              className={`parlay-row ${graded ? (p.correct ? 'correct' : 'incorrect') : ''} ${p.legs?.length ? 'expandable' : ''}`}
+                              onClick={() => p.legs?.length ? setExpandedParlayIdx(isExpanded ? null : idx) : null}
+                              style={{ cursor: p.legs?.length ? 'pointer' : 'default' }}
+                            >
+                              <td className="date-cell">{p.game_date}</td>
+                              <td>{p.num_legs}</td>
+                              <td>{p.combined_prob?.toFixed(1)}%</td>
+                              <td>
+                                {graded
+                                  ? `${p.correct ? '✅' : '❌'} ${legsCorrect}/${p.num_legs}`
+                                  : <span className="result-badge pending">Pending</span>
+                                }
+                              </td>
+                              <td>
+                                {graded
+                                  ? <span className={`confidence-tag ${p.correct ? 'strong' : 'close'}`}>{p.correct ? 'Hit' : 'Miss'}</span>
+                                  : '—'
+                                }
+                              </td>
+                            </tr>
+                            {isExpanded && p.legs?.map((leg, li) => (
+                              <tr key={`${idx}-${li}`} className="parlay-leg-row">
+                                <td colSpan={5}>
+                                  <div className="parlay-leg-detail">
+                                    <span className="leg-detail-label">{leg.label}</span>
+                                    <span className="leg-detail-matchup">{leg.away_team} @ {leg.home_team}</span>
+                                    <span className="leg-detail-prob">{leg.prob?.toFixed(1)}%</span>
+                                    {leg.correct !== null && leg.correct !== undefined
+                                      ? <span className={`leg-detail-result ${leg.correct ? 'correct' : 'incorrect'}`}>{leg.correct ? '✅' : '❌'}</span>
+                                      : <span className="leg-detail-result pending">—</span>
+                                    }
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

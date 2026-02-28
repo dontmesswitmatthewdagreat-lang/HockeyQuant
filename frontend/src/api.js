@@ -266,6 +266,37 @@ export async function fetchGameSummary(prediction) {
 }
 
 /**
+ * Fetch the public leaderboard of all user models ranked by accuracy.
+ * No token required.
+ */
+export async function fetchPublicModelsLeaderboard() {
+  const response = await fetch(`${API_BASE}/api/models/leaderboard`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch models leaderboard');
+  }
+  return response.json();
+}
+
+/**
+ * Fetch the daily optimal parlay for a given date (on-the-fly, no auth required)
+ * @param {string} date - Date in YYYY-MM-DD format
+ */
+export async function fetchDailyParlay(date) {
+  const response = await fetch(`${API_BASE}/api/accuracy/parlay/${date}`);
+  if (!response.ok) throw new Error('Failed to fetch daily parlay');
+  return response.json();
+}
+
+/**
+ * Fetch historical parlay accuracy stats
+ */
+export async function fetchParlayStats() {
+  const response = await fetch(`${API_BASE}/api/accuracy/parlay-stats`);
+  if (!response.ok) throw new Error('Failed to fetch parlay stats');
+  return response.json();
+}
+
+/**
  * Get predictions using a custom model
  * @param {string} token - Supabase access token
  * @param {string} modelId - Model UUID

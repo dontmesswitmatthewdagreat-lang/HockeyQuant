@@ -168,6 +168,23 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+.weight-slider.at-limit::-webkit-slider-thumb {
+  background: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.weight-slider.at-limit::-moz-range-thumb {
+  background: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.weights-limit-note {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-style: italic;
+  margin: 0.25rem 0 0.75rem;
+}
+
 .weight-input {
   width: 60px;
   padding: 0.5rem;

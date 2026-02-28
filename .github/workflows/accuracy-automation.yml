@@ -26,6 +26,7 @@ on:
         options:
           - store-predictions
           - update-results
+          - store-parlay
 
 jobs:
   # Job 1: Store official predictions for games within 15-min window
@@ -63,6 +64,24 @@ jobs:
           echo "  - Newly stored: $STORED"
           echo "  - Already stored (skipped): $SKIPPED"
           echo "  - Not yet in window: $NOT_YET"
+
+      - name: Store model predictions for games in window
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          echo "Storing model predictions for $DATE at $(date -u)"
+          RESPONSE=$(curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/accuracy/store-model-predictions/$DATE")
+          echo "Response: $RESPONSE"
+          STORED=$(echo "$RESPONSE" | jq -r '.stored // 0')
+          MODELS=$(echo "$RESPONSE" | jq -r '.models_processed // 0')
+          echo "  - Stored: $STORED predictions across $MODELS models"
+
+      - name: Store optimal daily parlay
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          echo "Storing daily parlay for $DATE at $(date -u)"
+          RESPONSE=$(curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/accuracy/store-parlay/$DATE")
+          echo "Response: $RESPONSE"
+          echo "  - Legs: $(echo $RESPONSE | jq -r '.num_legs // 0')"
 
   # Job 2: Update results for completed games
   update-results:

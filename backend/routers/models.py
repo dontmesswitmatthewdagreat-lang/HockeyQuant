@@ -118,6 +118,28 @@ def validate_weights(weights: ModelWeights) -> None:
         )
 
 
+def _row_to_weights(row: dict) -> ModelWeights:
+    """Build ModelWeights from the individual weight columns stored in the DB."""
+    return ModelWeights(
+        offense=float(row.get("weight_offensive", 40)),
+        defense=float(row.get("weight_defensive", 15)),
+        goaltending=float(row.get("weight_goaltending", 30)),
+        points_pct=float(row.get("weight_points_pct", 10)),
+        win_rate=float(row.get("weight_win_rate", 5)),
+    )
+
+
+def _weights_to_columns(weights: ModelWeights) -> dict:
+    """Convert ModelWeights to the individual column names used in the DB."""
+    return {
+        "weight_offensive": weights.offense,
+        "weight_defensive": weights.defense,
+        "weight_goaltending": weights.goaltending,
+        "weight_points_pct": weights.points_pct,
+        "weight_win_rate": weights.win_rate,
+    }
+
+
 def calculate_model_accuracy(model_id: str, supabase) -> ModelAccuracyStats:
     """Calculate accuracy statistics for a model"""
     try:
@@ -167,10 +189,6 @@ async def list_models(authorization: str = Header(None)):
 
         models = []
         for row in result.data:
-            weights_data = row.get("weights", {})
-            if isinstance(weights_data, str):
-                weights_data = json.loads(weights_data)
-
             accuracy = calculate_model_accuracy(row["id"], supabase)
 
             models.append(UserModel(
@@ -178,7 +196,7 @@ async def list_models(authorization: str = Header(None)):
                 user_id=row["user_id"],
                 name=row["name"],
                 description=row.get("description"),
-                weights=ModelWeights(**weights_data),
+                weights=_row_to_weights(row),
                 is_active=row.get("is_active", True),
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
@@ -207,37 +225,36 @@ async def create_model(request: CreateModelRequest, authorization: str = Header(
         raise HTTPException(status_code=503, detail="Database not available")
 
     try:
+        # Ensure a profile row exists (user_models.user_id FKs to profiles.id)
+        try:
+            supabase.table("profiles").upsert([{"id": user_id}])
+        except Exception:
+            pass  # Profile likely already exists; FK error on user_models insert will be clearer
+
         # Check if model name already exists for this user
         existing = supabase.table("user_models").select("id").eq("user_id", user_id).eq("name", request.name).execute()
         if existing.data:
             raise HTTPException(status_code=400, detail="A model with this name already exists")
 
-        now = datetime.utcnow().isoformat()
-
         result = supabase.table("user_models").insert([{
             "user_id": user_id,
             "name": request.name,
             "description": request.description,
-            "weights": request.weights.model_dump(),
             "is_active": True,
-            "created_at": now,
-            "updated_at": now,
+            **_weights_to_columns(request.weights),
         }]).execute()
 
         if not result.data:
             raise HTTPException(status_code=500, detail="Failed to create model")
 
         row = result.data[0]
-        weights_data = row.get("weights", {})
-        if isinstance(weights_data, str):
-            weights_data = json.loads(weights_data)
 
         return UserModel(
             id=row["id"],
             user_id=row["user_id"],
             name=row["name"],
             description=row.get("description"),
-            weights=ModelWeights(**weights_data),
+            weights=_row_to_weights(row),
             is_active=row.get("is_active", True),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -247,6 +264,100 @@ async def create_model(request: CreateModelRequest, authorization: str = Header(
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@router.get("/models/leaderboard")
+async def get_models_leaderboard():
+    """
+    Public leaderboard of all user models ranked by accuracy.
+    No authentication required.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        return []
+
+    try:
+        # 1. Fetch ALL models (no user_id filter)
+        models_result = supabase.table("user_models").select("*").execute()
+        models = models_result.data
+        if not models:
+            return []
+
+        # 2. Batch-fetch usernames from profiles
+        user_ids = list({m["user_id"] for m in models})
+        profiles_result = supabase.table("profiles").select("id,username").in_("id", user_ids).execute()
+        profiles_by_id = {p["id"]: p for p in profiles_result.data}
+
+        # 3. Fetch all graded model predictions in one query
+        preds_result = supabase.table("model_predictions") \
+            .select("model_id,confidence,correct") \
+            .not_is("correct", "null") \
+            .execute()
+
+        # 4. Aggregate accuracy per model in Python (avoids N+1 queries)
+        from collections import defaultdict
+        stats = defaultdict(lambda: {
+            "total": 0, "correct": 0,
+            "strong_total": 0, "strong_correct": 0,
+            "moderate_total": 0, "moderate_correct": 0,
+            "close_total": 0, "close_correct": 0,
+        })
+        for p in preds_result.data:
+            mid = p["model_id"]
+            stats[mid]["total"] += 1
+            if p.get("correct"):
+                stats[mid]["correct"] += 1
+            conf = (p.get("confidence") or "").lower()
+            if conf in ("strong", "moderate", "close"):
+                stats[mid][f"{conf}_total"] += 1
+                if p.get("correct"):
+                    stats[mid][f"{conf}_correct"] += 1
+
+        # 5. Build entries
+        def pct(c, t):
+            return round(c / t * 100, 1) if t > 0 else None
+
+        entries = []
+        for m in models:
+            mid = m["id"]
+            s = stats[mid]
+            total = s["total"]
+            correct = s["correct"]
+            profile = profiles_by_id.get(m["user_id"], {})
+            entries.append({
+                "model_id": mid,
+                "model_name": m["name"],
+                "username": profile.get("username"),
+                "user_id": m["user_id"],
+                "description": m.get("description"),
+                "weights": _row_to_weights(m).model_dump(),
+                "created_at": m["created_at"],
+                "total_predictions": total,
+                "correct_predictions": correct,
+                "accuracy_pct": pct(correct, total),
+                "strong_total": s["strong_total"],
+                "strong_correct": s["strong_correct"],
+                "strong_pct": pct(s["strong_correct"], s["strong_total"]),
+                "moderate_total": s["moderate_total"],
+                "moderate_correct": s["moderate_correct"],
+                "moderate_pct": pct(s["moderate_correct"], s["moderate_total"]),
+                "close_total": s["close_total"],
+                "close_correct": s["close_correct"],
+                "close_pct": pct(s["close_correct"], s["close_total"]),
+            })
+
+        # 6. Sort: models with predictions first (by accuracy desc), then no-prediction models
+        entries.sort(key=lambda x: (
+            x["accuracy_pct"] is None,
+            -(x["accuracy_pct"] or 0),
+            -(x["total_predictions"]),
+        ))
+        return entries
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Leaderboard error: {str(e)}")
 
 
 @router.get("/models/{model_id}", response_model=UserModel)
@@ -268,10 +379,6 @@ async def get_model(model_id: str, authorization: str = Header(None)):
             raise HTTPException(status_code=404, detail="Model not found")
 
         row = result.data[0]
-        weights_data = row.get("weights", {})
-        if isinstance(weights_data, str):
-            weights_data = json.loads(weights_data)
-
         accuracy = calculate_model_accuracy(model_id, supabase)
 
         return UserModel(
@@ -279,7 +386,7 @@ async def get_model(model_id: str, authorization: str = Header(None)):
             user_id=row["user_id"],
             name=row["name"],
             description=row.get("description"),
-            weights=ModelWeights(**weights_data),
+            weights=_row_to_weights(row),
             is_active=row.get("is_active", True),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -314,13 +421,13 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             raise HTTPException(status_code=404, detail="Model not found")
 
         # Build update data
-        update_data = {"updated_at": datetime.utcnow().isoformat()}
+        update_data = {}
         if request.name is not None:
             update_data["name"] = request.name
         if request.description is not None:
             update_data["description"] = request.description
         if request.weights is not None:
-            update_data["weights"] = request.weights.model_dump()
+            update_data.update(_weights_to_columns(request.weights))
 
         result = supabase.table("user_models").update(update_data).eq("id", model_id).execute()
 
@@ -328,10 +435,6 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             raise HTTPException(status_code=500, detail="Failed to update model")
 
         row = result.data[0]
-        weights_data = row.get("weights", {})
-        if isinstance(weights_data, str):
-            weights_data = json.loads(weights_data)
-
         accuracy = calculate_model_accuracy(model_id, supabase)
 
         return UserModel(
@@ -339,7 +442,7 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             user_id=row["user_id"],
             name=row["name"],
             description=row.get("description"),
-            weights=ModelWeights(**weights_data),
+            weights=_row_to_weights(row),
             is_active=row.get("is_active", True),
             created_at=row["created_at"],
             updated_at=row["updated_at"],
@@ -420,9 +523,8 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
             raise HTTPException(status_code=404, detail="Model not found")
 
         model = result.data[0]
-        weights_data = model.get("weights", {})
-        if isinstance(weights_data, str):
-            weights_data = json.loads(weights_data)
+        model_weights = _row_to_weights(model)
+        weights_data = model_weights.model_dump()
     except HTTPException:
         raise
     except Exception as e:
@@ -485,6 +587,36 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
             "goalie_status_away": r.get('goalie_status_away', 'expected'),
             "goalie_status_home": r.get('goalie_status_home', 'expected'),
         })
+
+    # Auto-store official predictions to model_predictions (idempotent, fire-and-forget)
+    if supabase and predictions:
+        try:
+            existing_mp = supabase.table("model_predictions") \
+                .select("game_id") \
+                .eq("model_id", model_id) \
+                .eq("game_date", date_str) \
+                .execute()
+            existing_mp_ids = {r["game_id"] for r in (existing_mp.data or [])}
+
+            to_insert = []
+            for pred in predictions:
+                game_id = f"{date_str}_{pred['away']['team']}_{pred['home']['team']}"
+                if pred.get("is_official") and game_id not in existing_mp_ids:
+                    to_insert.append({
+                        "model_id": model_id,
+                        "game_id": game_id,
+                        "game_date": date_str,
+                        "away_team": pred["away"]["team"],
+                        "home_team": pred["home"]["team"],
+                        "pick": pred["pick"],
+                        "away_score": pred["away"]["final_score"],
+                        "home_score": pred["home"]["final_score"],
+                        "confidence": pred["confidence"],
+                    })
+            if to_insert:
+                supabase.table("model_predictions").insert(to_insert).execute()
+        except Exception as store_err:
+            print(f"Warning: Failed to auto-store model predictions: {store_err}")
 
     return {
         "date": date_str,

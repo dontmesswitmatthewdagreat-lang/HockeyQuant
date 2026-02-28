@@ -1,0 +1,318 @@
+/* ParlayModal — overlay + modal */
+
+.parlay-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 1rem;
+}
+
+.parlay-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+}
+
+/* Header */
+.parlay-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 1.5rem 1.5rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.parlay-title {
+  font-family: var(--font-heading);
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  margin: 0 0 0.25rem;
+}
+
+.parlay-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.parlay-close-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.2s, background 0.2s;
+}
+
+.parlay-close-btn:hover {
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+}
+
+.parlay-close-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Body */
+.parlay-body {
+  padding: 1.25rem 1.5rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* Loading */
+.parlay-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2.5rem 0;
+  gap: 1rem;
+  color: var(--text-secondary);
+}
+
+.parlay-spinner {
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent-red);
+  border-radius: 50%;
+  animation: parlay-spin 0.8s linear infinite;
+}
+
+@keyframes parlay-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Error / Empty */
+.parlay-error,
+.parlay-empty {
+  text-align: center;
+  padding: 2rem 0;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+/* Legs list */
+.parlay-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 1.25rem;
+}
+
+.parlay-leg {
+  display: flex;
+  gap: 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.leg-number {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  color: white;
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.leg-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.leg-top {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.leg-label {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  flex-shrink: 0;
+}
+
+.leg-type-badge {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.type-ml {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
+
+.type-pl {
+  background: rgba(168, 85, 247, 0.15);
+  color: #c084fc;
+}
+
+.type-ou {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+.leg-prob {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-size: 0.9rem;
+}
+
+/* Prob bar */
+.parlay-prob-bar-wrapper {
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  margin-bottom: 0.4rem;
+  overflow: hidden;
+}
+
+.parlay-prob-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+.prob-high  { background: #10b981; }
+.prob-mid   { background: #f59e0b; }
+.prob-low   { background: var(--text-muted, #6b7280); }
+
+.leg-matchup {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+}
+
+.leg-time {
+  color: var(--text-muted);
+}
+
+/* Combined probability */
+.parlay-combined {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.combined-label {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.5rem;
+}
+
+.combined-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.combined-bar-wrapper {
+  flex: 1;
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.combined-bar {
+  height: 100%;
+  background: var(--accent-red);
+  border-radius: 4px;
+  transition: width 0.5s ease;
+}
+
+.combined-pct {
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--text-primary);
+  min-width: 48px;
+  text-align: right;
+}
+
+/* Info note */
+.parlay-info {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 0.75rem 1rem;
+  line-height: 1.5;
+}
+
+.info-icon {
+  margin-right: 0.35rem;
+  color: var(--text-muted);
+}
+
+/* Footer */
+.parlay-footer {
+  padding: 1rem 1.5rem;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.parlay-close-footer-btn {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  padding: 0.6rem 1.25rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.parlay-close-footer-btn:hover {
+  background: var(--border-color);
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .parlay-modal {
+    border-radius: 12px;
+    max-height: 95vh;
+  }
+
+  .parlay-header,
+  .parlay-body,
+  .parlay-footer {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+}

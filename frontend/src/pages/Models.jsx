@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { fetchUserModels, deleteModel } from '../api';
 import ModelCard from '../components/ModelCard';
 import CreateModelModal from '../components/CreateModelModal';
+import ModelsLeaderboard from '../components/ModelsLeaderboard';
+import ModelDetailModal from '../components/ModelDetailModal';
 import './Models.css';
 
 function Models() {
@@ -12,6 +14,7 @@ function Models() {
   const [error, setError] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingModel, setEditingModel] = useState(null);
+  const [selectedLeaderboardEntry, setSelectedLeaderboardEntry] = useState(null);
 
   // Load models when user is authenticated
   useEffect(() => {
@@ -146,6 +149,16 @@ function Models() {
         </>
       )}
 
+      {/* Public Models Leaderboard — visible to all */}
+      <section className="models-leaderboard-section">
+        <h2 className="models-section-title">Models Leaderboard</h2>
+        <p className="models-section-subtitle">All user-created models ranked by prediction accuracy</p>
+        <ModelsLeaderboard
+          selectedEntry={selectedLeaderboardEntry}
+          onSelectEntry={setSelectedLeaderboardEntry}
+        />
+      </section>
+
       {/* Create/Edit Modal */}
       {showCreateModal && (
         <CreateModelModal
@@ -153,6 +166,15 @@ function Models() {
           token={session?.access_token || null}
           onClose={handleModalClose}
           onSaved={handleModelSaved}
+        />
+      )}
+
+      {/* Model Detail Modal */}
+      {selectedLeaderboardEntry && (
+        <ModelDetailModal
+          entry={selectedLeaderboardEntry}
+          onClose={() => setSelectedLeaderboardEntry(null)}
+          isOwnModel={user && selectedLeaderboardEntry.user_id === user.id}
         />
       )}
     </div>
