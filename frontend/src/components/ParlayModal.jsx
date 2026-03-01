@@ -104,7 +104,7 @@ function ParlayModal({ date, onClose }) {
 
           {!loading && !error && legs.length === 0 && (
             <div className="parlay-empty">
-              <p>No qualifying bets today — no individual bet met the 52% threshold.</p>
+              <p>No games scheduled today — check back tomorrow.</p>
             </div>
           )}
 

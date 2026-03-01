@@ -83,7 +83,7 @@ function Home() {
           {/* Empty / error state */}
           {!parlayLoading && (!parlay || parlay.num_legs === 0) && (
             <div className="parlay-card-empty">
-              No qualifying parlay today — check back after the model runs.
+              No games scheduled today — check back tomorrow.
             </div>
           )}
 

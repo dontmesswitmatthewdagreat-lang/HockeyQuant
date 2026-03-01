@@ -152,17 +152,15 @@ class TrendResponse(BaseModel):
 _analyzer: Optional[NHLAnalyzer] = None
 
 # Parlay optimizer parameters
-_MIN_PROB = 52.0
 _MAX_LEGS = 8
 
 
-def calc_optimal_parlay(predictions: List[Dict], min_prob: float = _MIN_PROB,
-                        max_legs: int = _MAX_LEGS) -> Dict:
+def calc_optimal_parlay(predictions: List[Dict], max_legs: int = _MAX_LEGS) -> Dict:
     """
-    Greedy optimizer: selects the best bet type (ML/PL/OU) per game,
-    then takes the top N qualifying legs (sorted by probability descending)
-    up to max_legs. Includes all legs above min_prob without early stopping,
-    so the parlay reflects all of today's highest-confidence picks.
+    Greedy optimizer: for each game with betting_lines, picks the single
+    highest-probability bet (ML/PL/OU). Sorts all games by that probability
+    descending and returns up to max_legs legs. No probability threshold —
+    always produces a parlay as long as games are scheduled.
     """
     candidates = []
     for pred in predictions:
@@ -190,7 +188,8 @@ def calc_optimal_parlay(predictions: List[Dict], min_prob: float = _MIN_PROB,
                 {"type": "OU", "label": f"Under {ou_line}", "pick": "UNDER", "prob": bl.get("under_prob", 0), "line": ou_line},
             ]
 
-        valid = [o for o in options if o.get("prob", 0) >= min_prob]
+        # Always pick the best option per game, regardless of probability level
+        valid = [o for o in options if o.get("prob", 0) > 0]
         if not valid:
             continue
         best = max(valid, key=lambda x: x["prob"])
