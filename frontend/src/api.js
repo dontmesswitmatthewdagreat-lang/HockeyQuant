@@ -297,6 +297,21 @@ export async function fetchParlayStats() {
 }
 
 /**
+ * Live and final scores for all games on a date.
+ * Returns { games: [{ away_team, home_team, away_score, home_score, game_state, period, period_type, time_remaining, in_intermission }] }
+ * @param {string} date - Date in YYYY-MM-DD format
+ */
+export async function fetchGameScores(date) {
+  try {
+    const response = await fetch(`${API_BASE}/api/games/${date}/scores`);
+    if (!response.ok) return { games: [] };
+    return response.json();
+  } catch {
+    return { games: [] };
+  }
+}
+
+/**
  * Get predictions using a custom model
  * @param {string} token - Supabase access token
  * @param {string} modelId - Model UUID

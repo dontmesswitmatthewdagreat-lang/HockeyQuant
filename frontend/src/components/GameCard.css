@@ -483,6 +483,121 @@
   font-size: 0.6rem;
 }
 
+/* ---- Score Bar ---- */
+.score-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  gap: 0.5rem;
+}
+
+.score-bar--live {
+  background: rgba(220, 38, 38, 0.07);
+  border-bottom: 1px solid rgba(220, 38, 38, 0.18);
+}
+
+.score-bar--final {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.score-bar-left,
+.score-bar-right {
+  flex: 1;
+  display: flex;
+  align-items: center;
+}
+
+.score-bar-right { justify-content: flex-end; }
+
+.score-bar-center {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-heading);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.score-num {
+  min-width: 1.5ch;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.score-num.score-leading { color: var(--text-primary); }
+
+.score-separator {
+  color: var(--text-muted);
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+/* Live badge with pulsing dot */
+.score-live-badge {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--accent-red);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.live-pulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent-red);
+  flex-shrink: 0;
+  animation: pulse-dot 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.35; transform: scale(0.65); }
+}
+
+.score-final-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+/* Pick result badge */
+.pick-result-badge {
+  font-size: 0.73rem;
+  font-weight: 700;
+  padding: 0.18rem 0.5rem;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.pick-correct {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.pick-wrong {
+  background: rgba(239, 68, 68, 0.15);
+  color: #dc2626;
+}
+
+/* Inline bet result ✓/✗ in betting lines section */
+.bet-result-inline {
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-top: 0.3rem;
+  display: block;
+}
+
+.bet-result-inline.bet-correct { color: #16a34a; }
+.bet-result-inline.bet-wrong   { color: #dc2626; }
+
 /* Responsive */
 @media (max-width: 480px) {
   .game-card {

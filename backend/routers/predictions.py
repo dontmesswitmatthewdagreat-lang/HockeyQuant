@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from typing import List, Optional, Dict
 from datetime import date, datetime, timedelta, timezone
 import json
+import time as _time
+import httpx
 
 from services import NHLAnalyzer, get_data_loader
 from services.supabase_client import get_supabase
@@ -398,3 +400,59 @@ async def get_prediction_status(date_str: str):
         print(f"Error fetching prediction status: {e}")
 
     return PredictionStatus(is_cached=False)
+
+
+# ---------------------------------------------------------------------------
+# Live / final scores
+# ---------------------------------------------------------------------------
+_SCORE_CACHE: dict = {}
+_SCORE_TTL = 30  # seconds
+
+
+@router.get("/games/{date_str}/scores")
+async def get_game_scores(date_str: str):
+    """
+    Live and final scores for all games on a date, sourced from the NHL API.
+    Results are cached for 30 seconds to avoid hammering the upstream API.
+    """
+    now = _time.time()
+    if date_str in _SCORE_CACHE:
+        ts, data = _SCORE_CACHE[date_str]
+        if now - ts < _SCORE_TTL:
+            return data
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"https://api-web.nhle.com/v1/score/{date_str}",
+                timeout=10,
+            )
+        if resp.status_code != 200:
+            return {"games": []}
+        raw = resp.json()
+    except Exception as e:
+        print(f"Error fetching live scores for {date_str}: {e}")
+        return {"games": []}
+
+    games = []
+    for g in raw.get("games", []):
+        state = g.get("gameState", "SCHEDULED")
+        away = g.get("awayTeam", {})
+        home = g.get("homeTeam", {})
+        period_desc = g.get("periodDescriptor", {})
+        clock = g.get("clock", {})
+        games.append({
+            "away_team": away.get("abbrev"),
+            "home_team": home.get("abbrev"),
+            "away_score": away.get("score", 0),
+            "home_score": home.get("score", 0),
+            "game_state": state,
+            "period": period_desc.get("number"),
+            "period_type": period_desc.get("periodType", "REG"),
+            "time_remaining": clock.get("timeRemaining"),
+            "in_intermission": clock.get("inIntermission", False),
+        })
+
+    result = {"games": games}
+    _SCORE_CACHE[date_str] = (now, result)
+    return result

@@ -4,7 +4,7 @@ import { fetchGameSummary } from '../api';
 import PoissonChart from './PoissonChart';
 import './GameCard.css';
 
-function GameCard({ prediction }) {
+function GameCard({ prediction, liveScore }) {
   const {
     away,
     home,
@@ -65,6 +65,41 @@ function GameCard({ prediction }) {
   const winProb = calculateWinProb();
   const confidenceLevel = (confidence || 'CLOSE').toLowerCase();
 
+  // Live / final score helpers
+  const isLive = liveScore && (liveScore.game_state === 'LIVE' || liveScore.game_state === 'CRIT');
+  const isFinal = liveScore && (liveScore.game_state === 'FINAL' || liveScore.game_state === 'OFF');
+  const hasScore = isLive || isFinal;
+
+  // ML pick correctness (null until final, null if tied)
+  let pickCorrect = null;
+  if (isFinal && liveScore.away_score !== liveScore.home_score) {
+    const actualWinner = liveScore.home_score > liveScore.away_score ? home.team : away.team;
+    pickCorrect = pick === actualWinner;
+  }
+
+  // Period label for live games
+  function getPeriodLabel() {
+    if (!liveScore) return '';
+    if (liveScore.in_intermission) return 'INT';
+    const n = liveScore.period;
+    if (!n) return '';
+    if (liveScore.period_type === 'OT') return 'OT';
+    if (liveScore.period_type === 'SO') return 'SO';
+    return n === 1 ? '1st' : n === 2 ? '2nd' : n === 3 ? '3rd' : `${n}th`;
+  }
+
+  // Puck line and O/U results (computed from actual score when final)
+  let plCorrect = null;
+  let ouCorrect = null;
+  if (isFinal && betting_lines) {
+    const margin = liveScore.home_score - liveScore.away_score;
+    plCorrect = (margin + betting_lines.puck_line) > 0;
+    const total = liveScore.home_score + liveScore.away_score;
+    if (total !== betting_lines.over_under) {
+      ouCorrect = total > betting_lines.over_under;
+    }
+  }
+
   // Once a game has started, goalies are definitionally confirmed (they're playing).
   // Daily Faceoff removes "Confirmed" text after puck drop, so the scraper always
   // returns "expected" for in-progress or finished games.
@@ -97,6 +132,40 @@ function GameCard({ prediction }) {
           {diff ? `${diff.toFixed(1)} pt spread` : ''}
         </span>
       </div>
+
+      {/* Score Bar — shown during live play and after games finish */}
+      {hasScore && (
+        <div className={`score-bar ${isFinal ? 'score-bar--final' : 'score-bar--live'}`}>
+          <div className="score-bar-left">
+            {isLive ? (
+              <span className="score-live-badge">
+                <span className="live-pulse" />
+                LIVE{getPeriodLabel() ? ` · ${getPeriodLabel()}` : ''}
+                {liveScore.time_remaining && !liveScore.in_intermission
+                  ? ` · ${liveScore.time_remaining}` : ''}
+              </span>
+            ) : (
+              <span className="score-final-label">FINAL</span>
+            )}
+          </div>
+          <div className="score-bar-center">
+            <span className={liveScore.away_score > liveScore.home_score ? 'score-num score-leading' : 'score-num'}>
+              {liveScore.away_score}
+            </span>
+            <span className="score-separator">–</span>
+            <span className={liveScore.home_score > liveScore.away_score ? 'score-num score-leading' : 'score-num'}>
+              {liveScore.home_score}
+            </span>
+          </div>
+          <div className="score-bar-right">
+            {isFinal && pickCorrect !== null && (
+              <span className={`pick-result-badge ${pickCorrect ? 'pick-correct' : 'pick-wrong'}`}>
+                {pickCorrect ? '✓ Correct' : '✗ Wrong'}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Game Time Header */}
       <div className="game-time-header">
@@ -212,6 +281,11 @@ function GameCard({ prediction }) {
                   {away.team} {betting_lines.puck_line_away_cover_prob}%
                 </span>
               </div>
+              {isFinal && plCorrect !== null && (
+                <span className={`bet-result-inline ${plCorrect ? 'bet-correct' : 'bet-wrong'}`}>
+                  {plCorrect ? '✓ Covered' : '✗ No cover'}
+                </span>
+              )}
               <div className="optimal-line">
                 <span className="optimal-label">Optimal</span>
                 <span className="optimal-value">
@@ -236,6 +310,15 @@ function GameCard({ prediction }) {
                   UNDER {betting_lines.under_prob}%
                 </span>
               </div>
+              {isFinal && ouCorrect !== null && (
+                <span className={`bet-result-inline ${ouCorrect ? 'bet-correct' : 'bet-wrong'}`}>
+                  {(() => {
+                    const total = liveScore.home_score + liveScore.away_score;
+                    const hit = total > betting_lines.over_under ? 'Over' : 'Under';
+                    return `${ouCorrect ? '✓' : '✗'} ${total} total · ${hit} hit`;
+                  })()}
+                </span>
+              )}
               <div className="optimal-line">
                 <span className="optimal-label">Optimal</span>
                 <span className="optimal-value">

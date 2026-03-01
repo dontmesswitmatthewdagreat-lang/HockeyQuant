@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { fetchPredictions } from '../api';
+import { fetchPredictions, fetchGameScores } from '../api';
 import GameCard from '../components/GameCard';
 import ProgressBar from '../components/ProgressBar';
 import { getGameDayDate } from '../utils/dateUtils';
@@ -20,6 +20,7 @@ function Predictions() {
   const [fromCache, setFromCache] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [scoreMap, setScoreMap] = useState({});
 
   // Show disclaimer when loading starts (only if not dismissed)
   useEffect(() => {
@@ -114,6 +115,36 @@ function Predictions() {
   useEffect(() => {
     loadPredictions(date);
   }, [date]);
+
+  async function loadScores(selectedDate) {
+    const data = await fetchGameScores(selectedDate);
+    const map = {};
+    for (const g of (data.games || [])) {
+      if (g.away_team && g.home_team) {
+        map[`${g.away_team}-${g.home_team}`] = g;
+      }
+    }
+    setScoreMap(map);
+  }
+
+  useEffect(() => {
+    if (!date) return;
+    setScoreMap({});
+    loadScores(date);
+    const interval = setInterval(() => {
+      const now = Date.now();
+      const anyActive = predictions.some(p => {
+        if (!p.game_time) return false;
+        const start = new Date(p.game_time).getTime();
+        const key = `${p.away.team}-${p.home.team}`;
+        const s = scoreMap[key];
+        if (s && (s.game_state === 'FINAL' || s.game_state === 'OFF')) return false;
+        return now >= start - 30 * 60 * 1000 && now <= start + 4 * 60 * 60 * 1000;
+      });
+      if (anyActive) loadScores(date);
+    }, 60_000);
+    return () => clearInterval(interval);
+  }, [date, predictions]);
 
   function handleDateNav(newDate) {
     setDate(newDate);
@@ -260,6 +291,7 @@ function Predictions() {
                 <GameCard
                   key={gameKey}
                   prediction={prediction}
+                  liveScore={scoreMap[gameKey]}
                 />
               );
             })}
