@@ -495,6 +495,93 @@
   color: var(--text-primary);
 }
 
+/* Chart row — selector + yesterday card side by side */
+.chart-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.chart-row .chart-type-selector {
+  margin-bottom: 0;
+}
+
+/* Yesterday Card */
+.yesterday-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 0.75rem 1rem;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.yesterday-header {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.5rem;
+}
+
+.yesterday-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.yesterday-stat {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.yday-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  width: 22px;
+  flex-shrink: 0;
+}
+
+.yday-record {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.yday-pct {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.yday-pct-good {
+  background: var(--success-bg);
+  color: var(--success-text);
+}
+
+.yday-pct-warn {
+  background: var(--warning-bg);
+  color: var(--warning-text);
+}
+
+.yday-pct-bad {
+  background: var(--error-bg);
+  color: var(--error-text);
+}
+
+.yday-empty {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
 /* Chart type selector */
 .chart-type-selector {
   display: flex;
@@ -654,5 +741,14 @@
 
   .confidence-value {
     font-size: 1.5rem;
+  }
+
+  .chart-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .yesterday-card {
+    min-width: unset;
   }
 }

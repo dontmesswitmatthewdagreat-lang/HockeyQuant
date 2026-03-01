@@ -104,7 +104,7 @@ function ParlayModal({ date, onClose }) {
 
           {!loading && !error && legs.length === 0 && (
             <div className="parlay-empty">
-              <p>No qualifying bets today — no individual bet met the 54% threshold.</p>
+              <p>No qualifying bets today — no individual bet met the 52% threshold.</p>
             </div>
           )}
 
@@ -155,8 +155,8 @@ function ParlayModal({ date, onClose }) {
             <div className="parlay-info">
               <span className="info-icon">&#9432;</span>
               Optimizer selects the highest-probability bet per game (ML / Puck Line / O&amp;U)
-              and stops adding legs before the combined probability falls below ~15%.
-              Min. per-leg threshold: 54%.
+              and includes all qualifying legs sorted by confidence — up to 8 legs.
+              Min. per-leg threshold: 52%.
             </div>
           )}
         </div>

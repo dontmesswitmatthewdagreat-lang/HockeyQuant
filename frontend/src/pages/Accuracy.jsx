@@ -10,6 +10,62 @@ const ALL_TEAMS = Object.entries(TEAM_NAMES)
   .map(([abbrev, name]) => ({ abbrev, name }))
   .sort((a, b) => a.name.localeCompare(b.name));
 
+function getYesterday() {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return d.toISOString().split('T')[0];
+}
+
+function PctBadge({ correct, total }) {
+  if (total === 0) return null;
+  const pct = Math.round((correct / total) * 100);
+  const cls = pct >= 60 ? 'yday-pct-good' : pct >= 50 ? 'yday-pct-warn' : 'yday-pct-bad';
+  return <span className={`yday-pct ${cls}`}>{pct}%</span>;
+}
+
+function YesterdayCard({ recentPredictions }) {
+  const yesterday = getYesterday();
+  const games = recentPredictions.filter(p => p.game_date === yesterday);
+  const mlGraded = games.filter(p => p.correct !== null);
+  const plGraded = games.filter(p => p.puck_line_correct !== null);
+  const ouGraded = games.filter(p => p.ou_correct !== null);
+  const mlCorrect = mlGraded.filter(p => p.correct === true).length;
+  const plCorrect = plGraded.filter(p => p.puck_line_correct === true).length;
+  const ouCorrect = ouGraded.filter(p => p.ou_correct === true).length;
+  const d = new Date(yesterday + 'T12:00:00');
+  const dateLabel = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return (
+    <div className="yesterday-card">
+      <div className="yesterday-header">Yesterday · {dateLabel}</div>
+      {games.length === 0 ? (
+        <div className="yday-empty">No results yet</div>
+      ) : (
+        <div className="yesterday-stats">
+          <div className="yesterday-stat">
+            <span className="yday-label">ML</span>
+            <span className="yday-record">{mlCorrect}/{mlGraded.length}</span>
+            <PctBadge correct={mlCorrect} total={mlGraded.length} />
+          </div>
+          {plGraded.length > 0 && (
+            <div className="yesterday-stat">
+              <span className="yday-label">PL</span>
+              <span className="yday-record">{plCorrect}/{plGraded.length}</span>
+              <PctBadge correct={plCorrect} total={plGraded.length} />
+            </div>
+          )}
+          {ouGraded.length > 0 && (
+            <div className="yesterday-stat">
+              <span className="yday-label">O/U</span>
+              <span className="yday-record">{ouCorrect}/{ouGraded.length}</span>
+              <PctBadge correct={ouCorrect} total={ouGraded.length} />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Accuracy() {
   const [stats, setStats] = useState(null);
   const [recentPredictions, setRecentPredictions] = useState([]);
@@ -332,26 +388,29 @@ function Accuracy() {
 
       {/* Accuracy Trend Chart */}
       <div ref={chartRef}>
-      <div className="chart-type-selector">
-        <span className="chart-type-label">Chart:</span>
-        <button
-          className={`chart-type-btn ${chartPredType === 'moneyline' ? 'active' : ''}`}
-          onClick={() => setChartPredType('moneyline')}
-        >
-          Moneyline
-        </button>
-        <button
-          className={`chart-type-btn ${chartPredType === 'puck_line' ? 'active' : ''}`}
-          onClick={() => setChartPredType('puck_line')}
-        >
-          Puck Line
-        </button>
-        <button
-          className={`chart-type-btn ${chartPredType === 'ou' ? 'active' : ''}`}
-          onClick={() => setChartPredType('ou')}
-        >
-          Over/Under
-        </button>
+      <div className="chart-row">
+        <div className="chart-type-selector">
+          <span className="chart-type-label">Chart:</span>
+          <button
+            className={`chart-type-btn ${chartPredType === 'moneyline' ? 'active' : ''}`}
+            onClick={() => setChartPredType('moneyline')}
+          >
+            Moneyline
+          </button>
+          <button
+            className={`chart-type-btn ${chartPredType === 'puck_line' ? 'active' : ''}`}
+            onClick={() => setChartPredType('puck_line')}
+          >
+            Puck Line
+          </button>
+          <button
+            className={`chart-type-btn ${chartPredType === 'ou' ? 'active' : ''}`}
+            onClick={() => setChartPredType('ou')}
+          >
+            Over/Under
+          </button>
+        </div>
+        <YesterdayCard recentPredictions={recentPredictions} />
       </div>
       <AccuracyChart predType={chartPredType} team={selectedTeam} />
       </div>

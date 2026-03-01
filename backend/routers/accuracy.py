@@ -152,17 +152,17 @@ class TrendResponse(BaseModel):
 _analyzer: Optional[NHLAnalyzer] = None
 
 # Parlay optimizer parameters
-_MIN_PROB = 54.0
+_MIN_PROB = 52.0
 _MAX_LEGS = 8
-_TARGET_COMBINED = 15.0
 
 
 def calc_optimal_parlay(predictions: List[Dict], min_prob: float = _MIN_PROB,
-                        max_legs: int = _MAX_LEGS, target_combined: float = _TARGET_COMBINED) -> Dict:
+                        max_legs: int = _MAX_LEGS) -> Dict:
     """
-    Greedy LP optimizer: selects the best bet type (ML/PL/OU) per game,
-    then adds legs in descending probability order until the combined
-    probability would fall below target_combined or max_legs is reached.
+    Greedy optimizer: selects the best bet type (ML/PL/OU) per game,
+    then takes the top N qualifying legs (sorted by probability descending)
+    up to max_legs. Includes all legs above min_prob without early stopping,
+    so the parlay reflects all of today's highest-confidence picks.
     """
     candidates = []
     for pred in predictions:
@@ -208,11 +208,8 @@ def calc_optimal_parlay(predictions: List[Dict], min_prob: float = _MIN_PROB,
     legs: List[Dict] = []
     combined = 1.0
     for c in candidates:
-        tentative = combined * (c["prob"] / 100)
-        if legs and tentative * 100 < target_combined:
-            break
-        combined = tentative
         legs.append(c)
+        combined *= c["prob"] / 100
         if len(legs) >= max_legs:
             break
 
