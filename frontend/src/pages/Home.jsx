@@ -1,7 +1,38 @@
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { fetchDailyParlay } from '../api';
+import { getTeamLogo } from '../utils/teamLogos';
 import './Home.css';
 
+function getTodayDate() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function formatParlayDate(dateStr) {
+  const d = new Date(dateStr + 'T12:00:00');
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatLegTime(isoStr) {
+  if (!isoStr) return '';
+  try {
+    return new Date(isoStr).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York', timeZoneName: 'short'
+    });
+  } catch { return ''; }
+}
+
 function Home() {
+  const [parlay, setParlay] = useState(null);
+  const [parlayLoading, setParlayLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDailyParlay(getTodayDate())
+      .then(data => setParlay(data))
+      .catch(() => setParlay(null))
+      .finally(() => setParlayLoading(false));
+  }, []);
+
   return (
     <div className="home-page">
       {/* Hero Section */}
@@ -14,6 +45,125 @@ function Home() {
         <div className="hero-actions">
           <Link to="/games" className="hero-btn primary">View Today's Games</Link>
           <Link to="/teams" className="hero-btn secondary">Explore Teams</Link>
+        </div>
+      </section>
+
+      {/* Daily Parlay Card */}
+      <section className="daily-parlay-section">
+        <h2 className="section-heading">Today's Parlay</h2>
+        <div className="parlay-card">
+          {/* Red header bar */}
+          <div className="parlay-card-header">
+            <span className="parlay-card-title">Optimal Parlay</span>
+            {!parlayLoading && parlay && parlay.num_legs > 0 && (
+              <div className="parlay-card-badges">
+                <span className="parlay-badge">{parlay.num_legs} {parlay.num_legs === 1 ? 'leg' : 'legs'}</span>
+                <span className="parlay-badge">~{parlay.combined_prob}% to hit</span>
+                <span className="parlay-badge">{formatParlayDate(getTodayDate())}</span>
+              </div>
+            )}
+          </div>
+
+          {/* Loading skeleton */}
+          {parlayLoading && (
+            <div className="parlay-card-legs">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="parlay-skeleton-leg">
+                  <div className="skeleton-circle" />
+                  <div className="skeleton-logo" />
+                  <div className="skeleton-lines">
+                    <div className="skeleton-line wide" />
+                    <div className="skeleton-line narrow" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Empty / error state */}
+          {!parlayLoading && (!parlay || parlay.num_legs === 0) && (
+            <div className="parlay-card-empty">
+              No qualifying parlay today — check back after the model runs.
+            </div>
+          )}
+
+          {/* Legs */}
+          {!parlayLoading && parlay && parlay.num_legs > 0 && (
+            <>
+              <div className="parlay-card-legs">
+                {parlay.legs.map((leg, idx) => {
+                  const isOU = leg.type === 'OU';
+                  const barCls = leg.prob >= 65 ? 'bar-high' : leg.prob >= 58 ? 'bar-mid' : 'bar-low';
+                  const typePill = leg.type === 'ML' ? 'type-ml' : leg.type === 'PL' ? 'type-pl' : 'type-ou';
+                  const typeLabel = leg.type === 'ML' ? 'Moneyline' : leg.type === 'PL' ? 'Puck Line' : 'Over/Under';
+                  const logoTeam = !isOU ? leg.pick : null;
+                  return (
+                    <div key={idx} className="parlay-home-leg">
+                      <div className="leg-num">{idx + 1}</div>
+                      {!isOU ? (
+                        <img
+                          src={getTeamLogo(logoTeam)}
+                          alt={logoTeam}
+                          className="leg-logo"
+                          onError={e => { e.target.style.display = 'none'; }}
+                        />
+                      ) : (
+                        <div className="leg-icon">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
+                            <polyline points="17 6 23 6 23 12"></polyline>
+                          </svg>
+                        </div>
+                      )}
+                      <div className="leg-body">
+                        <div className="leg-top-row">
+                          <span className="leg-pick-label">{leg.label}</span>
+                          <span className={`leg-type-pill ${typePill}`}>{typeLabel}</span>
+                          <span className="leg-prob-right">{leg.prob?.toFixed(1)}%</span>
+                        </div>
+                        <div className="leg-sub-row">
+                          <span className="leg-matchup-text">
+                            {leg.away_team} @ {leg.home_team}
+                            {leg.game_time && <> &middot; {formatLegTime(leg.game_time)}</>}
+                          </span>
+                          <div className="leg-home-bar">
+                            <div
+                              className={`leg-home-bar-fill ${barCls}`}
+                              style={{ width: `${Math.min(leg.prob || 0, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Combined probability */}
+              <div className="parlay-combined-row">
+                <div className="combined-row-label">
+                  <span>Combined probability</span>
+                  <span className="combined-row-pct">{parlay.combined_prob}%</span>
+                </div>
+                <div className="combined-row-bar">
+                  <div
+                    className="combined-row-bar-fill"
+                    style={{ width: `${Math.min(parlay.combined_prob * 3, 100)}%` }}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Footer CTA */}
+          <div className="parlay-card-footer">
+            <Link to="/games" className="parlay-cta-btn">
+              View All Games
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="9 18 15 12 9 6"></polyline>
+              </svg>
+            </Link>
+          </div>
         </div>
       </section>
 

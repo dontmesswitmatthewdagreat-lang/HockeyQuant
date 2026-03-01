@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { fetchPredictions } from '../api';
 import GameCard from '../components/GameCard';
 import ProgressBar from '../components/ProgressBar';
-import ParlayModal from '../components/ParlayModal';
 import './Predictions.css';
 
 // Module-level cache for predictions
@@ -20,7 +19,6 @@ function Predictions() {
   const [fromCache, setFromCache] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
   const [showDisclaimer, setShowDisclaimer] = useState(false);
-  const [showParlayModal, setShowParlayModal] = useState(false);
 
   // Show disclaimer when loading starts (only if not dismissed)
   useEffect(() => {
@@ -210,13 +208,6 @@ function Predictions() {
         </button>
       </div>
 
-      {/* Daily Parlay Button */}
-      <div className="parlay-btn-row">
-        <button className="btn-parlay" onClick={() => setShowParlayModal(true)}>
-          Daily Parlay
-        </button>
-      </div>
-
       {/* Summary Stats */}
       {!loading && !error && predictions.length > 0 && (
         <div className="summary-stats">
@@ -279,9 +270,6 @@ function Predictions() {
           </div>
         )}
       </div>
-      {showParlayModal && (
-        <ParlayModal date={date} onClose={() => setShowParlayModal(false)} />
-      )}
     </div>
   );
 }
