@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { fetchPredictions } from '../api';
 import GameCard from '../components/GameCard';
 import ProgressBar from '../components/ProgressBar';
+import { getGameDayDate } from '../utils/dateUtils';
 import './Predictions.css';
 
 // Module-level cache for predictions
@@ -12,7 +13,7 @@ const CACHE_DURATION_MS = 5 * 60 * 1000; // 5 minutes
 let disclaimerDismissedThisSession = false;
 
 function Predictions() {
-  const [date, setDate] = useState(getTodayDate());
+  const [date, setDate] = useState(getGameDayDate());
   const [predictions, setPredictions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -30,11 +31,6 @@ function Predictions() {
   function dismissDisclaimer() {
     setShowDisclaimer(false);
     disclaimerDismissedThisSession = true;
-  }
-
-  function getTodayDate() {
-    const today = new Date();
-    return today.toISOString().split('T')[0];
   }
 
   function getYesterday() {
@@ -60,7 +56,7 @@ function Predictions() {
   }
 
   function isToday(dateStr) {
-    return dateStr === getTodayDate();
+    return dateStr === getGameDayDate();
   }
 
   // Check if cached data is still valid
@@ -188,7 +184,7 @@ function Predictions() {
             </button>
             <button
               className={`quick-nav-btn ${isToday(date) ? 'active' : ''}`}
-              onClick={() => handleDateNav(getTodayDate())}
+              onClick={() => handleDateNav(getGameDayDate())}
             >
               Today
             </button>

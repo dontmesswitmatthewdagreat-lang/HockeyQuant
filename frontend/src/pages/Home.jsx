@@ -2,11 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { fetchDailyParlay } from '../api';
 import { getTeamLogo } from '../utils/teamLogos';
+import { getGameDayDate } from '../utils/dateUtils';
 import './Home.css';
-
-function getTodayDate() {
-  return new Date().toISOString().split('T')[0];
-}
 
 function formatParlayDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
@@ -27,7 +24,7 @@ function Home() {
   const [parlayLoading, setParlayLoading] = useState(true);
 
   useEffect(() => {
-    fetchDailyParlay(getTodayDate())
+    fetchDailyParlay(getGameDayDate())
       .then(data => setParlay(data))
       .catch(() => setParlay(null))
       .finally(() => setParlayLoading(false));
@@ -59,7 +56,7 @@ function Home() {
               <div className="parlay-card-badges">
                 <span className="parlay-badge">{parlay.num_legs} {parlay.num_legs === 1 ? 'leg' : 'legs'}</span>
                 <span className="parlay-badge">~{parlay.combined_prob}% to hit</span>
-                <span className="parlay-badge">{formatParlayDate(getTodayDate())}</span>
+                <span className="parlay-badge">{formatParlayDate(getGameDayDate())}</span>
               </div>
             )}
           </div>
