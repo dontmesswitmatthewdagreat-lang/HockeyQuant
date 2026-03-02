@@ -164,7 +164,8 @@ def find_optimal_spread(pred_away: float, pred_home: float) -> Tuple[float, floa
 
     probs = calc_spread_prob(pred_away, pred_home, optimal_line)
 
-    if predicted_margin >= 0:
+    # Pick whichever side has higher cover probability, not just the predicted winner
+    if probs["home_cover"] >= probs["away_cover"]:
         return (optimal_line, probs["home_cover"], "home")
     else:
         return (optimal_line, probs["away_cover"], "away")
