@@ -294,7 +294,12 @@ function GameCard({ prediction, liveScore }) {
                 <span className="optimal-label">Optimal</span>
                 <span className="optimal-value">
                   {betting_lines.optimal_spread_side === 'home' ? home.team : away.team}{' '}
-                  {betting_lines.optimal_spread > 0 ? '+' : ''}{betting_lines.optimal_spread}
+                  {(() => {
+                    const s = betting_lines.optimal_spread_side === 'home'
+                      ? betting_lines.optimal_spread
+                      : -betting_lines.optimal_spread;
+                    return (s > 0 ? '+' : '') + s;
+                  })()}
                   {' '}({betting_lines.optimal_spread_prob}%)
                 </span>
               </div>
