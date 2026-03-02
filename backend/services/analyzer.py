@@ -837,7 +837,7 @@ class NHLAnalyzer:
 
         return betting
 
-    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None) -> List[Dict]:
+    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None, skip_scraping: bool = False) -> List[Dict]:
         """Analyze all games for a given date
 
         Args:
@@ -846,14 +846,21 @@ class NHLAnalyzer:
                               e.g., {"TOR": "Joseph Woll", "MTL": "Sam Montembeault"}
             custom_weights: Optional dict with weight distribution for custom models:
                 {"offense": 40, "defense": 15, "goaltending": 30, "points_pct": 10, "win_rate": 5}
+            skip_scraping: If True, skip live injury/goalie scraping (use for past dates)
         """
         # Only clear caches and re-scrape injuries on fresh analysis (no overrides)
         # When recalculating with goalie overrides, use cached data for speed
         if not goalie_overrides:
             self.clear_runtime_caches()
-            self.data_loader.scrape_injuries()
-            # Also refresh confirmed starters
-            self.data_loader.scrape_confirmed_starters()
+            if not skip_scraping:
+                try:
+                    self.data_loader.scrape_injuries()
+                except Exception:
+                    pass
+                try:
+                    self.data_loader.scrape_confirmed_starters()
+                except Exception:
+                    pass
 
         games = self.get_games_for_date(date_str)
         results = []

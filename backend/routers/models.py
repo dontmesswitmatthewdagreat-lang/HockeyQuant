@@ -611,6 +611,7 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
                         "pick": pred["pick"],
                         "away_score": pred["away"]["final_score"],
                         "home_score": pred["home"]["final_score"],
+                        "diff": round(pred["diff"], 2),
                         "confidence": pred["confidence"],
                     })
             if to_insert:

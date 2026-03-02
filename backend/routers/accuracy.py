@@ -720,7 +720,8 @@ async def store_model_predictions(date_str: str):
             "win_rate": float(model.get("weight_win_rate", 5)),
         }
         try:
-            results = analyzer.analyze_date(date_str, custom_weights=weights_data)
+            is_past = datetime.strptime(date_str, "%Y-%m-%d").date() < datetime.now(timezone.utc).date()
+            results = analyzer.analyze_date(date_str, custom_weights=weights_data, skip_scraping=is_past)
         except Exception as e:
             print(f"Analyzer error for model {model_id}: {e}")
             continue
