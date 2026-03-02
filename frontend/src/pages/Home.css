@@ -290,14 +290,15 @@
 
 .leg-logos-ou {
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 2px;
   flex-shrink: 0;
 }
 
 .leg-logos-ou img {
-  width: 28px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
 }
 
