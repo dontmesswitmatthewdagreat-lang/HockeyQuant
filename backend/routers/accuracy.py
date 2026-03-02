@@ -710,6 +710,7 @@ async def store_model_predictions(date_str: str):
         raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
 
     total_stored = 0
+    debug_info = []
     for model in models:
         model_id = model["id"]
         weights_data = {
@@ -719,19 +720,27 @@ async def store_model_predictions(date_str: str):
             "points_pct": float(model.get("weight_points_pct", 10)),
             "win_rate": float(model.get("weight_win_rate", 5)),
         }
+        model_debug = {"model_id": model_id, "weights": weights_data}
         try:
             results = analyzer.analyze_date(date_str, custom_weights=weights_data)
+            model_debug["results_count"] = len(results) if results else 0
         except Exception as e:
+            model_debug["analyzer_error"] = str(e)
             print(f"Analyzer error for model {model_id}: {e}")
+            debug_info.append(model_debug)
             continue
 
         if not results:
+            model_debug["skip_reason"] = "analyze_date returned empty"
+            debug_info.append(model_debug)
             continue
 
+        skipped_no_time = skipped_not_official = skipped_existing = 0
         to_insert = []
         for r in results:
             game_time_str = r.get("game_time")
             if not game_time_str:
+                skipped_no_time += 1
                 continue
             try:
                 game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
@@ -740,10 +749,12 @@ async def store_model_predictions(date_str: str):
                 is_official = False
 
             if not is_official:
+                skipped_not_official += 1
                 continue
 
             game_id = f"{date_str}_{r['away']['team']}_{r['home']['team']}"
             if (model_id, game_id) in existing_set:
+                skipped_existing += 1
                 continue
 
             diff = r["diff"]
@@ -766,6 +777,11 @@ async def store_model_predictions(date_str: str):
                 "confidence": confidence,
             })
 
+        model_debug["skipped_no_time"] = skipped_no_time
+        model_debug["skipped_not_official"] = skipped_not_official
+        model_debug["skipped_existing"] = skipped_existing
+        model_debug["to_insert_count"] = len(to_insert)
+
         if to_insert:
             try:
                 supabase.table("model_predictions").insert(to_insert).execute()
@@ -773,12 +789,16 @@ async def store_model_predictions(date_str: str):
                 for item in to_insert:
                     existing_set.add((item["model_id"], item["game_id"]))
             except Exception as e:
+                model_debug["insert_error"] = str(e)
                 print(f"Insert error for model {model_id}: {e}")
+
+        debug_info.append(model_debug)
 
     return {
         "message": f"Stored {total_stored} model predictions for {date_str} across {len(models)} models",
         "stored": total_stored,
         "models_processed": len(models),
+        "debug": debug_info,
     }
 
 
