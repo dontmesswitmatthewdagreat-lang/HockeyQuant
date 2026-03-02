@@ -93,10 +93,12 @@ function GameCard({ prediction, liveScore }) {
   let ouCorrect = null;
   if (isFinal && betting_lines) {
     const margin = liveScore.home_score - liveScore.away_score;
-    plCorrect = (margin + betting_lines.puck_line) > 0;
+    const homeCoversOptimal = (margin + betting_lines.optimal_spread) > 0;
+    plCorrect = betting_lines.optimal_spread_side === 'home' ? homeCoversOptimal : !homeCoversOptimal;
     const total = liveScore.home_score + liveScore.away_score;
-    if (total !== betting_lines.over_under) {
-      ouCorrect = total > betting_lines.over_under;
+    if (total !== betting_lines.optimal_total) {
+      const overHit = total > betting_lines.optimal_total;
+      ouCorrect = (betting_lines.optimal_total_rec === 'OVER') === overHit;
     }
   }
 
@@ -316,7 +318,7 @@ function GameCard({ prediction, liveScore }) {
                 <span className={`bet-result-inline ${ouCorrect ? 'bet-correct' : 'bet-wrong'}`}>
                   {(() => {
                     const total = liveScore.home_score + liveScore.away_score;
-                    const hit = total > betting_lines.over_under ? 'Over' : 'Under';
+                    const hit = total > betting_lines.optimal_total ? 'Over' : 'Under';
                     return `${ouCorrect ? '✓' : '✗'} ${total} total · ${hit} hit`;
                   })()}
                 </span>
