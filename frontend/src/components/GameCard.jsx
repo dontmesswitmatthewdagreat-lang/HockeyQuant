@@ -149,12 +149,14 @@ function GameCard({ prediction, liveScore }) {
             )}
           </div>
           <div className="score-bar-center">
-            <span className={liveScore.away_score > liveScore.home_score ? 'score-num score-leading' : 'score-num'}>
-              {liveScore.away_score}
+            <span className={liveScore.away_score > liveScore.home_score ? 'score-team score-leading' : 'score-team score-trailing'}>
+              <span className="score-abbrev">{away.team}</span>
+              <span className="score-num">{liveScore.away_score}</span>
             </span>
             <span className="score-separator">–</span>
-            <span className={liveScore.home_score > liveScore.away_score ? 'score-num score-leading' : 'score-num'}>
-              {liveScore.home_score}
+            <span className={liveScore.home_score > liveScore.away_score ? 'score-team score-leading' : 'score-team score-trailing'}>
+              <span className="score-num">{liveScore.home_score}</span>
+              <span className="score-abbrev">{home.team}</span>
             </span>
           </div>
           <div className="score-bar-right">
