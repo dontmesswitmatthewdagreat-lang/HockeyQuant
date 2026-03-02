@@ -710,6 +710,7 @@ async def store_model_predictions(date_str: str):
         raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
 
     total_stored = 0
+    debug_info = []
     for model in models:
         model_id = model["id"]
         weights_data = {
@@ -719,14 +720,23 @@ async def store_model_predictions(date_str: str):
             "points_pct": float(model.get("weight_points_pct", 10)),
             "win_rate": float(model.get("weight_win_rate", 5)),
         }
+        debug_entry = {"model_id": model_id, "weights": weights_data}
         try:
             is_past = datetime.strptime(date_str, "%Y-%m-%d").date() < datetime.now(timezone.utc).date()
+            # Debug: check games first
+            games_found = analyzer.get_games_for_date(date_str)
+            debug_entry["games_found"] = len(games_found)
             results = analyzer.analyze_date(date_str, custom_weights=weights_data, skip_scraping=is_past)
+            debug_entry["results_count"] = len(results) if results else 0
         except Exception as e:
-            print(f"Analyzer error for model {model_id}: {e}")
+            import traceback
+            debug_entry["error"] = str(e)
+            debug_entry["traceback"] = traceback.format_exc()
+            debug_info.append(debug_entry)
             continue
 
         if not results:
+            debug_info.append(debug_entry)
             continue
 
         to_insert = []
@@ -781,6 +791,7 @@ async def store_model_predictions(date_str: str):
         "message": f"Stored {total_stored} model predictions for {date_str} across {len(models)} models",
         "stored": total_stored,
         "models_processed": len(models),
+        "debug": debug_info,
     }
 
 
