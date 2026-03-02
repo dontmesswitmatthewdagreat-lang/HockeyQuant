@@ -288,19 +288,17 @@
   flex-shrink: 0;
 }
 
-.leg-icon {
-  width: 40px;
-  height: 40px;
+.leg-logos-ou {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 2px;
   flex-shrink: 0;
-  color: var(--text-muted);
 }
 
-.leg-icon svg {
-  width: 22px;
-  height: 22px;
+.leg-logos-ou img {
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
 }
 
 .leg-body {
