@@ -322,11 +322,16 @@ async def store_predictions(date_str: str):
             puck_line_pick = None
             puck_line_line = None
             if bl:
-                puck_line_line = bl.get('puck_line')
                 # Align puck line pick with the moneyline pick: track whether our
                 # predicted winner covers the spread (not the higher-probability side,
                 # which is almost always the underdog at +1.5).
                 puck_line_pick = 'home' if r['pick'] == r['home']['team'] else 'away'
+                # Always store the line from the ML pick team's perspective at -1.5.
+                # Using bl.get('puck_line') would use the GoalPredictor's margin,
+                # which can contradict the ML pick direction (e.g., model picks TOR
+                # away but GoalPredictor thinks NJD home wins → stores -1.5 as if
+                # NJD is the home favorite, making TOR look like a +1.5 underdog).
+                puck_line_line = -1.5 if puck_line_pick == 'home' else 1.5
 
             # Extract O/U pick from betting_lines
             ou_pick = None
@@ -1510,12 +1515,13 @@ async def backfill_predictions():
 @router.post("/accuracy/fix-puck-line-picks")
 async def fix_puck_line_picks():
     """
-    One-time migration: recompute puck_line_pick to align with the ML pick direction,
-    then re-grade puck_line_correct accordingly.
+    Migration: recompute puck_line_pick, puck_line_line, and puck_line_correct to be
+    consistent with the ML pick direction.
 
-    Previously puck_line_pick was set to whichever side had higher Poisson cover
-    probability — almost always the underdog at +1.5. This corrects it so we track
-    whether our predicted winner covers the spread (same team as the ML pick).
+    Rule: picked team is always tracked at -1.5.
+    - puck_line_pick: 'home' if pick == home_team, else 'away'
+    - puck_line_line: -1.5 if pick is home, +1.5 if pick is away (home perspective)
+    - puck_line_correct: did the picked team win by 2+ goals?
     """
     supabase = get_supabase()
     if not supabase:
@@ -1523,9 +1529,8 @@ async def fix_puck_line_picks():
 
     all_preds = (
         supabase.table("predictions")
-        .select("id,pick,home_team,away_team,puck_line_line,home_final,away_final")
+        .select("id,pick,home_team,away_team,home_final,away_final")
         .not_is("away_final", "null")
-        .not_is("puck_line_line", "null")
         .execute()
         .data or []
     )
@@ -1535,13 +1540,15 @@ async def fix_puck_line_picks():
     for pred in all_preds:
         try:
             new_pick = 'home' if pred['pick'] == pred['home_team'] else 'away'
+            # Standardize: picked team is always at -1.5 (needs to win by 2+)
+            new_line = -1.5 if new_pick == 'home' else 1.5
             margin = pred['home_final'] - pred['away_final']
-            line = float(pred['puck_line_line'])
-            home_covers = (margin + line) > 0
+            home_covers = (margin + new_line) > 0
             new_correct = home_covers if new_pick == 'home' else not home_covers
 
             supabase.table("predictions").update({
                 "puck_line_pick": new_pick,
+                "puck_line_line": new_line,
                 "puck_line_correct": new_correct,
             }).eq("id", pred['id']).execute()
             updated += 1
@@ -1549,7 +1556,7 @@ async def fix_puck_line_picks():
             errors.append(f"{pred.get('id')}: {e}")
 
     return {
-        "message": f"Re-graded {updated} predictions with corrected puck line pick logic",
+        "message": f"Re-graded {updated} predictions: picked team always at -1.5",
         "updated": updated,
         "errors": errors[:10],
     }
