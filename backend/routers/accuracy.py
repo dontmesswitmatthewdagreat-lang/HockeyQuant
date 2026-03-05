@@ -323,9 +323,10 @@ async def store_predictions(date_str: str):
             puck_line_line = None
             if bl:
                 puck_line_line = bl.get('puck_line')
-                home_cover_prob = bl.get('puck_line_home_cover_prob', 0)
-                away_cover_prob = bl.get('puck_line_away_cover_prob', 0)
-                puck_line_pick = 'home' if home_cover_prob >= away_cover_prob else 'away'
+                # Align puck line pick with the moneyline pick: track whether our
+                # predicted winner covers the spread (not the higher-probability side,
+                # which is almost always the underdog at +1.5).
+                puck_line_pick = 'home' if r['pick'] == r['home']['team'] else 'away'
 
             # Extract O/U pick from betting_lines
             ou_pick = None
@@ -355,7 +356,7 @@ async def store_predictions(date_str: str):
                 "ou_line": ou_line,
             }
             try:
-                supabase.table("predictions").insert([record])
+                supabase.table("predictions").insert([record]).execute()
                 stored_flat += 1
                 existing_game_ids.add(game_id)  # Track to avoid duplicate attempts
             except Exception as e:
@@ -1503,4 +1504,52 @@ async def backfill_predictions():
         "updated_grades": updated_grades,
         "total_reviewed": len(all_preds),
         "errors": errors[:10] if errors else [],
+    }
+
+
+@router.post("/accuracy/fix-puck-line-picks")
+async def fix_puck_line_picks():
+    """
+    One-time migration: recompute puck_line_pick to align with the ML pick direction,
+    then re-grade puck_line_correct accordingly.
+
+    Previously puck_line_pick was set to whichever side had higher Poisson cover
+    probability — almost always the underdog at +1.5. This corrects it so we track
+    whether our predicted winner covers the spread (same team as the ML pick).
+    """
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Supabase not configured")
+
+    all_preds = (
+        supabase.table("predictions")
+        .select("id,pick,home_team,away_team,puck_line_line,home_final,away_final")
+        .not_is("away_final", "null")
+        .not_is("puck_line_line", "null")
+        .execute()
+        .data or []
+    )
+
+    updated = 0
+    errors = []
+    for pred in all_preds:
+        try:
+            new_pick = 'home' if pred['pick'] == pred['home_team'] else 'away'
+            margin = pred['home_final'] - pred['away_final']
+            line = float(pred['puck_line_line'])
+            home_covers = (margin + line) > 0
+            new_correct = home_covers if new_pick == 'home' else not home_covers
+
+            supabase.table("predictions").update({
+                "puck_line_pick": new_pick,
+                "puck_line_correct": new_correct,
+            }).eq("id", pred['id']).execute()
+            updated += 1
+        except Exception as e:
+            errors.append(f"{pred.get('id')}: {e}")
+
+    return {
+        "message": f"Re-graded {updated} predictions with corrected puck line pick logic",
+        "updated": updated,
+        "errors": errors[:10],
     }
