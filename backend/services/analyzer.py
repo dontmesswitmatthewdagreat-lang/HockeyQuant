@@ -641,7 +641,7 @@ class NHLAnalyzer:
         gaa_norm = max(0, min(1, 1 - (goalie['gaa'] - 2.0) / 2.0))
         return gsax_norm * 0.50 + sv_norm * 0.30 + gaa_norm * 0.20
 
-    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool, goalie_override: str = None, custom_weights: Dict = None) -> Optional[Dict]:
+    def analyze_team(self, team_abbrev: str, opponent_abbrev: str, is_away: bool, goalie_override: str = None, custom_weights: Dict = None, multiplier_weights: Dict = None) -> Optional[Dict]:
         """Full team analysis returning score and all factors
 
         Args:
@@ -716,7 +716,22 @@ class NHLAnalyzer:
         injury_mult, injury_sum, _ = self.calculate_injury_multiplier(team_abbrev)
         h2h_mult, h2h_sum, _ = self.calculate_h2h_multiplier(team_abbrev, opponent_abbrev)
 
-        final_score = base_score * fatigue_mult * streak_mult * st_mult * injury_mult * h2h_mult
+        # Optional per-factor intensity for custom models. Intensity 1.0 = the
+        # official model, 0 = ignore the factor, 2.0 = double its deviation from
+        # neutral. Defaults to official behavior so existing calls are unchanged.
+        mw = multiplier_weights or {}
+        def _adj(m, key):
+            intensity = mw.get(key, 1.0)
+            return 1.0 + (m - 1.0) * intensity
+
+        final_score = (
+            base_score
+            * _adj(fatigue_mult, 'fatigue')
+            * _adj(streak_mult, 'streak')
+            * _adj(st_mult, 'special_teams')
+            * _adj(injury_mult, 'injuries')
+            * _adj(h2h_mult, 'h2h')
+        )
 
         return {
             'team': team_abbrev,
@@ -837,7 +852,7 @@ class NHLAnalyzer:
 
         return betting
 
-    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None, skip_scraping: bool = False) -> List[Dict]:
+    def analyze_date(self, date_str: str, goalie_overrides: Dict[str, str] = None, custom_weights: Dict = None, skip_scraping: bool = False, multiplier_weights: Dict = None) -> List[Dict]:
         """Analyze all games for a given date
 
         Args:
@@ -871,8 +886,8 @@ class NHLAnalyzer:
                 away_goalie = goalie_overrides.get(game['away'])
                 home_goalie = goalie_overrides.get(game['home'])
 
-                away_data = self.analyze_team(game['away'], game['home'], is_away=True, goalie_override=away_goalie, custom_weights=custom_weights)
-                home_data = self.analyze_team(game['home'], game['away'], is_away=False, goalie_override=home_goalie, custom_weights=custom_weights)
+                away_data = self.analyze_team(game['away'], game['home'], is_away=True, goalie_override=away_goalie, custom_weights=custom_weights, multiplier_weights=multiplier_weights)
+                home_data = self.analyze_team(game['home'], game['away'], is_away=False, goalie_override=home_goalie, custom_weights=custom_weights, multiplier_weights=multiplier_weights)
 
                 if away_data and home_data:
                     diff = home_data['final_score'] - away_data['final_score']

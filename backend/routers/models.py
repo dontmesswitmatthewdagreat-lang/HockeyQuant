@@ -25,11 +25,21 @@ class ModelWeights(BaseModel):
     win_rate: float = Field(5, ge=0, le=100, description="Win rate weight")
 
 
+class ModelMultipliers(BaseModel):
+    """Per-factor emphasis for a model. 1.0 = official, 0 = ignore, 2.0 = double."""
+    fatigue: float = Field(1.0, ge=0, le=3)
+    streak: float = Field(1.0, ge=0, le=3)
+    special_teams: float = Field(1.0, ge=0, le=3)
+    injuries: float = Field(1.0, ge=0, le=3)
+    h2h: float = Field(1.0, ge=0, le=3)
+
+
 class CreateModelRequest(BaseModel):
     """Request to create a new model"""
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
     weights: ModelWeights
+    multipliers: Optional[ModelMultipliers] = None
 
 
 class UpdateModelRequest(BaseModel):
@@ -37,6 +47,7 @@ class UpdateModelRequest(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
     weights: Optional[ModelWeights] = None
+    multipliers: Optional[ModelMultipliers] = None
 
 
 class ModelAccuracyStats(BaseModel):
@@ -59,6 +70,7 @@ class UserModel(BaseModel):
     name: str
     description: Optional[str] = None
     weights: ModelWeights
+    multipliers: ModelMultipliers = ModelMultipliers()
     is_active: bool = True
     created_at: str
     updated_at: str
@@ -140,6 +152,28 @@ def _weights_to_columns(weights: ModelWeights) -> dict:
     }
 
 
+def _row_to_multipliers(row: dict) -> ModelMultipliers:
+    """Build ModelMultipliers from DB columns (default 1.0 = official)."""
+    return ModelMultipliers(
+        fatigue=float(row.get("mult_fatigue", 1.0) or 1.0),
+        streak=float(row.get("mult_streak", 1.0) or 1.0),
+        special_teams=float(row.get("mult_special_teams", 1.0) or 1.0),
+        injuries=float(row.get("mult_injuries", 1.0) or 1.0),
+        h2h=float(row.get("mult_h2h", 1.0) or 1.0),
+    )
+
+
+def _multipliers_to_columns(m: ModelMultipliers) -> dict:
+    """Convert ModelMultipliers to DB column names."""
+    return {
+        "mult_fatigue": m.fatigue,
+        "mult_streak": m.streak,
+        "mult_special_teams": m.special_teams,
+        "mult_injuries": m.injuries,
+        "mult_h2h": m.h2h,
+    }
+
+
 def calculate_model_accuracy(model_id: str, supabase) -> ModelAccuracyStats:
     """Calculate accuracy statistics for a model"""
     try:
@@ -197,6 +231,7 @@ async def list_models(authorization: str = Header(None)):
                 name=row["name"],
                 description=row.get("description"),
                 weights=_row_to_weights(row),
+                multipliers=_row_to_multipliers(row),
                 is_active=row.get("is_active", True),
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
@@ -242,6 +277,7 @@ async def create_model(request: CreateModelRequest, authorization: str = Header(
             "description": request.description,
             "is_active": True,
             **_weights_to_columns(request.weights),
+            **_multipliers_to_columns(request.multipliers or ModelMultipliers()),
         }]).execute()
 
         if not result.data:
@@ -428,6 +464,8 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             update_data["description"] = request.description
         if request.weights is not None:
             update_data.update(_weights_to_columns(request.weights))
+        if request.multipliers is not None:
+            update_data.update(_multipliers_to_columns(request.multipliers))
 
         result = supabase.table("user_models").update(update_data).eq("id", model_id).execute()
 
@@ -525,15 +563,23 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
         model = result.data[0]
         model_weights = _row_to_weights(model)
         weights_data = model_weights.model_dump()
+        mult = _row_to_multipliers(model)
+        multiplier_weights = {
+            "fatigue": mult.fatigue,
+            "streak": mult.streak,
+            "special_teams": mult.special_teams,
+            "injuries": mult.injuries,
+            "h2h": mult.h2h,
+        }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
 
-    # Get predictions with custom weights
+    # Get predictions with custom weights + factor emphasis
     try:
         analyzer = get_analyzer()
-        results = analyzer.analyze_date(date_str, custom_weights=weights_data)
+        results = analyzer.analyze_date(date_str, custom_weights=weights_data, multiplier_weights=multiplier_weights)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
 
