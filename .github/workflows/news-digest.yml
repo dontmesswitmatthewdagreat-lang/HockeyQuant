@@ -1,0 +1,41 @@
+# HockeyQuant News digest + prospect sync
+# - Morning league digest at ~8 AM ET.
+# - Per-team pre-game / post-game digests during game hours (the endpoint picks
+#   the teams whose windows are open; idempotent).
+# - Daily prospect dataset refresh.
+
+name: News Digest
+
+on:
+  schedule:
+    - cron: '0 12 * * *'        # 12:00 UTC (~8 AM ET) — morning league digest + prospect sync
+    - cron: '*/15 21-23 * * *'  # pre/post-game windows (evening ET)
+    - cron: '*/15 0-5 * * *'    # pre/post-game windows (late ET)
+  workflow_dispatch:
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Today (ET)
+        id: date
+        run: echo "today=$(TZ='America/New_York' date +%Y-%m-%d)" >> $GITHUB_OUTPUT
+
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Morning league digest + prospect sync (8 AM ET only)
+        if: github.event.schedule == '0 12 * * *' || github.event_name == 'workflow_dispatch'
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          echo "Morning digest for $DATE"
+          curl -s --max-time 120 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/morning"
+          echo
+          curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/prospects/sync"
+
+      - name: Pre-game + post-game team digests
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/pregame"
+          echo
+          curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/postgame"
