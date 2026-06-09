@@ -9,7 +9,7 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routers import predictions, teams, accuracy, models, summary
+from routers import predictions, teams, accuracy, models, summary, fantasy
 
 # Create FastAPI app
 app = FastAPI(
@@ -33,6 +33,7 @@ app.include_router(teams.router, prefix="/api", tags=["teams"])
 app.include_router(accuracy.router, prefix="/api", tags=["accuracy"])
 app.include_router(models.router, prefix="/api", tags=["models"])
 app.include_router(summary.router, prefix="/api", tags=["summary"])
+app.include_router(fantasy.router, prefix="/api", tags=["fantasy"])
 
 
 @app.get("/")

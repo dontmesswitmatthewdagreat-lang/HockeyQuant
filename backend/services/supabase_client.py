@@ -56,6 +56,11 @@ class TableQuery:
         self.params[column] = f"is.{value}"
         return self
 
+    def ilike(self, column: str, pattern: str) -> "TableQuery":
+        """Case-insensitive LIKE: column=ilike.*pattern*"""
+        self.params[column] = f"ilike.{pattern}"
+        return self
+
     def not_is(self, column: str, value: str) -> "TableQuery":
         self.params[column] = f"not.is.{value}"
         return self
@@ -104,12 +109,14 @@ class TableQuery:
                 )
             return QueryResult(response.json())
 
-    def upsert(self, records: List[Dict[str, Any]]) -> "QueryResult":
-        """Insert or update (merge on conflict) records."""
+    def upsert(self, records: List[Dict[str, Any]], on_conflict: Optional[str] = None) -> "QueryResult":
+        """Insert or update (merge on conflict) records. `on_conflict` names the
+        unique column(s) to merge on (defaults to the primary key)."""
         url = f"{self.client.rest_url}/{self.table}"
         headers = {**self.client.headers, "Prefer": "resolution=merge-duplicates,return=representation"}
-        with httpx.Client(timeout=30.0) as http:
-            response = http.post(url, headers=headers, json=records)
+        params = {"on_conflict": on_conflict} if on_conflict else None
+        with httpx.Client(timeout=60.0) as http:
+            response = http.post(url, headers=headers, params=params, json=records)
             if not response.is_success:
                 raise httpx.HTTPStatusError(
                     f"{response.status_code} {response.text}",

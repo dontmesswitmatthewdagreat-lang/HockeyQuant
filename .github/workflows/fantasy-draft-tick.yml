@@ -1,0 +1,30 @@
+# Fantasy draft auto-pick tick for HockeyQuant
+# - Async drafts (Standard / Slow modes) give each manager a pick clock.
+# - This runs every 10 minutes during typical waking hours and auto-picks for
+#   any manager whose clock expired, then advances to the next manager.
+# - Rapid (live) drafts don't rely on this — the app advances them client-side.
+
+name: Fantasy Draft Tick
+
+on:
+  schedule:
+    - cron: '*/10 13-23 * * *'  # 13:00–23:59 UTC (8 AM – 7 PM ET)
+    - cron: '*/10 0-4 * * *'    # 00:00–04:59 UTC (7 PM ET – 12 AM ET)
+  workflow_dispatch:
+
+jobs:
+  draft-tick:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render service
+        run: |
+          curl -s --max-time 60 "https://hockeyquant.onrender.com/health" || true
+          sleep 3
+
+      - name: Auto-pick expired draft clocks
+        run: |
+          echo "Running fantasy draft tick at $(date -u)"
+          RESPONSE=$(curl -s --max-time 120 -X POST "https://hockeyquant.onrender.com/api/fantasy/drafts/tick")
+          echo "Response: $RESPONSE"
+          AUTO=$(echo "$RESPONSE" | jq -r '.auto_picked // 0')
+          echo "Auto-picked $AUTO expired turn(s)."

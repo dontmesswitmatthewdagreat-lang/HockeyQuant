@@ -1,0 +1,1227 @@
+"""
+HockeyQuant Fantasy League Router
+Player pool sync + league management. All fantasy logic is server-side; the
+backend uses the Supabase service key (bypasses RLS).
+"""
+
+from fastapi import APIRouter, HTTPException, Header
+from pydantic import BaseModel, Field
+from typing import List, Optional
+from datetime import datetime, timezone, timedelta
+import base64
+import json
+import os
+import random
+import secrets
+import statistics
+import time
+from collections import defaultdict
+
+import requests
+
+from services.supabase_client import get_supabase
+from services.constants import NHL_DIVISIONS
+
+router = APIRouter()
+
+NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
+ALL_TEAMS = sorted({t for teams in NHL_DIVISIONS.values() for t in teams})
+
+# Positional roster: 2 LW, 2 RW, 2 C, 2 LHD, 2 RHD, 1 starting G, 1 backup G.
+ROSTER_SLOTS = [
+    ("LW1", "LW"), ("LW2", "LW"),
+    ("RW1", "RW"), ("RW2", "RW"),
+    ("C1", "C"), ("C2", "C"),
+    ("LHD1", "LHD"), ("LHD2", "LHD"),
+    ("RHD1", "RHD"), ("RHD2", "RHD"),
+    ("G_START", "G"), ("G_BACKUP", "G"),
+]
+SLOTS_PER_TEAM = len(ROSTER_SLOTS)
+
+REG_SEASON_WEEKS = 24          # fantasy regular-season length
+GOALIE_BONUS = 1.20            # better weekly GSAX
+GOALIE_PENALTY = 0.80          # worse weekly GSAX
+TRADE_DEADLINE_WEEK = 16       # private leagues: trades allowed through this week
+PLAYOFF_SEEDS = 4              # top-N make the fantasy playoff bracket
+# Draft pace → pick-clock seconds. Rapid = live (everyone online), Standard /
+# Slow = asynchronous (server cron auto-picks on expiry).
+PACE_SECONDS = {"rapid": 120, "standard": 3600, "slow": 21600}
+DEFAULT_PICK_SECONDS = PACE_SECONDS["slow"]
+
+
+def _clock_label(secs: int) -> str:
+    if secs < 3600:
+        return f"{secs // 60} minutes"
+    h = secs // 3600
+    return f"{h} hour" + ("s" if h != 1 else "")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def get_user_id_from_token(authorization: Optional[str]) -> str:
+    """Extract the Supabase user_id (sub) from a bearer JWT."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+    token = authorization.replace("Bearer ", "")
+    try:
+        parts = token.split(".")
+        if len(parts) != 3:
+            raise HTTPException(status_code=401, detail="Invalid token format")
+        payload = parts[1]
+        payload += "=" * ((4 - len(payload) % 4) % 4)
+        data = json.loads(base64.urlsafe_b64decode(payload))
+        uid = data.get("sub")
+        if not uid:
+            raise HTTPException(status_code=401, detail="Invalid token: no user_id")
+        return uid
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Token decode error: {e}")
+
+
+def _sb():
+    sb = get_supabase()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    return sb
+
+
+def current_season_year() -> int:
+    """The NHL season year (start year). Offseason summer maps to the upcoming season."""
+    now = datetime.now(timezone.utc)
+    if now.month >= 9:
+        return now.year
+    if now.month <= 4:
+        return now.year - 1
+    return now.year  # May–Aug → upcoming season starts this fall
+
+
+# ---------------------------------------------------------------------------
+# Push notifications (APNs) — gated on config; no-ops cleanly until enrolled.
+# ---------------------------------------------------------------------------
+
+def _apns_send(tokens: List[str], title: str, body: str) -> None:
+    tokens = [t for t in tokens if t]
+    if not tokens:
+        return
+    key = os.getenv("APNS_KEY_P8"); key_id = os.getenv("APNS_KEY_ID")
+    team = os.getenv("APNS_TEAM_ID"); topic = os.getenv("APNS_TOPIC")
+    if not (key and key_id and team and topic):
+        print(f"[push] skipped (APNs not configured) → {len(tokens)} device(s): {title} — {body}")
+        return
+    try:
+        import jwt as pyjwt
+        import httpx
+        provider = pyjwt.encode({"iss": team, "iat": int(time.time())}, key, algorithm="ES256", headers={"kid": key_id})
+        host = "https://api.sandbox.push.apple.com" if os.getenv("APNS_SANDBOX") else "https://api.push.apple.com"
+        with httpx.Client(http2=True, timeout=10) as c:
+            for t in tokens:
+                c.post(f"{host}/3/device/{t}",
+                       headers={"authorization": f"bearer {provider}", "apns-topic": topic, "apns-push-type": "alert"},
+                       json={"aps": {"alert": {"title": title, "body": body}, "sound": "default"}})
+    except Exception as e:
+        print(f"[push] send failed: {e}")
+
+
+def _push_users(sb, user_ids: List[str], title: str, body: str) -> None:
+    uids = [u for u in user_ids if u]
+    if not uids:
+        return
+    rows = sb.table("device_tokens").select("token").in_("user_id", uids).execute().data
+    _apns_send([r["token"] for r in rows], title, body)
+
+
+def _notify_on_clock(sb, league: dict, member_id: Optional[str]) -> None:
+    # Rapid (live) drafts are synchronous — no per-pick push needed.
+    if not member_id or league.get("draft_pace") == "rapid":
+        return
+    secs = league.get("pick_clock_seconds") or DEFAULT_PICK_SECONDS
+    m = sb.table("fantasy_members").select("user_id").eq("id", member_id).execute().data
+    if m:
+        _push_users(sb, [m[0]["user_id"]], "You're on the clock! ⏱",
+                    f"It's your pick in {league['name']}. You have {_clock_label(secs)} before an auto-pick.")
+
+
+def _roster_pos(position_code: str, shoots: Optional[str]) -> Optional[str]:
+    """Map NHL positionCode (+ handedness for D) to a fantasy slot type."""
+    if position_code == "L":
+        return "LW"
+    if position_code == "R":
+        return "RW"
+    if position_code == "C":
+        return "C"
+    if position_code == "D":
+        return "LHD" if shoots == "L" else "RHD"
+    if position_code == "G":
+        return "G"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Player pool sync (cron/admin)
+# ---------------------------------------------------------------------------
+
+@router.post("/fantasy/sync-players")
+def sync_players():
+    """Fetch all 32 NHL team rosters and upsert the fantasy player pool."""
+    sb = _sb()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    rows: List[dict] = []
+    failed: List[str] = []
+
+    for team in ALL_TEAMS:
+        try:
+            resp = requests.get(
+                f"https://api-web.nhle.com/v1/roster/{team}/current",
+                headers=NHL_HEADERS, timeout=15,
+            )
+            if not resp.ok:
+                failed.append(team)
+                continue
+            data = resp.json()
+        except Exception:
+            failed.append(team)
+            continue
+
+        for group_key in ("forwards", "defensemen", "goalies"):
+            for p in data.get(group_key, []):
+                pos = p.get("positionCode")
+                shoots = p.get("shootsCatches")
+                rpos = _roster_pos(pos, shoots)
+                if not rpos:
+                    continue
+                first = (p.get("firstName") or {}).get("default", "")
+                last = (p.get("lastName") or {}).get("default", "")
+                rows.append({
+                    "nhl_id": p.get("id"),
+                    "full_name": f"{first} {last}".strip(),
+                    "team": team,
+                    "position": pos,
+                    "shoots": shoots,
+                    "roster_pos": rpos,
+                    "is_goalie": pos == "G",
+                    "sweater": p.get("sweaterNumber"),
+                    "headshot": p.get("headshot"),
+                    "active": True,
+                    "updated_at": now_iso,
+                })
+
+    if rows:
+        # Upsert in batches to keep payloads reasonable.
+        for i in range(0, len(rows), 300):
+            sb.table("fantasy_players").upsert(rows[i:i + 300], on_conflict="nhl_id").execute()
+
+    return {"synced": len(rows), "teams_ok": len(ALL_TEAMS) - len(failed), "failed": failed}
+
+
+# ---------------------------------------------------------------------------
+# Player pool reads (draft board)
+# ---------------------------------------------------------------------------
+
+@router.get("/fantasy/players")
+def list_players(slot_type: Optional[str] = None, q: Optional[str] = None, limit: int = 200):
+    """List the player pool, optionally filtered by slot type (LW/RW/C/LHD/RHD/G) and name search."""
+    sb = _sb()
+    query = sb.table("fantasy_players").select(
+        "id,nhl_id,full_name,team,position,shoots,roster_pos,is_goalie,sweater,headshot"
+    ).eq("active", "true")
+    if slot_type:
+        query = query.eq("roster_pos", slot_type)
+    if q:
+        query = query.ilike("full_name", f"*{q}*")
+    rows = query.order("full_name").limit(min(limit, 1000)).execute().data
+    return {"players": rows, "count": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# Leagues
+# ---------------------------------------------------------------------------
+
+class CreateLeagueRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=60)
+    team_name: str = Field(..., min_length=1, max_length=40)
+    league_type: str = Field("group", pattern="^(group|global)$")
+    max_members: int = Field(8, ge=2, le=16)
+    draft_pace: str = Field("standard", pattern="^(rapid|standard|slow)$")
+
+
+class JoinLeagueRequest(BaseModel):
+    invite_code: str = Field(..., min_length=4, max_length=12)
+    team_name: str = Field(..., min_length=1, max_length=40)
+
+
+def _league_summary(sb, league: dict, uid: str) -> dict:
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league["id"]).execute().data
+    mine = next((m for m in members if m["user_id"] == uid), None)
+    return {
+        "id": league["id"],
+        "name": league["name"],
+        "league_type": league["league_type"],
+        "status": league["status"],
+        "max_members": league["max_members"],
+        "unique_players": league["unique_players"],
+        "invite_code": league["invite_code"],
+        "season_year": league["season_year"],
+        "draft_pace": league.get("draft_pace", "slow"),
+        "pick_clock_seconds": league.get("pick_clock_seconds", DEFAULT_PICK_SECONDS),
+        "is_commissioner": league["commissioner_id"] == uid,
+        "member_count": len(members),
+        "my_team_name": mine["team_name"] if mine else None,
+    }
+
+
+@router.post("/fantasy/leagues")
+def create_league(req: CreateLeagueRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    invite = secrets.token_hex(3).upper()  # 6 hex chars
+    league = sb.table("fantasy_leagues").insert([{
+        "name": req.name,
+        "commissioner_id": uid,
+        "league_type": req.league_type,
+        "status": "open",
+        "max_members": req.max_members,
+        "unique_players": req.league_type == "group",
+        "trade_deadline_enabled": req.league_type == "group",
+        "invite_code": invite,
+        "season_year": current_season_year(),
+        "draft_pace": req.draft_pace,
+        "pick_clock_seconds": PACE_SECONDS[req.draft_pace],
+    }]).data[0]
+
+    sb.table("fantasy_members").insert([{
+        "league_id": league["id"],
+        "user_id": uid,
+        "team_name": req.team_name,
+    }]).execute()
+
+    sb.table("fantasy_draft_state").insert([{
+        "league_id": league["id"],
+        "status": "not_started",
+    }]).execute()
+
+    return _league_summary(sb, league, uid)
+
+
+@router.post("/fantasy/leagues/join")
+def join_league(req: JoinLeagueRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    found = sb.table("fantasy_leagues").select("*").eq("invite_code", req.invite_code.upper()).execute().data
+    if not found:
+        raise HTTPException(status_code=404, detail="No league with that invite code")
+    league = found[0]
+    if league["status"] != "open":
+        raise HTTPException(status_code=400, detail="This league's draft has already started")
+
+    members = sb.table("fantasy_members").select("id,user_id").eq("league_id", league["id"]).execute().data
+    if any(m["user_id"] == uid for m in members):
+        return _league_summary(sb, league, uid)  # already in
+    if len(members) >= league["max_members"]:
+        raise HTTPException(status_code=400, detail="This league is full")
+
+    sb.table("fantasy_members").insert([{
+        "league_id": league["id"],
+        "user_id": uid,
+        "team_name": req.team_name,
+    }]).execute()
+    return _league_summary(sb, league, uid)
+
+
+@router.get("/fantasy/leagues")
+def my_leagues(authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    mine = sb.table("fantasy_members").select("league_id").eq("user_id", uid).execute().data
+    league_ids = [m["league_id"] for m in mine]
+    if not league_ids:
+        return {"leagues": []}
+    leagues = sb.table("fantasy_leagues").select("*").in_("id", league_ids).execute().data
+    return {"leagues": [_league_summary(sb, lg, uid) for lg in leagues]}
+
+
+@router.get("/fantasy/leagues/{league_id}")
+def league_detail(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    found = sb.table("fantasy_leagues").select("*").eq("id", league_id).execute().data
+    if not found:
+        raise HTTPException(status_code=404, detail="League not found")
+    league = found[0]
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league_id).execute().data
+    if not any(m["user_id"] == uid for m in members):
+        raise HTTPException(status_code=403, detail="You are not a member of this league")
+    draft = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data
+
+    # Attach usernames for display.
+    user_ids = [m["user_id"] for m in members]
+    names = {}
+    if user_ids:
+        profs = sb.table("profiles").select("id,username").in_("id", user_ids).execute().data
+        names = {p["id"]: p.get("username") for p in profs}
+
+    return {
+        "league": _league_summary(sb, league, uid),
+        "members": [{
+            "id": m["id"],
+            "user_id": m["user_id"],
+            "team_name": m["team_name"],
+            "draft_order": m.get("draft_order"),
+            "username": names.get(m["user_id"]),
+            "is_me": m["user_id"] == uid,
+        } for m in members],
+        "draft": draft[0] if draft else None,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Draft engine — lottery + positional-restriction wheel
+# ---------------------------------------------------------------------------
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _member_for_user(sb, league_id: str, uid: str) -> Optional[dict]:
+    rows = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league_id).eq("user_id", uid).execute().data
+    return rows[0] if rows else None
+
+
+def _drafted_player_ids(sb, league_id: str) -> set:
+    rows = sb.table("fantasy_draft_picks").select("player_id").eq("league_id", league_id).execute().data
+    return {r["player_id"] for r in rows}
+
+
+def _open_slots(sb, member_id: str) -> List[dict]:
+    rows = sb.table("fantasy_roster_slots").select("slot,slot_type,player_id").eq("member_id", member_id).execute().data
+    return [r for r in rows if r["player_id"] is None]
+
+
+def _advance_draft(sb, league: dict) -> dict:
+    """Lottery: pick a random member with open slots, then a random required slot
+    type among the ones they still need. Marks the draft complete when all rosters
+    are full. Returns the updated draft_state row."""
+    league_id = league["id"]
+    members = sb.table("fantasy_members").select("id").eq("league_id", league_id).execute().data
+    eligible = [(m["id"], _open_slots(sb, m["id"])) for m in members]
+    eligible = [(mid, opens) for mid, opens in eligible if opens]
+
+    state = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+
+    if not eligible:
+        sb.table("fantasy_draft_state").update({
+            "status": "complete", "current_member_id": None,
+            "required_slot_type": None, "pick_deadline": None, "updated_at": _now(),
+        }).eq("league_id", league_id).execute()
+        sb.table("fantasy_leagues").update({"status": "active"}).eq("id", league_id).execute()
+        _generate_schedule(sb, league_id)
+        return sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+
+    picker_id, opens = random.choice(eligible)
+    required = random.choice(sorted({s["slot_type"] for s in opens}))
+    pick_number = state["current_pick_number"] + 1
+    round_no = (pick_number - 1) // max(len(members), 1) + 1
+
+    secs = league.get("pick_clock_seconds") or DEFAULT_PICK_SECONDS
+    deadline = (datetime.now(timezone.utc) + timedelta(seconds=secs)).replace(microsecond=0).isoformat()
+    sb.table("fantasy_draft_state").update({
+        "status": "in_progress",
+        "current_pick_number": pick_number,
+        "current_member_id": picker_id,
+        "required_slot_type": required,
+        "round": round_no,
+        "pick_deadline": deadline,
+        "updated_at": _now(),
+    }).eq("league_id", league_id).execute()
+    _notify_on_clock(sb, league, picker_id)
+    return sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+
+
+def _assign_pick(sb, league: dict, member_id: str, player_id: str, required: str) -> None:
+    """Place a player into the member's first open slot of the required type + log it."""
+    slots = sb.table("fantasy_roster_slots").select("id,slot,slot_type,player_id") \
+        .eq("member_id", member_id).eq("slot_type", required).execute().data
+    target = next((s for s in slots if s["player_id"] is None), None)
+    if not target:
+        raise HTTPException(status_code=400, detail=f"No open {required} slot")
+    state = sb.table("fantasy_draft_state").select("current_pick_number").eq("league_id", league["id"]).execute().data[0]
+    sb.table("fantasy_roster_slots").update({"player_id": player_id}).eq("id", target["id"]).execute()
+    sb.table("fantasy_draft_picks").insert([{
+        "league_id": league["id"],
+        "pick_number": state["current_pick_number"],
+        "member_id": member_id,
+        "player_id": player_id,
+        "slot": target["slot"],
+        "slot_type": required,
+    }]).execute()
+
+
+def _eligible_pool(sb, league: dict, required: str) -> List[dict]:
+    rows = sb.table("fantasy_players").select(
+        "id,full_name,team,roster_pos,is_goalie,sweater,headshot"
+    ).eq("active", "true").eq("roster_pos", required).order("full_name").limit(1000).execute().data
+    if league["unique_players"]:
+        taken = _drafted_player_ids(sb, league["id"])
+        rows = [r for r in rows if r["id"] not in taken]
+    return rows
+
+
+def _require_league(sb, league_id: str) -> dict:
+    found = sb.table("fantasy_leagues").select("*").eq("id", league_id).execute().data
+    if not found:
+        raise HTTPException(status_code=404, detail="League not found")
+    return found[0]
+
+
+@router.post("/fantasy/leagues/{league_id}/start-draft")
+def start_draft(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can start the draft")
+    if league["status"] != "open":
+        raise HTTPException(status_code=400, detail="Draft already started")
+    members = sb.table("fantasy_members").select("id,user_id").eq("league_id", league_id).execute().data
+    if len(members) < 2:
+        raise HTTPException(status_code=400, detail="Need at least 2 managers to draft")
+
+    order = list(range(1, len(members) + 1))
+    random.shuffle(order)
+    for m, o in zip(members, order):
+        sb.table("fantasy_members").update({"draft_order": o}).eq("id", m["id"]).execute()
+        sb.table("fantasy_roster_slots").insert([{
+            "league_id": league_id, "member_id": m["id"], "slot": s, "slot_type": st,
+        } for s, st in ROSTER_SLOTS]).execute()
+
+    sb.table("fantasy_leagues").update({"status": "drafting", "draft_started_at": _now()}).eq("id", league_id).execute()
+    sb.table("fantasy_draft_state").update({
+        "total_picks": len(members) * SLOTS_PER_TEAM, "current_pick_number": 0,
+    }).eq("league_id", league_id).execute()
+    _advance_draft(sb, league)
+    _push_users(sb, [m["user_id"] for m in members], "Draft started! 🏒",
+                f"{league['name']} is drafting — watch for your turn to pick.")
+    return get_draft(league_id, authorization)
+
+
+class PickRequest(BaseModel):
+    player_id: str
+
+
+@router.post("/fantasy/leagues/{league_id}/draft/pick")
+def make_pick(league_id: str, req: PickRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    state = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+    if state["status"] != "in_progress":
+        raise HTTPException(status_code=400, detail="Draft is not in progress")
+    me = _member_for_user(sb, league_id, uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not in this league")
+    if state["current_member_id"] != me["id"]:
+        raise HTTPException(status_code=403, detail="It's not your pick")
+
+    required = state["required_slot_type"]
+    player = sb.table("fantasy_players").select("id,roster_pos").eq("id", req.player_id).execute().data
+    if not player or player[0]["roster_pos"] != required:
+        raise HTTPException(status_code=400, detail=f"That player isn't an eligible {required}")
+    if league["unique_players"] and req.player_id in _drafted_player_ids(sb, league_id):
+        raise HTTPException(status_code=400, detail="That player is already drafted")
+
+    _assign_pick(sb, league, me["id"], req.player_id, required)
+    _advance_draft(sb, league)
+    return get_draft(league_id, authorization)
+
+
+@router.post("/fantasy/leagues/{league_id}/draft/autopick")
+def autopick(league_id: str, expected_pick: Optional[int] = None, authorization: Optional[str] = Header(None)):
+    """Auto-pick a random eligible player for whoever is on the clock. Callable by
+    the commissioner, the current picker, or — once the pick clock has expired —
+    any member (so live drafts advance on time). `expected_pick` guards against
+    double-advancing when several clients fire at once."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    state = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+    if state["status"] != "in_progress":
+        raise HTTPException(status_code=400, detail="Draft is not in progress")
+    # Idempotency: if the pick already advanced, no-op (someone else acted first).
+    if expected_pick is not None and state["current_pick_number"] != expected_pick:
+        return get_draft(league_id, authorization)
+    me = _member_for_user(sb, league_id, uid)
+    expired = bool(state.get("pick_deadline")) and state["pick_deadline"] < datetime.now(timezone.utc).isoformat()
+    if not me or not (league["commissioner_id"] == uid or state["current_member_id"] == me["id"] or expired):
+        raise HTTPException(status_code=403, detail="Not allowed to autopick now")
+
+    required = state["required_slot_type"]
+    pool = _eligible_pool(sb, league, required)
+    if not pool:
+        raise HTTPException(status_code=400, detail=f"No available {required}")
+    _assign_pick(sb, league, state["current_member_id"], random.choice(pool)["id"], required)
+    _advance_draft(sb, league)
+    return get_draft(league_id, authorization)
+
+
+@router.get("/fantasy/leagues/{league_id}/draft")
+def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    me = _member_for_user(sb, league_id, uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not in this league")
+    state = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league_id).execute().data
+
+    # Usernames
+    user_ids = [m["user_id"] for m in members]
+    names = {}
+    if user_ids:
+        profs = sb.table("profiles").select("id,username").in_("id", user_ids).execute().data
+        names = {p["id"]: p.get("username") for p in profs}
+
+    # Rosters (slots + drafted player info)
+    slots = sb.table("fantasy_roster_slots").select("member_id,slot,slot_type,player_id").eq("league_id", league_id).execute().data
+    pids = [s["player_id"] for s in slots if s["player_id"]]
+    players_by_id = {}
+    if pids:
+        prows = sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", list(set(pids))).execute().data
+        players_by_id = {p["id"]: p for p in prows}
+
+    rosters = {}
+    for m in members:
+        rosters[m["id"]] = []
+    for s in slots:
+        p = players_by_id.get(s["player_id"]) if s["player_id"] else None
+        rosters.setdefault(s["member_id"], []).append({
+            "slot": s["slot"], "slot_type": s["slot_type"],
+            "player": p,
+        })
+
+    current_id = state.get("current_member_id")
+    current_member = next((m for m in members if m["id"] == current_id), None)
+    available = _eligible_pool(sb, league, state["required_slot_type"]) if state["status"] == "in_progress" else []
+
+    return {
+        "league": _league_summary(sb, league, uid),
+        "state": {
+            "status": state["status"],
+            "pick_number": state["current_pick_number"],
+            "total_picks": state["total_picks"],
+            "round": state["round"],
+            "required_slot_type": state["required_slot_type"],
+            "current_member_id": current_id,
+            "current_team_name": current_member["team_name"] if current_member else None,
+            "current_username": names.get(current_member["user_id"]) if current_member else None,
+            "is_my_pick": current_id == me["id"],
+            "pick_deadline": state.get("pick_deadline"),
+        },
+        "members": [{
+            "id": m["id"], "team_name": m["team_name"], "draft_order": m.get("draft_order"),
+            "username": names.get(m["user_id"]), "is_me": m["user_id"] == uid,
+            "roster": sorted(rosters.get(m["id"], []), key=lambda r: [s for s, _ in ROSTER_SLOTS].index(r["slot"]) if r["slot"] in [s for s, _ in ROSTER_SLOTS] else 99),
+        } for m in members],
+        "available_players": available,
+    }
+
+
+# ---------------------------------------------------------------------------
+# In-season: schedule, scoring, standings
+# ---------------------------------------------------------------------------
+
+def _generate_schedule(sb, league_id: str) -> None:
+    """Round-robin weekly H2H (circle method). Odd groups get a rotating bye
+    (ghost = league median that week). Fills REG_SEASON_WEEKS."""
+    members = sb.table("fantasy_members").select("id").eq("league_id", league_id).execute().data
+    ids: list = [m["id"] for m in members]
+    random.shuffle(ids)
+    if len(ids) % 2 == 1:
+        ids.append(None)  # bye marker
+    n = len(ids)
+    arr = ids[:]
+    rounds: list = []
+    for _ in range(max(n - 1, 1)):
+        pairs = [(arr[i], arr[n - 1 - i]) for i in range(n // 2)]
+        rounds.append(pairs)
+        arr = [arr[0]] + [arr[-1]] + arr[1:-1]  # rotate, fix first
+
+    rows = []
+    for week in range(1, REG_SEASON_WEEKS + 1):
+        for a, b in rounds[(week - 1) % len(rounds)]:
+            if a is None and b is None:
+                continue
+            ghost = a is None or b is None
+            member_a, member_b = (a, b) if a is not None else (b, None)
+            rows.append({
+                "league_id": league_id, "week": week,
+                "member_a": member_a, "member_b": None if ghost else member_b,
+                "is_ghost": ghost,
+            })
+    if rows:
+        for i in range(0, len(rows), 200):
+            sb.table("fantasy_matchups").insert(rows[i:i + 200]).execute()
+
+
+def _score_week(sb, league: dict, week: int, surviving_only: bool = False) -> list:
+    """Score every matchup in a week from the ingested weekly stats. When
+    `surviving_only` (playoffs), players whose NHL team is eliminated score 0."""
+    league_id = league["id"]
+    season = league["season_year"]
+    matchups = sb.table("fantasy_matchups").select("*").eq("league_id", league_id).eq("week", week).execute().data
+    if not matchups:
+        return []
+    if any(m.get("is_playoff") for m in matchups):
+        surviving_only = True
+
+    slots = sb.table("fantasy_roster_slots").select("member_id,slot,slot_type,player_id").eq("league_id", league_id).execute().data
+    skater_ids = list({s["player_id"] for s in slots if s["player_id"] and s["slot_type"] != "G"})
+    goalie_ids = list({s["player_id"] for s in slots if s["player_id"] and s["slot_type"] == "G"})
+
+    goals = {}
+    if skater_ids:
+        for r in sb.table("fantasy_weekly_player_goals").select("player_id,goals").eq("season_year", season).eq("week", week).in_("player_id", skater_ids).execute().data:
+            goals[r["player_id"]] = r["goals"]
+    gstats = {}
+    if goalie_ids:
+        for r in sb.table("fantasy_weekly_goalie_stats").select("player_id,gsax,games_played").eq("season_year", season).eq("week", week).in_("player_id", goalie_ids).execute().data:
+            gstats[r["player_id"]] = (r["gsax"], r["games_played"])
+
+    # Playoffs: zero out players on eliminated NHL teams.
+    dead: set = set()
+    if surviving_only:
+        elim = {r["team"] for r in sb.table("fantasy_eliminated_teams").select("team").eq("season_year", season).execute().data}
+        allpids = skater_ids + goalie_ids
+        if elim and allpids:
+            for p in sb.table("fantasy_players").select("id,team").in_("id", allpids).execute().data:
+                if p["team"] in elim:
+                    dead.add(p["id"])
+
+    slots_by_member = defaultdict(list)
+    for s in slots:
+        slots_by_member[s["member_id"]].append(s)
+
+    raw, gsax = {}, {}
+    for mid, ms in slots_by_member.items():
+        raw[mid] = sum(goals.get(s["player_id"], 0) for s in ms
+                       if s["slot_type"] != "G" and s["player_id"] and s["player_id"] not in dead)
+        starter = next((s["player_id"] for s in ms if s["slot"] == "G_START"), None)
+        backup = next((s["player_id"] for s in ms if s["slot"] == "G_BACKUP"), None)
+        if starter in dead: starter = None
+        if backup in dead: backup = None
+        sg = gstats.get(starter) if starter else None
+        eff = sg[0] if sg and sg[1] > 0 else (gstats.get(backup, (0.0, 0))[0] if backup else 0.0)
+        gsax[mid] = eff
+
+    median_raw = statistics.median(list(raw.values())) if raw else 0.0
+
+    out = []
+    for m in matchups:
+        a, b = m["member_a"], m["member_b"]
+        raw_a = float(raw.get(a, 0))
+        if m["is_ghost"] or not b:
+            score_a, score_b, ba, bb = raw_a, float(median_raw), 1.0, 1.0
+            winner = a if score_a > score_b else None
+        else:
+            raw_b = float(raw.get(b, 0))
+            ga, gb = gsax.get(a, 0.0), gsax.get(b, 0.0)
+            ba = GOALIE_BONUS if ga > gb else (GOALIE_PENALTY if ga < gb else 1.0)
+            bb = GOALIE_BONUS if gb > ga else (GOALIE_PENALTY if gb < ga else 1.0)
+            score_a, score_b = raw_a * ba, raw_b * bb
+            winner = a if score_a > score_b else (b if score_b > score_a else None)
+        out.append({
+            "league_id": league_id, "week": week, "member_a": a, "member_b": b,
+            "score_a": round(score_a, 2), "score_b": round(score_b, 2),
+            "goalie_bonus_a": ba, "goalie_bonus_b": bb,
+            "winner_member_id": winner, "graded": True, "updated_at": _now(),
+        })
+    if out:
+        sb.table("fantasy_weekly_results").upsert(out, on_conflict="league_id,week,member_a").execute()
+    return out
+
+
+@router.post("/fantasy/leagues/{league_id}/score-week/{week}")
+def score_week(league_id: str, week: int, authorization: Optional[str] = Header(None)):
+    """Score a week from already-ingested stats (commissioner / cron)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can score")
+    results = _score_week(sb, league, week)
+    return {"week": week, "results": len(results)}
+
+
+@router.post("/fantasy/leagues/{league_id}/simulate-week/{week}")
+def simulate_week(league_id: str, week: int, authorization: Optional[str] = Header(None)):
+    """OFFSEASON TEST ONLY: generate plausible random weekly stats for every
+    rostered player, then score the week. Lets us verify scoring + standings
+    before real games exist."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can simulate")
+    season = league["season_year"]
+
+    slots = sb.table("fantasy_roster_slots").select("slot_type,player_id").eq("league_id", league_id).execute().data
+    skaters = list({s["player_id"] for s in slots if s["player_id"] and s["slot_type"] != "G"})
+    goalies = list({s["player_id"] for s in slots if s["player_id"] and s["slot_type"] == "G"})
+
+    skater_rows = [{
+        "player_id": pid, "season_year": season, "week": week,
+        "goals": random.choices([0, 1, 2, 3, 4], weights=[40, 32, 18, 8, 2])[0],
+        "games_played": random.randint(2, 4), "updated_at": _now(),
+    } for pid in skaters]
+    goalie_rows = [{
+        "player_id": pid, "season_year": season, "week": week,
+        "gsax": round(random.uniform(-3.0, 4.0), 2),
+        "games_played": random.randint(0, 4), "updated_at": _now(),
+    } for pid in goalies]
+
+    if skater_rows:
+        for i in range(0, len(skater_rows), 200):
+            sb.table("fantasy_weekly_player_goals").upsert(skater_rows[i:i + 200], on_conflict="player_id,season_year,week").execute()
+    if goalie_rows:
+        sb.table("fantasy_weekly_goalie_stats").upsert(goalie_rows, on_conflict="player_id,season_year,week").execute()
+
+    results = _score_week(sb, league, week)
+    return {"week": week, "simulated_players": len(skaters) + len(goalies), "results": len(results)}
+
+
+@router.get("/fantasy/leagues/{league_id}/season")
+def season(league_id: str, authorization: Optional[str] = Header(None)):
+    """Everything the in-season screen needs: standings, my roster, schedule."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league_id).execute().data
+    me = next((m for m in members if m["user_id"] == uid), None)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not a member of this league")
+
+    names = {}
+    profs = sb.table("profiles").select("id,username").in_("id", [m["user_id"] for m in members]).execute().data
+    names = {p["id"]: p.get("username") for p in profs}
+    team_of = {m["id"]: m["team_name"] for m in members}
+
+    results = sb.table("fantasy_weekly_results").select("*").eq("league_id", league_id).eq("graded", True).execute().data
+
+    # Standings
+    rec = {m["id"]: {"wins": 0, "losses": 0, "ties": 0, "pf": 0.0} for m in members}
+    for r in results:
+        a, b, w = r["member_a"], r["member_b"], r["winner_member_id"]
+        rec[a]["pf"] += r["score_a"]
+        if b and b in rec:
+            rec[b]["pf"] += r["score_b"]
+        if w is None:
+            rec[a]["ties"] += 1
+            if b and b in rec: rec[b]["ties"] += 1
+        else:
+            for mid in (a, b):
+                if mid and mid in rec:
+                    if mid == w: rec[mid]["wins"] += 1
+                    else: rec[mid]["losses"] += 1
+    standings = sorted([{
+        "member_id": m["id"], "team_name": m["team_name"], "username": names.get(m["user_id"]),
+        "is_me": m["id"] == me["id"], **rec[m["id"]], "pf": round(rec[m["id"]]["pf"], 1),
+    } for m in members], key=lambda x: (-x["wins"], -x["pf"]))
+
+    # My roster
+    my_slots = sb.table("fantasy_roster_slots").select("slot,slot_type,player_id").eq("league_id", league_id).eq("member_id", me["id"]).execute().data
+    pids = [s["player_id"] for s in my_slots if s["player_id"]]
+    pmap = {}
+    if pids:
+        for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", pids).execute().data:
+            pmap[p["id"]] = p
+    order = [s for s, _ in ROSTER_SLOTS]
+    my_roster = sorted([{
+        "slot": s["slot"], "slot_type": s["slot_type"], "player": pmap.get(s["player_id"]) if s["player_id"] else None,
+    } for s in my_slots], key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
+
+    # Schedule (results overlaid)
+    matchups = sb.table("fantasy_matchups").select("*").eq("league_id", league_id).order("week").execute().data
+    res_by_key = {(r["week"], r["member_a"]): r for r in results}
+    schedule = []
+    for mch in matchups:
+        r = res_by_key.get((mch["week"], mch["member_a"]))
+        schedule.append({
+            "week": mch["week"], "member_a": mch["member_a"], "member_b": mch["member_b"],
+            "a_team": team_of.get(mch["member_a"]), "b_team": team_of.get(mch["member_b"]) if mch["member_b"] else "League median",
+            "is_ghost": mch["is_ghost"],
+            "score_a": r["score_a"] if r else None, "score_b": r["score_b"] if r else None,
+            "winner_member_id": r["winner_member_id"] if r else None,
+            "graded": bool(r),
+            "involves_me": me["id"] in (mch["member_a"], mch["member_b"]),
+        })
+    graded_weeks = [s["week"] for s in schedule if s["graded"]]
+    current_week = (max(graded_weeks) + 1) if graded_weeks else 1
+
+    return {
+        "league": _league_summary(sb, league, uid),
+        "current_week": current_week,
+        "my_member_id": me["id"],
+        "standings": standings,
+        "my_roster": my_roster,
+        "schedule": schedule,
+    }
+
+
+# ---------------------------------------------------------------------------
+# G5a: Trades (private leagues only)
+# ---------------------------------------------------------------------------
+
+def _current_week(sb, league_id: str) -> int:
+    weeks = [r["week"] for r in sb.table("fantasy_weekly_results").select("week").eq("league_id", league_id).eq("graded", True).execute().data]
+    return (max(weeks) + 1) if weeks else 1
+
+
+class ProposeTradeRequest(BaseModel):
+    to_member_id: str
+    my_player_id: str
+    their_player_id: str
+
+
+@router.post("/fantasy/leagues/{league_id}/trades")
+def propose_trade(league_id: str, req: ProposeTradeRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if not (league["unique_players"] and league["trade_deadline_enabled"]):
+        raise HTTPException(status_code=400, detail="Trades are only available in private leagues")
+    if league["status"] != "active":
+        raise HTTPException(status_code=400, detail="Trades open during the regular season")
+    if _current_week(sb, league_id) > TRADE_DEADLINE_WEEK:
+        raise HTTPException(status_code=400, detail=f"The trade deadline (week {TRADE_DEADLINE_WEEK}) has passed")
+    me = _member_for_user(sb, league_id, uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not in this league")
+
+    mine = sb.table("fantasy_roster_slots").select("slot_type,player_id").eq("member_id", me["id"]).eq("player_id", req.my_player_id).execute().data
+    theirs = sb.table("fantasy_roster_slots").select("slot_type,player_id").eq("member_id", req.to_member_id).eq("player_id", req.their_player_id).execute().data
+    if not mine or not theirs:
+        raise HTTPException(status_code=400, detail="Both players must be on the respective rosters")
+    if mine[0]["slot_type"] != theirs[0]["slot_type"]:
+        raise HTTPException(status_code=400, detail="You can only trade players of the same position")
+
+    trade = sb.table("fantasy_trades").insert([{
+        "league_id": league_id, "proposer_member": me["id"], "receiver_member": req.to_member_id,
+        "proposer_player_id": req.my_player_id, "receiver_player_id": req.their_player_id,
+        "slot_type": mine[0]["slot_type"], "status": "pending",
+    }]).data[0]
+    return {"trade_id": trade["id"], "status": "pending"}
+
+
+class RespondTradeRequest(BaseModel):
+    accept: bool
+
+
+@router.post("/fantasy/leagues/{league_id}/trades/{trade_id}/respond")
+def respond_trade(league_id: str, trade_id: str, req: RespondTradeRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("fantasy_trades").select("*").eq("id", trade_id).eq("league_id", league_id).execute().data
+    if not rows:
+        raise HTTPException(status_code=404, detail="Trade not found")
+    trade = rows[0]
+    me = _member_for_user(sb, league_id, uid)
+    if not me or trade["receiver_member"] != me["id"]:
+        raise HTTPException(status_code=403, detail="Only the receiving manager can respond")
+    if trade["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Trade already resolved")
+
+    if req.accept:
+        # Swap the two players within their (same-type) slots.
+        my_slot = sb.table("fantasy_roster_slots").select("id").eq("member_id", trade["proposer_member"]).eq("player_id", trade["proposer_player_id"]).execute().data
+        their_slot = sb.table("fantasy_roster_slots").select("id").eq("member_id", trade["receiver_member"]).eq("player_id", trade["receiver_player_id"]).execute().data
+        if not my_slot or not their_slot:
+            raise HTTPException(status_code=400, detail="Rosters changed; trade no longer valid")
+        sb.table("fantasy_roster_slots").update({"player_id": trade["receiver_player_id"]}).eq("id", my_slot[0]["id"]).execute()
+        sb.table("fantasy_roster_slots").update({"player_id": trade["proposer_player_id"]}).eq("id", their_slot[0]["id"]).execute()
+
+    sb.table("fantasy_trades").update({
+        "status": "accepted" if req.accept else "rejected", "resolved_at": _now(),
+    }).eq("id", trade_id).execute()
+    return {"status": "accepted" if req.accept else "rejected"}
+
+
+@router.get("/fantasy/leagues/{league_id}/trades")
+def list_trades(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    _require_league(sb, league_id)
+    me = _member_for_user(sb, league_id, uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not in this league")
+    trades = sb.table("fantasy_trades").select("*").eq("league_id", league_id).order("created_at", desc=True).execute().data
+    trades = [t for t in trades if me["id"] in (t["proposer_member"], t["receiver_member"])]
+    pids = list({t["proposer_player_id"] for t in trades} | {t["receiver_player_id"] for t in trades})
+    pmap = {}
+    if pids:
+        for p in sb.table("fantasy_players").select("id,full_name,team").in_("id", pids).execute().data:
+            pmap[p["id"]] = p
+    mids = list({t["proposer_member"] for t in trades} | {t["receiver_member"] for t in trades})
+    tmap = {}
+    if mids:
+        for m in sb.table("fantasy_members").select("id,team_name").in_("id", mids).execute().data:
+            tmap[m["id"]] = m["team_name"]
+    return {"trades": [{
+        "id": t["id"], "status": t["status"], "slot_type": t["slot_type"],
+        "incoming": t["receiver_member"] == me["id"] and t["status"] == "pending",
+        "proposer_team": tmap.get(t["proposer_member"]), "receiver_team": tmap.get(t["receiver_member"]),
+        "proposer_player": pmap.get(t["proposer_player_id"]), "receiver_player": pmap.get(t["receiver_player_id"]),
+    } for t in trades]}
+
+
+# ---------------------------------------------------------------------------
+# G5b: Playoffs
+# ---------------------------------------------------------------------------
+
+def _standings_order(sb, league_id: str) -> list:
+    members = sb.table("fantasy_members").select("id").eq("league_id", league_id).execute().data
+    rec = {m["id"]: {"wins": 0, "pf": 0.0} for m in members}
+    for r in sb.table("fantasy_weekly_results").select("*").eq("league_id", league_id).eq("graded", True).execute().data:
+        a, b, w = r["member_a"], r["member_b"], r["winner_member_id"]
+        if a in rec: rec[a]["pf"] += r["score_a"]
+        if b and b in rec: rec[b]["pf"] += r["score_b"]
+        if w and w in rec: rec[w]["wins"] += 1
+    return [m["id"] for m in sorted(members, key=lambda m: (-rec[m["id"]]["wins"], -rec[m["id"]]["pf"]))]
+
+
+@router.post("/fantasy/leagues/{league_id}/eliminate-team/{season}/{team}")
+def eliminate_team(league_id: str, season: int, team: str, authorization: Optional[str] = Header(None)):
+    """Mark an NHL team eliminated (drives surviving-players playoff scoring). Test/cron."""
+    sb = _sb()
+    sb.table("fantasy_eliminated_teams").upsert([{"season_year": season, "team": team.upper()}], on_conflict="season_year,team").execute()
+    return {"eliminated": team.upper()}
+
+
+@router.post("/fantasy/leagues/{league_id}/start-playoffs")
+def start_playoffs(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can start playoffs")
+    if league["status"] not in ("active", "playoffs"):
+        raise HTTPException(status_code=400, detail="Finish the regular season first")
+
+    order = _standings_order(sb, league_id)
+    size = 4 if len(order) >= 4 else 2
+    seeds = order[:size]
+    pw = REG_SEASON_WEEKS + 1
+    pairs = [(seeds[0], seeds[3]), (seeds[1], seeds[2])] if size == 4 else [(seeds[0], seeds[1])]
+    rows = [{"league_id": league_id, "week": pw, "member_a": a, "member_b": b, "is_ghost": False, "is_playoff": True} for a, b in pairs]
+    sb.table("fantasy_matchups").insert(rows).execute()
+    sb.table("fantasy_leagues").update({"status": "playoffs"}).eq("id", league_id).execute()
+    return {"status": "playoffs", "round_week": pw, "seeds": size}
+
+
+@router.post("/fantasy/leagues/{league_id}/advance-playoffs")
+def advance_playoffs(league_id: str, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can advance playoffs")
+    pmatches = sb.table("fantasy_matchups").select("*").eq("league_id", league_id).eq("is_playoff", True).order("week").execute().data
+    if not pmatches:
+        raise HTTPException(status_code=400, detail="Playoffs haven't started")
+    last_week = max(m["week"] for m in pmatches)
+    results = {(r["member_a"]): r for r in sb.table("fantasy_weekly_results").select("*").eq("league_id", league_id).eq("week", last_week).eq("graded", True).execute().data}
+    round_matches = [m for m in pmatches if m["week"] == last_week]
+    if any(m["member_a"] not in results for m in round_matches):
+        raise HTTPException(status_code=400, detail="Score this playoff round first")
+
+    winners = [results[m["member_a"]]["winner_member_id"] or m["member_a"] for m in round_matches]
+    if len(winners) <= 1:
+        sb.table("fantasy_leagues").update({"status": "complete"}).eq("id", league_id).execute()
+        return {"status": "complete", "champion_member_id": winners[0] if winners else None}
+
+    nw = last_week + 1
+    pairs = [(winners[i], winners[i + 1]) for i in range(0, len(winners) - 1, 2)]
+    rows = [{"league_id": league_id, "week": nw, "member_a": a, "member_b": b, "is_ghost": False, "is_playoff": True} for a, b in pairs]
+    sb.table("fantasy_matchups").insert(rows).execute()
+    return {"status": "playoffs", "round_week": nw, "matchups": len(rows)}
+
+
+# ---------------------------------------------------------------------------
+# G5c: Global league (open, duplicate players, cumulative leaderboard)
+# ---------------------------------------------------------------------------
+
+def _get_or_create_global(sb, season: int, creator_uid: str) -> dict:
+    found = sb.table("fantasy_leagues").select("*").eq("league_type", "global").eq("season_year", season).execute().data
+    if found:
+        return found[0]
+    return sb.table("fantasy_leagues").insert([{
+        "name": "HockeyQuant Global", "commissioner_id": creator_uid, "league_type": "global",
+        "status": "active", "max_members": 100000, "unique_players": False,
+        "trade_deadline_enabled": False, "invite_code": f"GLOBAL{season}", "season_year": season,
+    }]).data[0]
+
+
+@router.get("/fantasy/global")
+def global_league(authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    season = current_season_year()
+    league = _get_or_create_global(sb, season, uid)
+    me = _member_for_user(sb, league["id"], uid)
+    roster = []
+    if me:
+        slots = sb.table("fantasy_roster_slots").select("slot,slot_type,player_id").eq("member_id", me["id"]).execute().data
+        pids = [s["player_id"] for s in slots if s["player_id"]]
+        pmap = {}
+        if pids:
+            for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", pids).execute().data:
+                pmap[p["id"]] = p
+        order = [s for s, _ in ROSTER_SLOTS]
+        roster = sorted([{"slot": s["slot"], "slot_type": s["slot_type"], "player": pmap.get(s["player_id"]) if s["player_id"] else None} for s in slots],
+                        key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
+    return {"league": _league_summary(sb, league, uid), "joined": me is not None, "my_roster": roster}
+
+
+@router.post("/fantasy/global/join")
+def global_join(req: JoinLeagueRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _get_or_create_global(sb, current_season_year(), uid)
+    if _member_for_user(sb, league["id"], uid):
+        return _league_summary(sb, league, uid)
+    member = sb.table("fantasy_members").insert([{"league_id": league["id"], "user_id": uid, "team_name": req.team_name}]).data[0]
+    sb.table("fantasy_roster_slots").insert([{
+        "league_id": league["id"], "member_id": member["id"], "slot": s, "slot_type": st,
+    } for s, st in ROSTER_SLOTS]).execute()
+    return _league_summary(sb, league, uid)
+
+
+class SetSlotRequest(BaseModel):
+    slot: str
+    player_id: str
+
+
+@router.post("/fantasy/global/roster")
+def global_set_slot(req: SetSlotRequest, authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _get_or_create_global(sb, current_season_year(), uid)
+    me = _member_for_user(sb, league["id"], uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="Join the global league first")
+    slot_type = next((st for s, st in ROSTER_SLOTS if s == req.slot), None)
+    if not slot_type:
+        raise HTTPException(status_code=400, detail="Invalid slot")
+    player = sb.table("fantasy_players").select("id,roster_pos").eq("id", req.player_id).execute().data
+    if not player or player[0]["roster_pos"] != slot_type:
+        raise HTTPException(status_code=400, detail=f"That player isn't an eligible {slot_type}")
+    sb.table("fantasy_roster_slots").update({"player_id": req.player_id}).eq("member_id", me["id"]).eq("slot", req.slot).execute()
+    return {"slot": req.slot, "player_id": req.player_id}
+
+
+@router.get("/fantasy/global/leaderboard")
+def global_leaderboard(authorization: Optional[str] = Header(None)):
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    season = current_season_year()
+    league = _get_or_create_global(sb, season, uid)
+    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league["id"]).execute().data
+    if not members:
+        return {"leaderboard": []}
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", [m["user_id"] for m in members]).execute().data}
+    slots = sb.table("fantasy_roster_slots").select("member_id,slot,player_id").eq("league_id", league["id"]).execute().data
+
+    skater_ids = list({s["player_id"] for s in slots if s["player_id"] and not s["slot"].startswith("G_")})
+    starter_ids = list({s["player_id"] for s in slots if s["player_id"] and s["slot"] == "G_START"})
+    goals_by_pid: dict = defaultdict(int)
+    if skater_ids:
+        for r in sb.table("fantasy_weekly_player_goals").select("player_id,goals").eq("season_year", season).in_("player_id", skater_ids).execute().data:
+            goals_by_pid[r["player_id"]] += r["goals"]
+    gsax_by_pid: dict = defaultdict(float)
+    if starter_ids:
+        for r in sb.table("fantasy_weekly_goalie_stats").select("player_id,gsax").eq("season_year", season).in_("player_id", starter_ids).execute().data:
+            gsax_by_pid[r["player_id"]] += r["gsax"]
+
+    by_member = defaultdict(list)
+    for s in slots:
+        by_member[s["member_id"]].append(s)
+    board = []
+    for m in members:
+        ms = by_member.get(m["id"], [])
+        goals = sum(goals_by_pid.get(s["player_id"], 0) for s in ms if s["player_id"] and not s["slot"].startswith("G_"))
+        gsax = sum(gsax_by_pid.get(s["player_id"], 0.0) for s in ms if s["slot"] == "G_START" and s["player_id"])
+        board.append({"member_id": m["id"], "team_name": m["team_name"], "username": names.get(m["user_id"]),
+                      "is_me": m["user_id"] == uid, "goals": goals, "points": round(goals + gsax, 1)})
+    board.sort(key=lambda x: -x["points"])
+    return {"leaderboard": board}
+
+
+@router.get("/fantasy/leagues/{league_id}/rosters")
+def all_rosters(league_id: str, authorization: Optional[str] = Header(None)):
+    """Every manager's roster (for the trade UI). Members only."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    _require_league(sb, league_id)
+    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league_id).execute().data
+    if not any(m["user_id"] == uid for m in members):
+        raise HTTPException(status_code=403, detail="You are not in this league")
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", [m["user_id"] for m in members]).execute().data}
+    slots = sb.table("fantasy_roster_slots").select("member_id,slot,slot_type,player_id").eq("league_id", league_id).execute().data
+    pids = [s["player_id"] for s in slots if s["player_id"]]
+    pmap = {}
+    if pids:
+        for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", list(set(pids))).execute().data:
+            pmap[p["id"]] = p
+    order = [s for s, _ in ROSTER_SLOTS]
+    out = []
+    for m in members:
+        ms = [s for s in slots if s["member_id"] == m["id"]]
+        roster = sorted([{"slot": s["slot"], "slot_type": s["slot_type"], "player": pmap.get(s["player_id"]) if s["player_id"] else None} for s in ms],
+                        key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
+        out.append({"id": m["id"], "team_name": m["team_name"], "username": names.get(m["user_id"]),
+                    "is_me": m["user_id"] == uid, "roster": roster})
+    return {"rosters": out}
+
+
+# ---------------------------------------------------------------------------
+# Push device tokens + async-draft auto-pick tick
+# ---------------------------------------------------------------------------
+
+class DeviceTokenRequest(BaseModel):
+    token: str
+    platform: str = "ios"
+
+
+@router.post("/me/device-token")
+def register_device_token(req: DeviceTokenRequest, authorization: Optional[str] = Header(None)):
+    """Register/refresh this device's APNs token for the signed-in user."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    sb.table("device_tokens").upsert(
+        [{"user_id": uid, "token": req.token, "platform": req.platform, "updated_at": _now()}],
+        on_conflict="token",
+    ).execute()
+    return {"ok": True}
+
+
+@router.post("/fantasy/drafts/tick")
+def drafts_tick():
+    """Cron: auto-pick for any in-progress draft whose current pick clock expired,
+    then advance (which notifies + re-arms the clock for the next manager)."""
+    sb = _sb()
+    now_iso = datetime.now(timezone.utc).isoformat()
+    states = sb.table("fantasy_draft_state").select("league_id,status,current_member_id,required_slot_type,pick_deadline").eq("status", "in_progress").execute().data
+    acted = 0
+    for st in states:
+        dl = st.get("pick_deadline")
+        if not (dl and st.get("current_member_id") and dl < now_iso):
+            continue
+        league = _require_league(sb, st["league_id"])
+        pool = _eligible_pool(sb, league, st["required_slot_type"])
+        if pool:
+            _assign_pick(sb, league, st["current_member_id"], random.choice(pool)["id"], st["required_slot_type"])
+            _advance_draft(sb, league)
+            acted += 1
+    return {"auto_picked": acted}
