@@ -8,6 +8,7 @@ import json
 from typing import List, Dict, Optional
 
 from services.llm import groq_chat
+from services.news_sources import resolve_image
 from services.constants import TEAM_FULL_NAMES
 
 MODEL = "llama-3.3-70b-versatile"
@@ -24,8 +25,10 @@ SYSTEM = (
     f"- tag: exactly one of {', '.join(TAGS)}.\n"
     "- Skip duplicates, non-NHL noise, and pure opinion/clickbait.\n"
     "- Order items by importance.\n"
-    'Return ONLY JSON: {"intro": "<1-2 sentence overview>", "items": '
-    '[{"idx": <int>, "headline": "<short headline>", "blurb": "<1-2 sentences>", "tag": "<tag>"}]}'
+    "- key_points: 3-5 short, punchy one-line takeaways of what matters most today.\n"
+    'Return ONLY JSON: {"intro": "<1-2 sentence overview>", '
+    '"key_points": ["<takeaway>", ...], '
+    '"items": [{"idx": <int>, "headline": "<short headline>", "blurb": "<1-2 sentences>", "tag": "<tag>"}]}'
 )
 
 
@@ -91,12 +94,56 @@ def build_digest(items: List[Dict], scope: str, kind: str, max_items: int = 8) -
             "source": src.get("source", "?"),
             "url": src["url"],
             "published_at": str(src["published_at"]) if src.get("published_at") is not None else None,
+            "image_url": resolve_image(src),
         })
 
     if not out_items:
         return None
+    key_points = [str(k)[:160] for k in (data.get("key_points") or []) if k][:5]
     return {
         "title": _title(scope, kind),
         "intro": (data.get("intro") or "")[:500],
+        "key_points": key_points,
         "items": out_items,
     }
+
+
+def answer_query(query: str, items: List[Dict], max_sources: int = 6) -> Dict:
+    """AI answer to a user question from live news items. Cites items by index;
+    links are reconstructed from the real items (no hallucination)."""
+    if not items:
+        return {"answer": "I couldn't find recent news on that.", "items": []}
+    numbered = "\n".join(
+        f"[{i}] {it['title']} (source: {it.get('source', '?')})"
+        f"{' — ' + it['snippet'] if it.get('snippet') else ''}"
+        for i, it in enumerate(items)
+    )
+    system = (
+        "You are an NHL news assistant. Answer the user's question using ONLY the provided "
+        "news items. Be direct and factual; if the items don't answer it, say so plainly. "
+        "Cite the supporting items by their index.\n"
+        'Return ONLY JSON: {"answer": "<2-4 sentences>", "sources": [<idx>, ...]}'
+    )
+    try:
+        raw = groq_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": f"Question: {query}\n\nItems:\n{numbered}"}],
+            model=MODEL, max_tokens=600, temperature=0.3, response_json=True,
+        )
+        data = json.loads(raw)
+    except Exception:
+        return {"answer": "", "items": []}
+    src = []
+    for idx in (data.get("sources") or [])[:max_sources]:
+        try:
+            i = int(idx)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= i < len(items):
+            it = items[i]
+            src.append({
+                "headline": it["title"][:200], "blurb": "", "tag": "News",
+                "source": it.get("source", "?"), "url": it["url"],
+                "published_at": str(it["published_at"]) if it.get("published_at") is not None else None,
+                "image_url": it.get("image"),
+            })
+    return {"answer": (data.get("answer") or "")[:800], "items": src}

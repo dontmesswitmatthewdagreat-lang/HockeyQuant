@@ -6,6 +6,7 @@ and post-game digests for teams playing that date (within their windows).
 Stores AI summaries + source links only (no full article text).
 """
 
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 
@@ -13,8 +14,8 @@ import requests
 from fastapi import APIRouter, HTTPException
 
 from services.supabase_client import get_supabase
-from services.news_sources import fetch_league_items, fetch_team_items
-from services.news_digester import build_digest, MODEL
+from services.news_sources import fetch_league_items, fetch_team_items, _google_news
+from services.news_digester import build_digest, answer_query, MODEL
 from services.push import apns_send, push_users
 from services.constants import TEAM_FULL_NAMES
 
@@ -65,7 +66,8 @@ def _exists(sb, date_str: str, kind: str, scope: str) -> bool:
 def _store(sb, date_str: str, kind: str, scope: str, digest: dict) -> None:
     sb.table("news_digests").upsert([{
         "digest_date": date_str, "kind": kind, "scope": scope,
-        "title": digest["title"], "intro": digest["intro"], "items": digest["items"],
+        "title": digest["title"], "intro": digest["intro"],
+        "key_points": digest.get("key_points", []), "items": digest["items"],
         "model": MODEL, "created_at": _now(),
     }], on_conflict="digest_date,kind,scope").execute()
 
@@ -122,3 +124,29 @@ def latest(team: Optional[str] = None):
         digests += sb.table("news_digests").select("*").eq("scope", team) \
             .order("created_at", desc=True).limit(4).execute().data
     return {"digests": digests}
+
+
+@router.get("/news/search")
+def search(q: str):
+    """AI answer from live news for `q` + matching items from past digests."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        raise HTTPException(status_code=400, detail="Query too short")
+    sb = _sb()
+    live = _google_news(q, "Google News", None, limit=15)
+    ans = answer_query(q, live)
+
+    terms = [t for t in re.split(r"\W+", q.lower()) if len(t) > 2]
+    past, seen = [], set()
+    if terms:
+        rows = sb.table("news_digests").select("items").order("created_at", desc=True).limit(30).execute().data
+        for r in rows:
+            for it in (r.get("items") or []):
+                text = f"{it.get('headline', '')} {it.get('blurb', '')}".lower()
+                url = it.get("url")
+                if url and url not in seen and any(t in text for t in terms):
+                    seen.add(url)
+                    past.append(it)
+            if len(past) >= 8:
+                break
+    return {"answer": ans["answer"], "sources": ans["items"], "past_matches": past[:8]}

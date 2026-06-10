@@ -43,6 +43,8 @@ REDDIT_SUBS = {
 }
 
 _HTML = re.compile(r"<[^>]+>")
+_OG = re.compile(r'<meta[^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\'][^>]+content=["\']([^"\']+)["\']', re.I)
+_OG2 = re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+(?:property|name)=["\'](?:og:image|twitter:image)["\']', re.I)
 
 
 def _clean(text: Optional[str], limit: int = 280) -> str:
@@ -58,6 +60,19 @@ def _norm_url(url: str) -> str:
         return ""
     u = url.split("?")[0].rstrip("/")
     return u.lower()
+
+
+def _entry_image(e) -> Optional[str]:
+    """Best image directly available in an RSS entry, if any."""
+    for key in ("media_thumbnail", "media_content"):
+        for m in (e.get(key) or []):
+            if m.get("url"):
+                return m["url"]
+    for l in (e.get("links") or []):
+        if "image" in (l.get("type") or "") and l.get("href"):
+            return l["href"]
+    m = re.search(r'<img[^>]+src="([^"]+)"', e.get("summary", "") or "")
+    return m.group(1) if m else None
 
 
 def _rss_items(source: str, url: str, team: Optional[str] = None, limit: int = 15) -> List[Dict]:
@@ -83,6 +98,7 @@ def _rss_items(source: str, url: str, team: Optional[str] = None, limit: int = 1
             "url": link,
             "published_at": getattr(e, "published", None) or getattr(e, "updated", None),
             "team": team,
+            "image": _entry_image(e),
         })
     return out
 
@@ -121,6 +137,8 @@ def _reddit(subreddit: str, team: Optional[str], limit: int = 12) -> List[Dict]:
         ext = d.get("url_overridden_by_dest") or d.get("url", "")
         permalink = "https://www.reddit.com" + d.get("permalink", "")
         link = ext if (ext and not d.get("is_self")) else permalink
+        pv = (((d.get("preview") or {}).get("images") or [{}])[0].get("source") or {}).get("url")
+        th = d.get("thumbnail") or ""
         out.append({
             "source": f"r/{subreddit}",
             "title": title,
@@ -129,8 +147,34 @@ def _reddit(subreddit: str, team: Optional[str], limit: int = 12) -> List[Dict]:
             "published_at": d.get("created_utc"),
             "team": team,
             "score": d.get("score", 0),
+            "image": pv or (th if th.startswith("http") else None),
         })
     return out
+
+
+def _og_image(url: str) -> Optional[str]:
+    """Fetch a page and extract its og:image / twitter:image."""
+    try:
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=8, allow_redirects=True)
+        if not r.ok:
+            return None
+        html = r.text[:200_000]
+        m = _OG.search(html) or _OG2.search(html)
+        if m:
+            img = m.group(1).replace("&amp;", "&")
+            return img if img.startswith("http") else None
+    except Exception:
+        return None
+    return None
+
+
+def resolve_image(item: Dict) -> Optional[str]:
+    """A header image for a news item: feed-provided, else the article's og:image."""
+    if item.get("image"):
+        return item["image"]
+    if item.get("url"):
+        return _og_image(item["url"])
+    return None
 
 
 def _dedupe(items: List[Dict]) -> List[Dict]:
