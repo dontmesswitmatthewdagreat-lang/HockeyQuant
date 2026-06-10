@@ -177,14 +177,28 @@ def resolve_image(item: Dict) -> Optional[str]:
     return None
 
 
+def _is_yahoo(it: Dict) -> bool:
+    return "yahoo" in (it.get("source", "") or "").lower() or "yimg" in (it.get("image", "") or "")
+
+
 def _dedupe(items: List[Dict]) -> List[Dict]:
-    seen_url, seen_title, out = set(), set(), []
+    seen_url, by_title, out = set(), {}, []
     for it in items:
         nu = _norm_url(it["url"])
-        nt = re.sub(r"[^a-z0-9 ]", "", it["title"].lower())[:80]
-        if nu in seen_url or nt in seen_title:
+        if nu in seen_url:
             continue
-        seen_url.add(nu); seen_title.add(nt)
+        nt = re.sub(r"[^a-z0-9 ]", "", it["title"].lower())[:80]
+        if nt in by_title:
+            # Same story already kept — prefer a non-Yahoo source (Yahoo's og:image
+            # is sometimes a generic banner; CBS/ESPN/NHL give real article photos).
+            i = by_title[nt]
+            if _is_yahoo(out[i]) and not _is_yahoo(it):
+                seen_url.discard(_norm_url(out[i]["url"]))
+                seen_url.add(nu)
+                out[i] = it
+            continue
+        seen_url.add(nu)
+        by_title[nt] = len(out)
         out.append(it)
     return out
 

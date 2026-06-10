@@ -64,9 +64,11 @@ async def generate_summary(req: SummaryRequest):
         f"injuries: {req.away.injuries} | H2H: {req.away.h2h}\n"
         f"{req.home.team}: {req.home.streak} | fatigue: {req.home.fatigue} | "
         f"injuries: {req.home.injuries} | H2H: {req.home.h2h}\n"
-        f"Goalies: {req.away.goalie} (GSAX {req.away.goalie_gsax:+.2f}, "
-        f"SV% {req.away.goalie_sv_pct:.3f}) vs {req.home.goalie} "
+        f"{req.away.team} starting goalie: {req.away.goalie} "
+        f"(GSAX {req.away.goalie_gsax:+.2f}, SV% {req.away.goalie_sv_pct:.3f})\n"
+        f"{req.home.team} starting goalie: {req.home.goalie} "
         f"(GSAX {req.home.goalie_gsax:+.2f}, SV% {req.home.goalie_sv_pct:.3f})\n\n"
+        f"Attribute each goalie ONLY to the team it is listed under above — do not guess or swap them. "
         f"Be direct and data-focused. Write as a single paragraph. No buzzwords."
     )
 

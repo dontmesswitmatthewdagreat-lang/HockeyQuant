@@ -39,12 +39,14 @@ class NHLAnalyzer:
         self._standings_cache = None
         self._schedule_cache = {}
         self._team_schedule_cache = {}
+        self._recent_starter_cache = {}
 
     def clear_runtime_caches(self):
         """Clear caches for a fresh analysis run"""
         self._standings_cache = None
         self._schedule_cache = {}
         self._team_schedule_cache = {}
+        self._recent_starter_cache = {}
 
     def get_team_stats(self, team_abbrev: str) -> Optional[Dict]:
         """Get team standings/stats from NHL API"""
@@ -526,8 +528,73 @@ class NHLAnalyzer:
                 return True
         return False
 
+    def get_recent_starter(self, team_abbrev: str) -> Optional[str]:
+        """
+        The goalie who started the team's most recent completed game, from the
+        NHL API boxscore. This is the most reliable "current starter" signal and
+        works year-round (incl. playoffs/offseason), unlike season games-played.
+        Returns the NHL display name (e.g. "C. Hart") or None.
+        """
+        if team_abbrev in self._recent_starter_cache:
+            return self._recent_starter_cache[team_abbrev]
+
+        starter = None
+        try:
+            if team_abbrev not in self._team_schedule_cache:
+                url = f"{self.base_url}/club-schedule-season/{team_abbrev}/now"
+                resp = requests.get(url, timeout=10)
+                self._team_schedule_cache[team_abbrev] = resp.json().get('games', [])
+
+            finals = [g for g in self._team_schedule_cache[team_abbrev]
+                      if g.get('gameState') in ('OFF', 'FINAL')]
+            finals.sort(key=lambda g: g.get('gameDate', ''))
+            if finals:
+                gid = finals[-1].get('id')
+                box = requests.get(f"{self.base_url}/gamecenter/{gid}/boxscore", timeout=10).json()
+                side = 'homeTeam' if box.get('homeTeam', {}).get('abbrev') == team_abbrev else 'awayTeam'
+                goalies = box.get('playerByGameStats', {}).get(side, {}).get('goalies', [])
+
+                def _toi_secs(t):
+                    try:
+                        m, s = str(t).split(':'); return int(m) * 60 + int(s)
+                    except Exception:
+                        return 0
+
+                chosen = next((g for g in goalies if g.get('starter')), None)
+                if chosen is None and goalies:
+                    chosen = max(goalies, key=lambda g: _toi_secs(g.get('toi', '0:00')))
+                if chosen:
+                    nm = chosen.get('name')
+                    starter = nm.get('default') if isinstance(nm, dict) else nm
+        except Exception:
+            starter = None
+
+        self._recent_starter_cache[team_abbrev] = starter
+        return starter
+
+    def _match_team_goalie(self, team_goalies, nhl_name: str):
+        """Match an NHL display name ("C. Hart") to a MoneyPuck row by last name (+ initial)."""
+        parts = nhl_name.replace('.', '').split()
+        if not parts:
+            return None
+        last = parts[-1].lower()
+        initial = parts[0][0].lower() if parts[0] else ''
+        best = None
+        for _, g in team_goalies.iterrows():
+            tokens = str(g['name']).lower().split()
+            if tokens and tokens[-1] == last:
+                if tokens[0][:1] == initial:
+                    return g  # exact last name + initial
+                best = best if best is not None else g
+        if best is not None:
+            return best
+        for _, g in team_goalies.iterrows():  # loose last-name substring
+            if last in str(g['name']).lower():
+                return g
+        return None
+
     def get_starting_goalie(self, team_abbrev: str) -> Optional[Dict]:
-        """Get starting goalie - confirmed from Daily Faceoff, or GP-based fallback"""
+        """Get starting goalie - NHL recent starter, then Daily Faceoff, then GP fallback."""
         goalie_data = self.data_loader.goalie_data
         if goalie_data is None:
             return None
@@ -536,7 +603,14 @@ class NHLAnalyzer:
         if team_goalies.empty:
             return None
 
-        # 1. Check for confirmed starter from Daily Faceoff
+        # 1. Actual starter from the team's most recent completed game (NHL API).
+        recent_name = self.get_recent_starter(team_abbrev)
+        if recent_name:
+            row = self._match_team_goalie(team_goalies, recent_name)
+            if row is not None:
+                return self._build_goalie_dict(row)
+
+        # 2. Check for confirmed starter from Daily Faceoff
         confirmed_name = self.data_loader.get_confirmed_starter(team_abbrev)
         if confirmed_name:
             # Find this goalie in our data
@@ -544,7 +618,7 @@ class NHLAnalyzer:
             if confirmed_goalie:
                 return confirmed_goalie
 
-        # 2. Fallback: GP-based selection with injury filtering
+        # 3. Fallback: GP-based selection with injury filtering
         injured_players = self.data_loader.get_injuries(team_abbrev)
 
         # Filter qualified goalies (5+ games)

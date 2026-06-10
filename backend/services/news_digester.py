@@ -99,6 +99,12 @@ def build_digest(items: List[Dict], scope: str, kind: str, max_items: int = 8) -
 
     if not out_items:
         return None
+    # The lead (hero) card is big — make sure it has a photo when any top item does.
+    if not out_items[0].get("image_url"):
+        for i in range(1, min(len(out_items), 4)):
+            if out_items[i].get("image_url"):
+                out_items.insert(0, out_items.pop(i))
+                break
     key_points = [str(k)[:160] for k in (data.get("key_points") or []) if k][:5]
     return {
         "title": _title(scope, kind),
