@@ -34,6 +34,75 @@ def resolve_game_id(date_str: str, away: str, home: str) -> Tuple[Optional[int],
     return None, None
 
 
+def _season_str() -> str:
+    """Current NHL season as 'YYYYYYYY' (e.g. '20252026')."""
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    sy = now.year if now.month >= 9 else now.year - 1
+    return f"{sy}{sy + 1}"
+
+
+def _team_shots_from_pbp(pbp: dict, team_abbrev: str) -> list:
+    """A team's shots from one game, each mirrored onto the +x attacking half."""
+    home, away = pbp.get("homeTeam", {}), pbp.get("awayTeam", {})
+    tid = home.get("id") if home.get("abbrev") == team_abbrev else (
+          away.get("id") if away.get("abbrev") == team_abbrev else None)
+    if tid is None:
+        return []
+    out = []
+    for p in pbp.get("plays", []):
+        result = SHOT_TYPES.get(p.get("typeDescKey"))
+        if not result:
+            continue
+        det = p.get("details", {})
+        x, y = det.get("xCoord"), det.get("yCoord")
+        if x is None or y is None or det.get("eventOwnerTeamId") != tid:
+            continue
+        x, y = float(x), float(y)
+        if x < 0:                      # mirror everything onto the right (attacking) half
+            x, y = -x, -y
+        out.append({"x": x, "y": y, "team": team_abbrev, "result": result,
+                    "period": (p.get("periodDescriptor", {}) or {}).get("number", 1)})
+    return out
+
+
+def fetch_team_shot_map(team: str, games: int = 20) -> dict:
+    """Aggregate a team's shots over its most recent `games` completed games."""
+    team = team.upper()
+    ck = f"team:{team}:{games}"
+    hit = _cache.get(ck)
+    if hit and time.time() - hit[0] < 43200:  # 12h
+        return hit[1]
+    try:
+        sched = requests.get(f"{BASE}/club-schedule-season/{team}/{_season_str()}",
+                             headers=NHL_HEADERS, timeout=12).json()
+    except Exception:
+        return {"available": False, "shots": []}
+    finals = [g for g in sched.get("games", []) if g.get("gameState") in ("OFF", "FINAL")]
+    finals.sort(key=lambda g: g.get("gameDate", ""))
+    finals = finals[-games:]
+
+    shots = []
+    for g in finals:
+        try:
+            pbp = requests.get(f"{BASE}/gamecenter/{g.get('id')}/play-by-play",
+                               headers=NHL_HEADERS, timeout=15).json()
+        except Exception:
+            continue
+        shots += _team_shots_from_pbp(pbp, team)
+
+    if not shots:
+        return {"available": False, "shots": []}
+    goals = sum(1 for s in shots if s["result"] == "goal")
+    out = {
+        "available": True, "team": team, "games": len(finals), "shots": shots,
+        "summary": {"games": len(finals), "shots": len(shots), "goals": goals,
+                    "shots_per_game": round(len(shots) / max(len(finals), 1), 1)},
+    }
+    _cache[ck] = (time.time(), out)
+    return out
+
+
 def _player_name(spot: dict) -> str:
     first = (spot.get("firstName") or {}).get("default", "")
     last = (spot.get("lastName") or {}).get("default", "")
