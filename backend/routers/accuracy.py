@@ -1629,3 +1629,72 @@ def calibration():
     out = {"buckets": buckets, "calibration_error": error, "games": games, "points": err_den, "verdict": verdict}
     _calib_cache.update(ts=_time.time(), data=out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Strategy backtester — enriched per-game dataset (filtered client-side)
+# ---------------------------------------------------------------------------
+
+_backtest_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+@router.get("/accuracy/backtest-data")
+def backtest_data():
+    """Every graded official pick enriched with the picked team's factor *edges*
+    (picked minus opponent) at prediction time, for client-side backtesting."""
+    if _backtest_cache["data"] and _time.time() - _backtest_cache["ts"] < 1800:
+        return _backtest_cache["data"]
+    sb = get_supabase()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    preds = sb.table("predictions").select(
+        "game_date,home_team,away_team,pick,diff,confidence,correct").not_is("correct", "null").execute().data
+    dailies = sb.table("daily_predictions").select("game_date,predictions").execute().data
+
+    lk = {}
+    for row in dailies:
+        d = row.get("game_date")
+        for g in (row.get("predictions") or []):
+            a = (g.get("away") or {}).get("team")
+            h = (g.get("home") or {}).get("team")
+            if a and h:
+                lk[(d, a, h)] = g
+
+    games = []
+    correct_total = 0
+    for p in preds:
+        g = lk.get((p.get("game_date"), p.get("away_team"), p.get("home_team")))
+        if not g or p.get("correct") is None:
+            continue
+        pick = p.get("pick")
+        pick_is_home = pick == p.get("home_team")
+        P = (g.get("home") if pick_is_home else g.get("away")) or {}
+        O = (g.get("away") if pick_is_home else g.get("home")) or {}
+
+        def edge(key, base=0.0):
+            return round(float(P.get(key, base)) - float(O.get(key, base)), 4)
+
+        is_correct = bool(p["correct"])
+        if is_correct:
+            correct_total += 1
+        games.append({
+            "date": p.get("game_date"),
+            "pick": pick,
+            "correct": is_correct,
+            "diff": round(float(p.get("diff") or 0.0), 2),
+            "confidence": p.get("confidence"),
+            "pick_is_home": pick_is_home,
+            "goalie_edge": edge("goalie_gsax"),
+            "streak_edge": edge("streak_mult", 1.0),
+            "st_edge": edge("st_mult", 1.0),
+            "fatigue_edge": edge("fatigue_mult", 1.0),
+            "h2h_edge": edge("h2h_mult", 1.0),
+            "pick_fatigue_mult": round(float(P.get("fatigue_mult", 1.0)), 4),
+        })
+
+    games.sort(key=lambda x: x["date"])
+    baseline = round(correct_total / len(games) * 100, 1) if games else 0.0
+    out = {"baseline": baseline, "count": len(games), "games": games}
+    _backtest_cache.update(ts=_time.time(), data=out)
+    return out
