@@ -1560,3 +1560,72 @@ async def fix_puck_line_picks():
         "updated": updated,
         "errors": errors[:10],
     }
+
+
+# ---------------------------------------------------------------------------
+# Model calibration (reliability diagram)
+# ---------------------------------------------------------------------------
+
+import time as _time
+_calib_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+@router.get("/accuracy/calibration")
+def calibration():
+    """Reliability of the model's win probabilities: bucket every graded game's
+    (normalized) win prob and report the actual win rate per bucket."""
+    if _calib_cache["data"] and _time.time() - _calib_cache["ts"] < 1800:
+        return _calib_cache["data"]
+    sb = get_supabase()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    preds = sb.table("predictions").select(
+        "game_date,home_team,away_team,home_final,away_final").not_is("correct", "null").execute().data
+    dailies = sb.table("daily_predictions").select("game_date,predictions").execute().data
+
+    lk = {}
+    for row in dailies:
+        d = row.get("game_date")
+        for g in (row.get("predictions") or []):
+            a = (g.get("away") or {}).get("team")
+            h = (g.get("home") or {}).get("team")
+            bl = g.get("betting_lines") or {}
+            if a and h and bl.get("ml_home_prob") is not None and bl.get("ml_away_prob") is not None:
+                lk[(d, a, h)] = (bl["ml_home_prob"], bl["ml_away_prob"])
+
+    nb = 10
+    counts = [0] * nb; wins = [0] * nb; psum = [0.0] * nb
+    games = 0
+    for p in preds:
+        probs = lk.get((p.get("game_date"), p.get("away_team"), p.get("home_team")))
+        hf, af = p.get("home_final"), p.get("away_final")
+        if not probs or hf is None or af is None:
+            continue
+        mh, ma = probs
+        if (mh + ma) <= 0:
+            continue
+        games += 1
+        p_home = mh / (mh + ma) * 100
+        for prob, won in ((p_home, hf > af), (100 - p_home, af > hf)):
+            b = min(int(prob // 10), nb - 1)
+            counts[b] += 1; psum[b] += prob
+            if won:
+                wins[b] += 1
+
+    buckets = []
+    err_num = 0.0; err_den = 0
+    for b in range(nb):
+        if counts[b] == 0:
+            continue
+        actual = wins[b] / counts[b] * 100
+        pred_avg = psum[b] / counts[b]
+        buckets.append({"lo": b * 10, "hi": b * 10 + 10, "mid": round(pred_avg, 1),
+                        "actual_pct": round(actual, 1), "n": counts[b]})
+        err_num += abs(actual - pred_avg) * counts[b]; err_den += counts[b]
+
+    error = round(err_num / err_den, 1) if err_den else 0.0
+    verdict = "well-calibrated" if error < 5 else ("fairly calibrated" if error < 9 else "needs tuning")
+    out = {"buckets": buckets, "calibration_error": error, "games": games, "points": err_den, "verdict": verdict}
+    _calib_cache.update(ts=_time.time(), data=out)
+    return out
