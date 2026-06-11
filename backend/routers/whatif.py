@@ -5,9 +5,15 @@ from typing import Optional
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from services.whatif import simulate
+from services.whatif import simulate, sim_inputs
 
 router = APIRouter()
+
+
+@router.get("/sim-inputs")
+def sim_inputs_route(away: str, home: str):
+    """Expected goals for both home orientations of a matchup (Monte-Carlo input)."""
+    return sim_inputs(away.upper(), home.upper())
 
 
 class TeamOverride(BaseModel):

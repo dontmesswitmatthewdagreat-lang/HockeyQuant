@@ -63,6 +63,21 @@ def _factors(d: dict) -> dict:
     }
 
 
+def sim_inputs(a: str, b: str) -> dict:
+    """Expected goals for a matchup in BOTH home orientations (for series sims
+    with home-ice alternation). Reuses the cached analyses + predict_goals."""
+    a_an, b_an = base_analyses(a, b)  # a as away, b as home
+    an = _analyzer()
+    gp = GoalPredictor(data_loader=an.data_loader, analyzer=an)
+    pa = gp.predict_goals(b, a, b_an, a_an)   # A home (away=b, home=a)
+    pb = gp.predict_goals(a, b, a_an, b_an)   # B home (away=a, home=b)
+    return {
+        "a": a, "b": b,
+        "a_home": {"a_xg": pa["home_expected_goals"], "b_xg": pa["away_expected_goals"]},
+        "b_home": {"a_xg": pb["away_expected_goals"], "b_xg": pb["home_expected_goals"]},
+    }
+
+
 def simulate(away: str, home: str, away_ov: Optional[dict], home_ov: Optional[dict]) -> dict:
     base_away, base_home = base_analyses(away, home)
     away_a = _apply(base_away, away_ov)
