@@ -6,8 +6,15 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from services.whatif import simulate, sim_inputs
+from services.season_sim import season_sim
 
 router = APIRouter()
+
+
+@router.get("/season-sim")
+def season_sim_route(mock: bool = False):
+    """Season/playoff odds. mock=true forces a synthetic in-progress season."""
+    return season_sim(mock)
 
 
 @router.get("/sim-inputs")
