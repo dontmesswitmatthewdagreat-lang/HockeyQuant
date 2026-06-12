@@ -1,5 +1,8 @@
 # HockeyQuant News digest + prospect sync
 # - Morning league digest at ~8 AM ET.
+# - Evening league digest ("nightcap") once all of today's games are final —
+#   hourly attempts 9 PM–3 AM ET; the endpoint gates on the NHL scoreboard and
+#   the (date, kind, scope) unique key makes retries idempotent.
 # - Per-team pre-game / post-game digests during game hours (the endpoint picks
 #   the teams whose windows are open; idempotent).
 # - Daily prospect dataset refresh.
@@ -11,6 +14,7 @@ on:
     - cron: '0 12 * * *'        # 12:00 UTC (~8 AM ET) — morning league digest + prospect sync
     - cron: '*/15 21-23 * * *'  # pre/post-game windows (evening ET)
     - cron: '*/15 0-5 * * *'    # pre/post-game windows (late ET)
+    - cron: '0 1-7 * * *'       # evening league digest attempts (9 PM–3 AM ET)
   workflow_dispatch:
 
 jobs:
@@ -39,3 +43,16 @@ jobs:
           curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/pregame"
           echo
           curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/postgame"
+
+      - name: Evening league digest (once all games final)
+        if: startsWith(github.event.schedule, '0 1-7') || github.event_name == 'workflow_dispatch'
+        run: |
+          # After ET midnight the just-finished games belong to YESTERDAY's ET date.
+          HOUR=$(TZ='America/New_York' date +%H)
+          if [ "$HOUR" -ge 21 ]; then
+            DATE=$(TZ='America/New_York' date +%Y-%m-%d)
+          else
+            DATE=$(TZ='America/New_York' date -d 'yesterday' +%Y-%m-%d)
+          fi
+          echo "Evening digest attempt for $DATE"
+          curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/evening"

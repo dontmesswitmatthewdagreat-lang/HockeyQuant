@@ -72,24 +72,40 @@ def _store(sb, date_str: str, kind: str, scope: str, digest: dict) -> None:
     }], on_conflict="digest_date,kind,scope").execute()
 
 
+def _all_games_final(date_str: str) -> bool:
+    """True when every game on `date_str` is final (or there are no games)."""
+    try:
+        r = requests.get(f"https://api-web.nhle.com/v1/score/{date_str}", headers=NHL_HEADERS, timeout=15)
+        games = r.json().get("games", [])
+    except Exception:
+        return False
+    return all(g.get("gameState") in ("OFF", "FINAL") for g in games)
+
+
 @router.post("/news/generate/{date_str}/{kind}")
 def generate(date_str: str, kind: str):
     """Cron/admin: build + store digests for a date. Idempotent per (date, kind, scope)."""
-    if kind not in ("morning", "pregame", "postgame"):
-        raise HTTPException(status_code=400, detail="kind must be morning|pregame|postgame")
+    if kind not in ("morning", "evening", "pregame", "postgame"):
+        raise HTTPException(status_code=400, detail="kind must be morning|evening|pregame|postgame")
     sb = _sb()
 
-    if kind == "morning":
-        if _exists(sb, date_str, "morning", "league"):
+    if kind in ("morning", "evening"):
+        if _exists(sb, date_str, kind, "league"):
             return {"skipped": "already generated"}
-        digest = build_digest(fetch_league_items(), "league", "morning", max_items=8)
+        if kind == "evening" and not _all_games_final(date_str):
+            return {"skipped": "games still in progress"}
+        digest = build_digest(fetch_league_items(), "league", kind, max_items=8)
         if not digest:
             raise HTTPException(status_code=502, detail="Could not build digest")
-        _store(sb, date_str, "morning", "league", digest)
+        _store(sb, date_str, kind, "league", digest)
         tokens = [t["token"] for t in sb.table("device_tokens").select("token").execute().data]
-        apns_send(tokens, "Morning hockey digest 🏒",
-                  (digest.get("intro") or "Today's NHL roundup is ready.")[:140])
-        return {"generated": ["league"], "items": len(digest["items"])}
+        if kind == "morning":
+            apns_send(tokens, "Morning hockey digest 🏒",
+                      (digest.get("intro") or "Today's NHL roundup is ready.")[:140])
+        else:
+            apns_send(tokens, "Tonight's NHL nightcap 🏒",
+                      (digest.get("intro") or "Tonight's results roundup is ready.")[:140])
+        return {"generated": ["league"], "kind": kind, "items": len(digest["items"])}
 
     now = datetime.now(timezone.utc)
     generated = []
@@ -116,10 +132,12 @@ def generate(date_str: str, kind: str):
 
 @router.get("/news/latest")
 def latest(team: Optional[str] = None):
-    """App feed: the latest league morning digest + the favorite team's recent digests."""
+    """App feed: the latest league digest edition (evening after games end, else
+    morning) + the favorite team's recent digests."""
     sb = _sb()
-    digests = sb.table("news_digests").select("*").eq("scope", "league").eq("kind", "morning") \
-        .order("digest_date", desc=True).limit(1).execute().data
+    digests = sb.table("news_digests").select("*").eq("scope", "league") \
+        .in_("kind", ["morning", "evening"]) \
+        .order("created_at", desc=True).limit(1).execute().data
     if team:
         digests += sb.table("news_digests").select("*").eq("scope", team) \
             .order("created_at", desc=True).limit(4).execute().data

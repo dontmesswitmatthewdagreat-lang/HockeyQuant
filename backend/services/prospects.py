@@ -83,7 +83,8 @@ def fetch_team_prospects(abbrev: str) -> List[Dict]:
                 "league": None,
                 "ranking": None,
                 "notable": False,
-                "info": {"shoots": p.get("shootsCatches"), "birth": p.get("birthDate"), "headshot": p.get("headshot")},
+                "info": {"shoots": p.get("shootsCatches"), "birth": p.get("birthDate"),
+                         "headshot": p.get("headshot"), "country": p.get("birthCountry")},
             })
     return out
 

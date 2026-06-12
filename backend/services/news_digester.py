@@ -34,6 +34,10 @@ SYSTEM = (
 
 def _kind_instruction(scope: str, kind: str) -> str:
     if scope == "league":
+        if kind == "evening":
+            return ("Compile a nightcap roundup now that tonight's NHL games have wrapped: "
+                    "tonight's results and standout performances first, then any breaking "
+                    "trades, signings, injuries, or storylines from today.")
         return ("Compile a morning roundup of the most notable news from around the NHL "
                 "over the last day — trades, signings, injuries, rumors, and storylines.")
     name = TEAM_FULL_NAMES.get(scope, scope)
