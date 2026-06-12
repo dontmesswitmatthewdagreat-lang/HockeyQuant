@@ -1778,7 +1778,7 @@ def _ml_auc(scores, y):
     return round(float((ranks[pos].sum() - npos * (npos + 1) / 2) / (npos * nneg)), 3)
 
 
-@router.get("/ml-model")
+@router.get("/accuracy/ml-model")
 def ml_model(features: str = ""):
     """Train an L2 logistic regression on the chosen factor features; return
     5-fold CV accuracy, AUC, and the learned (standardized) weights."""
