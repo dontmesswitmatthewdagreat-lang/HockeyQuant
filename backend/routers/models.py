@@ -366,6 +366,8 @@ async def get_models_leaderboard():
                 "username": profile.get("username"),
                 "user_id": m["user_id"],
                 "description": m.get("description"),
+                "model_type": m.get("model_type", "weighted"),
+                "ml_kind": (m.get("ml_meta") or {}).get("kind") if m.get("model_type") == "ml" else None,
                 "weights": _row_to_weights(m).model_dump(),
                 "created_at": m["created_at"],
                 "total_predictions": total,

@@ -3,7 +3,7 @@ HockeyQuant Accuracy Router
 Endpoints for tracking prediction accuracy
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Header
 from pydantic import BaseModel
 from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta, timezone
@@ -718,6 +718,10 @@ async def store_model_predictions(date_str: str):
     total_stored = 0
     for model in models:
         model_id = model["id"]
+        # ML models are backfilled at creation; forward ML prediction is a future
+        # enhancement, so skip them here rather than store weighted picks for them.
+        if model.get("model_type") == "ml":
+            continue
         weights_data = {
             "offense": float(model.get("weight_offensive", 40)),
             "defense": float(model.get("weight_defensive", 15)),
@@ -1737,7 +1741,7 @@ def _ml_dataset():
             a = (g.get("away") or {}).get("team"); h = (g.get("home") or {}).get("team")
             if a and h:
                 lk[(d, a, h)] = g
-    rows, ys, corrects = [], [], []
+    rows, ys, corrects, meta = [], [], [], []
     for p in preds:
         g = lk.get((p["game_date"], p["away_team"], p["home_team"]))
         hf, af = p.get("home_final"), p.get("away_final")
@@ -1747,13 +1751,41 @@ def _ml_dataset():
         feat = [float(H.get(k, base)) - float(A.get(k, base)) for (_i, _l, k, base) in _ML_FEATURES]
         feat.append(float(bl.get("home_expected_goals", 0)) - float(bl.get("away_expected_goals", 0)))
         rows.append(feat); ys.append(1 if hf > af else 0); corrects.append(bool(p["correct"]))
+        meta.append({"game_date": p["game_date"], "away_team": p["away_team"], "home_team": p["home_team"]})
     data = {
-        "X": _np.array(rows, dtype=float), "y": _np.array(ys),
+        "X": _np.array(rows, dtype=float), "y": _np.array(ys), "meta": meta,
         "official_accuracy": round(float(_np.mean(corrects)) * 100, 1) if corrects else 0.0,
         "home_rate": round(float(_np.mean(ys)) * 100, 1) if ys else 0.0,
     }
     _ml_cache.update(ts=_time.time(), data=data)
     return data
+
+
+def _ml_feature_vector(game: dict, feature_ids: list) -> list:
+    """Home-minus-away feature vector for a daily_predictions game dict."""
+    H = game.get("home") or {}; A = game.get("away") or {}; bl = game.get("betting_lines") or {}
+    keymap = {f[0]: (f[2], f[3]) for f in _ML_FEATURES}
+    out = []
+    for fid in feature_ids:
+        if fid == "xg_diff":
+            out.append(float(bl.get("home_expected_goals", 0)) - float(bl.get("away_expected_goals", 0)))
+        else:
+            k, base = keymap[fid]
+            out.append(float(H.get(k, base)) - float(A.get(k, base)))
+    return out
+
+
+def _ml_prob_home(meta: dict, X_row: list) -> float:
+    """P(home win) for one feature row given a stored ml_meta."""
+    mu = _np.array(meta["mu"]); sd = _np.array(meta["sd"])
+    xs = (_np.array(X_row, dtype=float) - mu) / sd
+    if meta.get("kind") == "boosted":
+        F = 0.0
+        for (j, t, lv, rv) in meta["stumps"]:
+            F += _GBM_LR * (lv if xs[j] <= t else rv)
+        return float(_ml_sigmoid(_np.array([F]))[0])
+    z = float(_np.dot(xs, _np.array(meta["w"])) + meta["b"])
+    return float(_ml_sigmoid(_np.array([z]))[0])
 
 
 def _ml_sigmoid(z):
@@ -1865,3 +1897,86 @@ def ml_model(features: str = "", model: str = "logistic"):
         "accuracy": round(float(_np.mean(accs)) * 100, 1), "accuracy_std": round(float(_np.std(accs)) * 100, 1),
         "auc": auc, "features_used": [_ML_IDS[i] for i in cols], "weights": weights,
     }
+
+
+class SaveMLModelRequest(BaseModel):
+    name: str
+    features: List[str] = []
+    model: str = "logistic"
+
+
+@router.post("/accuracy/ml-model/save")
+def save_ml_model(req: SaveMLModelRequest, authorization: str = Header(None)):
+    """Train an ML model on the chosen features, store it in user_models, and
+    backfill its out-of-fold record into model_predictions so it appears on the
+    models leaderboard with an honest (out-of-sample) accuracy."""
+    from routers.models import get_user_id_from_token
+    user_id = get_user_id_from_token(authorization)
+    sb = get_supabase()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+
+    data = _ml_dataset()
+    sel = [f for f in req.features if f] or _ML_IDS
+    cols = [i for i, fid in enumerate(_ML_IDS) if fid in sel] or list(range(len(_ML_IDS)))
+    used = [_ML_IDS[i] for i in cols]
+    X = data["X"][:, cols]; y = data["y"]; meta = data["meta"]; n = len(y)
+    mu = X.mean(0); sd = X.std(0) + 1e-9; Xs = (X - mu) / sd
+    boosted = req.model == "boosted"
+
+    with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        if boosted:
+            stumps, _imp = _train_gbm(Xs, y)
+            ml_meta = {"features": used, "kind": "boosted", "mu": mu.tolist(), "sd": sd.tolist(), "stumps": stumps}
+        else:
+            w, b = _ml_train(Xs, y)
+            ml_meta = {"features": used, "kind": "logistic", "mu": mu.tolist(), "sd": sd.tolist(), "w": w.tolist(), "b": float(b)}
+        # Out-of-fold probabilities for an honest historical record.
+        rng = _np.random.default_rng(42); idx = _np.arange(n); rng.shuffle(idx)
+        folds = _np.array_split(idx, 5)
+        oof = _np.zeros(n)
+        for i in range(5):
+            te = folds[i]; tr = _np.concatenate([folds[j] for j in range(5) if j != i])
+            if boosted:
+                st, _ = _train_gbm(Xs[tr], y[tr]); oof[te] = _ml_sigmoid(_gbm_logodds(st, Xs[te]))
+            else:
+                ww, bb = _ml_train(Xs[tr], y[tr]); oof[te] = _ml_sigmoid(Xs[te] @ ww + bb)
+
+    name = req.name.strip()[:60] or "My ML Model"
+    if sb.table("user_models").select("id").eq("user_id", user_id).eq("name", name).execute().data:
+        raise HTTPException(status_code=400, detail="A model with this name already exists")
+    try:
+        sb.table("profiles").upsert([{"id": user_id}])
+    except Exception:
+        pass
+
+    ins = sb.table("user_models").insert([{
+        "user_id": user_id, "name": name,
+        "description": f"{ml_meta['kind'].title()} ML · {len(used)} features",
+        "is_active": True, "model_type": "ml", "ml_meta": ml_meta,
+        "weight_offensive": 40, "weight_defensive": 15, "weight_goaltending": 30,
+        "weight_points_pct": 10, "weight_win_rate": 5,
+    }]).execute()
+    if not ins.data:
+        raise HTTPException(status_code=500, detail="Failed to create model")
+    model_id = ins.data[0]["id"]
+
+    to_insert = []
+    for i in range(n):
+        p = float(oof[i]); m = meta[i]
+        pick = m["home_team"] if p >= 0.5 else m["away_team"]
+        actual = m["home_team"] if y[i] == 1 else m["away_team"]
+        margin = abs(p - 0.5) * 200
+        conf = "STRONG" if margin >= 20 else ("MODERATE" if margin >= 8 else "CLOSE")
+        to_insert.append({
+            "model_id": model_id, "game_id": f"{m['game_date']}_{m['away_team']}_{m['home_team']}",
+            "game_date": m["game_date"], "away_team": m["away_team"], "home_team": m["home_team"],
+            "pick": pick, "away_score": 0, "home_score": 0, "diff": round(margin, 2),
+            "confidence": conf, "actual_winner": actual, "correct": bool(pick == actual),
+        })
+    for k in range(0, len(to_insert), 200):
+        sb.table("model_predictions").insert(to_insert[k:k + 200]).execute()
+
+    acc = round(sum(1 for r in to_insert if r["correct"]) / len(to_insert) * 100, 1) if to_insert else 0.0
+    return {"model_id": model_id, "name": name, "kind": ml_meta["kind"],
+            "features": used, "backfilled": len(to_insert), "accuracy": acc}
