@@ -1698,3 +1698,111 @@ def backtest_data():
     out = {"baseline": baseline, "count": len(games), "games": games}
     _backtest_cache.update(ts=_time.time(), data=out)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Machine-learned model — train a logistic regression on stored factors
+# ---------------------------------------------------------------------------
+
+import numpy as _np
+
+# (id, label, factor key, neutral baseline) — home-minus-away differential.
+_ML_FEATURES = [
+    ("goalie", "Goalie (GSAX)", "goalie_gsax", 0.0),
+    ("fatigue", "Fatigue / rest", "fatigue_mult", 1.0),
+    ("streak", "Form / streak", "streak_mult", 1.0),
+    ("st", "Special teams", "st_mult", 1.0),
+    ("injury", "Injuries", "injury_mult", 1.0),
+    ("h2h", "Head-to-head", "h2h_mult", 1.0),
+    ("base_score", "Quality score", "base_score", 0.0),
+]
+_ML_LABELS = {**{f[0]: f[1] for f in _ML_FEATURES}, "xg_diff": "Expected goals"}
+_ML_IDS = [f[0] for f in _ML_FEATURES] + ["xg_diff"]
+_ml_cache: Dict[str, Any] = {"ts": 0.0, "data": None}
+
+
+def _ml_dataset():
+    if _ml_cache["data"] and _time.time() - _ml_cache["ts"] < 1800:
+        return _ml_cache["data"]
+    sb = get_supabase()
+    if sb is None:
+        raise HTTPException(status_code=503, detail="Database not configured")
+    preds = sb.table("predictions").select(
+        "game_date,home_team,away_team,home_final,away_final,correct").not_is("correct", "null").execute().data
+    dailies = sb.table("daily_predictions").select("game_date,predictions").execute().data
+    lk = {}
+    for row in dailies:
+        d = row.get("game_date")
+        for g in (row.get("predictions") or []):
+            a = (g.get("away") or {}).get("team"); h = (g.get("home") or {}).get("team")
+            if a and h:
+                lk[(d, a, h)] = g
+    rows, ys, corrects = [], [], []
+    for p in preds:
+        g = lk.get((p["game_date"], p["away_team"], p["home_team"]))
+        hf, af = p.get("home_final"), p.get("away_final")
+        if not g or hf is None or af is None:
+            continue
+        H = g.get("home") or {}; A = g.get("away") or {}; bl = g.get("betting_lines") or {}
+        feat = [float(H.get(k, base)) - float(A.get(k, base)) for (_i, _l, k, base) in _ML_FEATURES]
+        feat.append(float(bl.get("home_expected_goals", 0)) - float(bl.get("away_expected_goals", 0)))
+        rows.append(feat); ys.append(1 if hf > af else 0); corrects.append(bool(p["correct"]))
+    data = {
+        "X": _np.array(rows, dtype=float), "y": _np.array(ys),
+        "official_accuracy": round(float(_np.mean(corrects)) * 100, 1) if corrects else 0.0,
+        "home_rate": round(float(_np.mean(ys)) * 100, 1) if ys else 0.0,
+    }
+    _ml_cache.update(ts=_time.time(), data=data)
+    return data
+
+
+def _ml_sigmoid(z):
+    return 1.0 / (1.0 + _np.exp(-_np.clip(z, -30, 30)))
+
+
+def _ml_train(X, y, iters=500, lr=0.2, l2=1.0):
+    w = _np.zeros(X.shape[1]); b = 0.0; n = len(y)
+    with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for _ in range(iters):
+            err = _ml_sigmoid(X @ w + b) - y
+            w -= lr * (X.T @ err / n + l2 * w / n)
+            b -= lr * err.mean()
+    return w, b
+
+
+def _ml_auc(scores, y):
+    order = _np.argsort(scores); ranks = _np.empty(len(scores)); ranks[order] = _np.arange(1, len(scores) + 1)
+    pos = y == 1; npos = int(pos.sum()); nneg = len(y) - npos
+    if npos == 0 or nneg == 0:
+        return 0.5
+    return round(float((ranks[pos].sum() - npos * (npos + 1) / 2) / (npos * nneg)), 3)
+
+
+@router.get("/ml-model")
+def ml_model(features: str = ""):
+    """Train an L2 logistic regression on the chosen factor features; return
+    5-fold CV accuracy, AUC, and the learned (standardized) weights."""
+    data = _ml_dataset()
+    sel = [f for f in features.split(",") if f] if features else _ML_IDS
+    cols = [i for i, fid in enumerate(_ML_IDS) if fid in sel] or list(range(len(_ML_IDS)))
+    X = data["X"][:, cols]; y = data["y"]; n = len(y)
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Xs = (X - mu) / sd
+
+    with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        rng = _np.random.default_rng(42); idx = _np.arange(n); rng.shuffle(idx)
+        folds = _np.array_split(idx, 5); accs = []
+        for i in range(5):
+            te = folds[i]; tr = _np.concatenate([folds[j] for j in range(5) if j != i])
+            w, b = _ml_train(Xs[tr], y[tr])
+            accs.append(float(((Xs[te] @ w + b > 0).astype(int) == y[te]).mean()))
+        w, b = _ml_train(Xs, y)
+        auc = _ml_auc(Xs @ w + b, y)
+    weights = sorted(
+        [{"id": _ML_IDS[cols[i]], "label": _ML_LABELS[_ML_IDS[cols[i]]], "weight": round(float(w[i]), 3)} for i in range(len(cols))],
+        key=lambda x: -abs(x["weight"]))
+    return {
+        "n": n, "home_rate": data["home_rate"], "official_accuracy": data["official_accuracy"],
+        "accuracy": round(float(_np.mean(accs)) * 100, 1), "accuracy_std": round(float(_np.std(accs)) * 100, 1),
+        "auc": auc, "features_used": [_ML_IDS[i] for i in cols], "weights": weights,
+    }
