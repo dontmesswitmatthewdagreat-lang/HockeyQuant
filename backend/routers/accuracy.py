@@ -1778,31 +1778,90 @@ def _ml_auc(scores, y):
     return round(float((ranks[pos].sum() - npos * (npos + 1) / 2) / (npos * nneg)), 3)
 
 
+# --- Gradient-boosted decision stumps (numpy, no sklearn) ---
+_GBM_LR = 0.3
+
+
+def _train_gbm(X, y, rounds=50):
+    """Boosted depth-1 trees on log-loss. Returns (stumps, feature importances)."""
+    n, f = X.shape
+    F = _np.zeros(n)
+    stumps = []
+    gain = _np.zeros(f)
+    cand = [_np.unique(_np.quantile(X[:, j], [0.2, 0.35, 0.5, 0.65, 0.8])) for j in range(f)]
+    with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        for _ in range(rounds):
+            resid = y - _ml_sigmoid(F)
+            tot = float(((resid - resid.mean()) ** 2).sum())
+            best = None
+            for j in range(f):
+                col = X[:, j]
+                for t in cand[j]:
+                    left = col <= t
+                    nl = int(left.sum())
+                    if nl == 0 or nl == n:
+                        continue
+                    lv = float(resid[left].mean()); rv = float(resid[~left].mean())
+                    sse = float(((resid[left] - lv) ** 2).sum() + ((resid[~left] - rv) ** 2).sum())
+                    if best is None or sse < best[0]:
+                        best = (sse, j, float(t), lv, rv)
+            if best is None:
+                break
+            sse, j, t, lv, rv = best
+            F += _GBM_LR * _np.where(X[:, j] <= t, lv, rv)
+            stumps.append([int(j), t, lv, rv])
+            gain[j] += max(tot - sse, 0.0)
+    importance = (gain / gain.sum()) if gain.sum() > 0 else gain
+    return stumps, importance
+
+
+def _gbm_logodds(stumps, X):
+    F = _np.zeros(len(X))
+    for (j, t, lv, rv) in stumps:
+        F += _GBM_LR * _np.where(X[:, j] <= t, lv, rv)
+    return F
+
+
 @router.get("/accuracy/ml-model")
-def ml_model(features: str = ""):
-    """Train an L2 logistic regression on the chosen factor features; return
-    5-fold CV accuracy, AUC, and the learned (standardized) weights."""
+def ml_model(features: str = "", model: str = "logistic"):
+    """Train a model on the chosen factor features; return 5-fold CV accuracy, AUC,
+    and the learned weights (logistic = signed coefficients; boosted = importances)."""
     data = _ml_dataset()
     sel = [f for f in features.split(",") if f] if features else _ML_IDS
     cols = [i for i, fid in enumerate(_ML_IDS) if fid in sel] or list(range(len(_ML_IDS)))
     X = data["X"][:, cols]; y = data["y"]; n = len(y)
     mu, sd = X.mean(0), X.std(0) + 1e-9
     Xs = (X - mu) / sd
+    boosted = model == "boosted"
 
     with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         rng = _np.random.default_rng(42); idx = _np.arange(n); rng.shuffle(idx)
         folds = _np.array_split(idx, 5); accs = []
         for i in range(5):
             te = folds[i]; tr = _np.concatenate([folds[j] for j in range(5) if j != i])
-            w, b = _ml_train(Xs[tr], y[tr])
-            accs.append(float(((Xs[te] @ w + b > 0).astype(int) == y[te]).mean()))
-        w, b = _ml_train(Xs, y)
-        auc = _ml_auc(Xs @ w + b, y)
+            if boosted:
+                stumps, _imp = _train_gbm(Xs[tr], y[tr])
+                pred = (_gbm_logodds(stumps, Xs[te]) > 0).astype(int)
+            else:
+                w, b = _ml_train(Xs[tr], y[tr])
+                pred = (Xs[te] @ w + b > 0).astype(int)
+            accs.append(float((pred == y[te]).mean()))
+        if boosted:
+            stumps, importance = _train_gbm(Xs, y)
+            scores = _gbm_logodds(stumps, Xs)
+            vals = [float(importance[i]) for i in range(len(cols))]
+        else:
+            w, b = _ml_train(Xs, y)
+            scores = Xs @ w + b
+            vals = [float(w[i]) for i in range(len(cols))]
+        auc = _ml_auc(scores, y)
+
     weights = sorted(
-        [{"id": _ML_IDS[cols[i]], "label": _ML_LABELS[_ML_IDS[cols[i]]], "weight": round(float(w[i]), 3)} for i in range(len(cols))],
+        [{"id": _ML_IDS[cols[i]], "label": _ML_LABELS[_ML_IDS[cols[i]]], "weight": round(vals[i], 3)} for i in range(len(cols))],
         key=lambda x: -abs(x["weight"]))
     return {
         "n": n, "home_rate": data["home_rate"], "official_accuracy": data["official_accuracy"],
+        "kind": "boosted" if boosted else "logistic",
         "accuracy": round(float(_np.mean(accs)) * 100, 1), "accuracy_std": round(float(_np.std(accs)) * 100, 1),
         "auc": auc, "features_used": [_ML_IDS[i] for i in cols], "weights": weights,
     }
