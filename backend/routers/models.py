@@ -331,7 +331,7 @@ async def get_models_leaderboard():
             chunk = supabase.table("model_predictions") \
                 .select("model_id,confidence,correct") \
                 .not_is("correct", "null") \
-                .range(start, start + 999) \
+                .limit(1000).offset(start) \
                 .execute().data
             preds_rows.extend(chunk)
             if len(chunk) < 1000:

@@ -85,6 +85,10 @@ class TableQuery:
         self.params["limit"] = str(count)
         return self
 
+    def offset(self, count: int) -> "TableQuery":
+        self.params["offset"] = str(count)
+        return self
+
     def execute(self) -> "QueryResult":
         url = f"{self.client.rest_url}/{self.table}"
         with httpx.Client(timeout=30.0) as http:
