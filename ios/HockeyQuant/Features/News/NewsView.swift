@@ -17,7 +17,7 @@ struct NewsView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.Palette.background.ignoresSafeArea()
+                Theme.backgroundView().ignoresSafeArea()
                 VStack(spacing: 0) {
                     header
                     if tab == 0 { digestContent } else { prospectsContent }

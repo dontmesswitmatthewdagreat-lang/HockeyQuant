@@ -14,7 +14,7 @@ struct NewsSearchView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.Palette.background.ignoresSafeArea()
+                Theme.backgroundView().ignoresSafeArea()
                 VStack(spacing: Theme.Spacing.md) {
                     searchField
                     if searching {

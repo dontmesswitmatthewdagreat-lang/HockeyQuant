@@ -97,6 +97,10 @@ struct Prospect: Codable, Identifiable, Hashable {
 
     var headshotURL: URL? {
         guard let s = info?.headshot, !s.isEmpty else { return nil }
+        // NHL serves `/mugs/nhl/latest/<id>.png` as a 302 → default-skater
+        // silhouette for prospects without a real mug. Skip those so the card
+        // falls back to the clean initials monogram instead of a gray blank.
+        if s.contains("/latest/") || s.contains("default") { return nil }
         return URL(string: s)
     }
 

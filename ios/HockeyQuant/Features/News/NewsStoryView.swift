@@ -150,7 +150,7 @@ struct NewsStoryView: View {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 Spacer()
                 HStack(spacing: Theme.Spacing.xs) {
-                    GoalLightView(flashing: true, size: 13)
+                    GoalLightIcon(height: 18)
                     Text(title.uppercased())
                         .font(.system(size: 13, weight: .bold)).foregroundStyle(.white.opacity(0.9))
                         .kerning(1.5)
