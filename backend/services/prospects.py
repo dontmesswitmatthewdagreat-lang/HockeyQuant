@@ -10,7 +10,7 @@ from typing import List, Dict
 import requests
 
 from services.constants import NHL_DIVISIONS
-from services.prospect_headshots import attach_chl_headshots
+from services.prospect_headshots import attach_chl_headshots, attach_wikipedia_headshots
 
 ALL_TEAMS = sorted({t for teams in NHL_DIVISIONS.values() for t in teams})
 NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
@@ -90,12 +90,31 @@ def fetch_team_prospects(abbrev: str) -> List[Dict]:
     return out
 
 
+def _reuse_existing_headshots(sb, rows: List[Dict]) -> None:
+    """Carry over resolved headshots (and the Wikidata recheck timestamp) from the
+    prior sync so we don't re-query external sources for prospects already handled."""
+    try:
+        existing = {r["nhl_id"]: (r.get("info") or {})
+                    for r in sb.table("prospects").select("nhl_id,info").execute().data}
+    except Exception:
+        return
+    for r in rows:
+        prev = existing.get(r.get("nhl_id")) or {}
+        info = r.get("info") or {}
+        if not info.get("headshot") and prev.get("headshot"):
+            r.setdefault("info", {})["headshot"] = prev["headshot"]
+        if "wiki_ts" not in info and prev.get("wiki_ts"):
+            r.setdefault("info", {})["wiki_ts"] = prev["wiki_ts"]
+
+
 def sync_all(sb) -> int:
     """Fetch draft rankings + all team pools and upsert (on nhl_id)."""
     rows = fetch_draft_rankings()
     for t in ALL_TEAMS:
         rows += fetch_team_prospects(t)
-    attach_chl_headshots(rows)   # CHL roster photos for draft-eligible prospects
+    _reuse_existing_headshots(sb, rows)  # keep photos we already resolved
+    attach_chl_headshots(rows)        # CHL roster photos for draft-eligible prospects
+    attach_wikipedia_headshots(rows)  # Wikidata-validated photos for the rest of the board
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
         r["updated_at"] = now

@@ -1,21 +1,28 @@
 """
-Junior-league headshots for draft-eligible prospects (prototype #1: CHL).
+Headshots for draft-eligible prospects (the NHL has none for un-drafted players,
+so the league draft board otherwise shows only initials).
 
-The NHL publishes no headshot for un-drafted players, so the league-wide draft
-board has only initials. The CHL leagues (OHL/WHL/QMJHL) publish official roster
-photos through HockeyTech/LeagueStat — the same public `modulekit` feed their own
-websites and apps use (no scraping). This module builds a name -> photo index
-from those rosters and fills `info["headshot"]` on each matching draft prospect.
+Two sources, both public and license-clean, applied in order during sync:
 
-Coverage on the current board is ~97% of CHL prospects (~half the full board).
-Not yet wired up: USHL (open photo CDN but the roster feed needs an authorized
-key) and NCAA/European-junior (no single roster API).
+1. CHL roster photos (OHL/WHL/QMJHL) via the HockeyTech/LeagueStat `modulekit`
+   feed — the same feed their own sites/apps use (no scraping). Covers ~96% of
+   CHL prospects, roughly half the full board.
+2. Wikidata-validated Wikimedia photos for the *notable* prospects CHL doesn't
+   cover (USHL/NCAA/European juniors). Each match is confirmed to be a human
+   ice-hockey player whose birth year matches the prospect's, so we never attach
+   the wrong person's photo. Coverage is low (most draft-eligible teens have no
+   Wikipedia photo yet) but grows over time.
+
+Still uncovered: USHL via its own roster feed (open photo CDN, but the feed is
+key-gated and ushl.com — a SidearmSports site — doesn't expose a live key).
 """
 
 import re
+import time
 import unicodedata
-from datetime import date
-from typing import Dict, List, Tuple
+import urllib.parse
+from datetime import date, timedelta
+from typing import Dict, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -123,3 +130,121 @@ def attach_chl_headshots(rows: List[dict]) -> int:
             info["headshot"] = img
             filled += 1
     return filled
+
+
+# --- Source 2: Wikidata-validated Wikimedia photos (the rest of the board) -----
+
+_WD_API = "https://www.wikidata.org/w/api.php"
+_Q_HUMAN = "Q5"
+_Q_HOCKEY_PLAYER = "Q11774891"
+_Q_ICE_HOCKEY = "Q41466"
+
+
+def _wd_get(params: dict) -> dict:
+    """Polite Wikidata GET with retries; tolerates throttle/non-JSON responses."""
+    for i in range(3):
+        try:
+            r = _SESSION.get(_WD_API, params={**params, "format": "json"}, timeout=20)
+            if r.text.lstrip().startswith("{"):
+                data = r.json()
+                if "error" not in data:        # e.g. maxlag/ratelimited — back off
+                    return data
+        except Exception:
+            pass
+        time.sleep(0.6 * (i + 1))
+    return {}
+
+
+def _claim_ids(claims: dict, prop: str) -> list:
+    out = []
+    for c in claims.get(prop, []):
+        try:
+            out.append(c["mainsnak"]["datavalue"]["value"]["id"])
+        except (KeyError, TypeError):
+            pass
+    return out
+
+
+def _claim_birth_year(claims: dict) -> Optional[str]:
+    for c in claims.get("P569", []):
+        try:
+            return c["mainsnak"]["datavalue"]["value"]["time"][1:5]
+        except (KeyError, TypeError):
+            pass
+    return None
+
+
+def _claim_image(claims: dict) -> Optional[str]:
+    for c in claims.get("P18", []):
+        try:
+            return c["mainsnak"]["datavalue"]["value"]
+        except (KeyError, TypeError):
+            pass
+    return None
+
+
+def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Optional[str]:
+    """
+    A Wikimedia Commons headshot for `name`, but only when Wikidata confirms the
+    matched entity is a human ice-hockey player whose birth year matches the
+    prospect's — so we never attach the wrong person's photo. Returns a
+    license-clean Commons URL, or None.
+    """
+    year = (birth_iso or "")[:4]
+    search = _wd_get({"action": "wbsearchentities", "search": name,
+                      "language": "en", "type": "item", "limit": 6})
+    for hit in search.get("search", []):
+        qid = hit.get("id")
+        if not qid:
+            continue
+        claims = _wd_get({"action": "wbgetentities", "ids": qid, "props": "claims"}) \
+            .get("entities", {}).get(qid, {}).get("claims", {})
+        if _Q_HUMAN not in _claim_ids(claims, "P31"):
+            continue
+        if not (_Q_HOCKEY_PLAYER in _claim_ids(claims, "P106")
+                or _Q_ICE_HOCKEY in _claim_ids(claims, "P641")):
+            continue
+        wd_year = _claim_birth_year(claims)
+        if year and wd_year and year != wd_year:
+            continue   # same name, different (usually older) player — skip
+        image = _claim_image(claims)
+        if image:
+            f = urllib.parse.quote(image.replace(" ", "_"))
+            return f"https://commons.wikimedia.org/wiki/Special:FilePath/{f}?width=320"
+    return None
+
+
+_WIKI_RECHECK_DAYS = 7
+
+
+def attach_wikipedia_headshots(rows: List[dict]) -> int:
+    """
+    Fill `info["headshot"]` for *notable* draft prospects that CHL didn't cover
+    (USHL/NCAA/European juniors) from Wikidata-validated Wikimedia photos.
+
+    Bounded to the notable board, and each prospect is checked at most once per
+    week (`info["wiki_ts"]`, carried across syncs) so we don't re-query Wikidata
+    every run for the many teens who simply have no photo yet. Best-effort.
+    """
+    cutoff = (date.today() - timedelta(days=_WIKI_RECHECK_DAYS)).isoformat()
+    targets = [r for r in rows
+               if r.get("notable")
+               and r.get("league") not in CHL_CLIENTS
+               and not (r.get("info") or {}).get("headshot")
+               and (r.get("info") or {}).get("wiki_ts", "") < cutoff]
+    if not targets:
+        return 0
+
+    today = date.today().isoformat()
+
+    def fill(r: dict) -> int:
+        info = r.setdefault("info", {})
+        info["wiki_ts"] = today    # mark checked (hit or miss) to gate re-queries
+        url = _wikidata_headshot(r.get("name", ""), info.get("birth"))
+        if url:
+            info["headshot"] = url
+            return 1
+        return 0
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        return sum(ex.map(fill, targets))
