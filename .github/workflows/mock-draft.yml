@@ -1,0 +1,20 @@
+# HockeyQuant — Weekly mock draft
+# Regenerates the first-round mock draft each Monday morning (ET) from the latest
+# standings + team stats. The endpoint is idempotent per ISO week.
+
+name: Mock Draft
+
+on:
+  schedule:
+    - cron: '0 13 * * 1'   # 13:00 UTC Monday (~9 AM ET)
+  workflow_dispatch:
+
+jobs:
+  mock-draft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Generate weekly mock draft
+        run: curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/prospects/mock-draft/generate"
