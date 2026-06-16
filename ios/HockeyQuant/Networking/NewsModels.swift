@@ -73,6 +73,7 @@ struct ProspectInfo: Codable, Hashable {
     let headshot: String?
     let country: String?
     let club: String?
+    let category: String?   // NHL Central Scouting list (draft board only)
 }
 
 struct Prospect: Codable, Identifiable, Hashable {
@@ -106,6 +107,29 @@ struct Prospect: Codable, Identifiable, Hashable {
 
     var initials: String {
         name.split(separator: " ").compactMap { $0.first.map(String.init) }.prefix(2).joined()
+    }
+
+    /// The NHL ranks four separate Central Scouting lists, each numbered from 1.
+    /// These drive the draft-board section headers so the "restart at 1" reads
+    /// clearly (e.g. Ivar Stenberg is the #1 *international* skater, not #1 overall).
+    var categoryLabel: String? {
+        switch info?.category {
+        case "north-american-skater": return "North American Skaters"
+        case "international-skater":   return "International Skaters"
+        case "north-american-goalie": return "North American Goalies"
+        case "international-goalie":   return "International Goalies"
+        default:                      return nil
+        }
+    }
+
+    var categoryOrder: Int {
+        switch info?.category {
+        case "north-american-skater": return 0
+        case "international-skater":   return 1
+        case "north-american-goalie": return 2
+        case "international-goalie":   return 3
+        default:                      return 9
+        }
     }
 
     /// Nationality flag emoji from NHL's ISO-3166 alpha-3 birthCountry.

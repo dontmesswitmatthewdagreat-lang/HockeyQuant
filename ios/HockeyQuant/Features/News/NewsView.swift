@@ -9,10 +9,18 @@ struct NewsView: View {
     @State private var store = NewsStore()
     @State private var tab = 0                 // 0 = News, 1 = Prospects
     @State private var prospectPage = 1        // 0 = Draft Board, 1 = My Team (default)
+    @State private var prospectQuery = ""      // live filter for the prospect lists
     @State private var showSearch = false
     @State private var showStory = false
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
+    @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
+
+    /// A fresh weekly mock draft the user hasn't opened yet (drives the badge + reveal).
+    private var isNewMock: Bool {
+        guard let ed = store.mockDraft?.edition, !ed.isEmpty else { return false }
+        return ed != seenMockEdition
+    }
 
     var body: some View {
         NavigationStack {
@@ -25,9 +33,14 @@ struct NewsView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-        .task { await store.loadLatest(team: auth.favoriteTeam) }
+        .task {
+            await store.loadLatest(team: auth.favoriteTeam)
+            // Load the mock draft up front so the "new" badge can pull the user
+            // into Prospects even while they're still on the News tab.
+            if store.mockDraft == nil { await store.loadMockDraft() }
+        }
         .task(id: tab) {
-            // Load both prospect lists so swiping between them is instant.
+            // Load every prospect list so swiping between them is instant.
             guard tab == 1 else { return }
             if let fav = auth.favoriteTeam, store.teamProspects.isEmpty {
                 await store.loadTeamProspects(team: fav)
@@ -48,7 +61,7 @@ struct NewsView: View {
         VStack(spacing: Theme.Spacing.sm) {
             HStack(alignment: .center, spacing: Theme.Spacing.sm) {
                 segment("News", 0)
-                segment("Prospects", 1)
+                segment("Prospects", 1, badge: isNewMock)
                 Spacer(minLength: Theme.Spacing.xs)
                 AvatarButton()
             }
@@ -72,12 +85,19 @@ struct NewsView: View {
         .padding(.bottom, Theme.Spacing.xs)
     }
 
-    private func segment(_ label: String, _ idx: Int) -> some View {
+    private func segment(_ label: String, _ idx: Int, badge: Bool = false) -> some View {
         VStack(spacing: 4) {
             Text(label)
                 .font(.system(size: 21, weight: .heavy, design: .rounded))
                 .fixedSize(horizontal: true, vertical: false)
                 .foregroundStyle(tab == idx ? Theme.Palette.textPrimary : Theme.Palette.textTertiary)
+                .overlay(alignment: .topTrailing) {
+                    if badge {
+                        Circle().fill(Theme.Palette.defaultAccentAlt)
+                            .frame(width: 8, height: 8)
+                            .offset(x: 10, y: -1)
+                    }
+                }
             ZStack {
                 if tab == idx {
                     Capsule().fill(Theme.Palette.accent).frame(height: 3)
@@ -292,6 +312,7 @@ struct NewsView: View {
     private var prospectsContent: some View {
         if let fav = auth.favoriteTeam {
             VStack(spacing: 0) {
+                prospectSearchBar
                 prospectIndicator
                 TabView(selection: $prospectPage) {
                     prospectGrid(store.draftProspects, loading: store.loadingDraft, draftBoard: true) {
@@ -300,15 +321,68 @@ struct NewsView: View {
                     prospectGrid(store.teamProspects, loading: store.loadingTeam, draftBoard: false) {
                         await store.loadTeamProspects(team: fav)
                     }.tag(1)
+                    mockDraftPage.tag(2)
                 }
                 .tabViewStyle(.page(indexDisplayMode: .never))
                 .animation(.easeInOut(duration: 0.25), value: prospectPage)
             }
         } else {
-            prospectGrid(store.draftProspects, loading: store.loadingDraft, draftBoard: true) {
-                await store.loadDraftProspects()
+            VStack(spacing: 0) {
+                prospectSearchBar
+                prospectGrid(store.draftProspects, loading: store.loadingDraft, draftBoard: true) {
+                    await store.loadDraftProspects()
+                }
             }
         }
+    }
+
+    private var prospectSearchBar: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textTertiary)
+            TextField("Search prospects", text: $prospectQuery)
+                .font(.system(size: 15))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+            if !prospectQuery.isEmpty {
+                Button {
+                    prospectQuery = ""
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                .accessibilityLabel("Clear search")
+            }
+        }
+        .padding(.horizontal, Theme.Spacing.sm)
+        .padding(.vertical, 9)
+        .background(Theme.Palette.surface)
+        .clipShape(Capsule())
+        .overlay(Capsule().strokeBorder(Theme.Palette.border, lineWidth: 1))
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.top, Theme.Spacing.xs)
+        .padding(.bottom, Theme.Spacing.xs)
+    }
+
+    /// Case-insensitive filter over name / league / position.
+    private func filtered(_ items: [Prospect]) -> [Prospect] {
+        let q = prospectQuery.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return items }
+        return items.filter {
+            $0.name.lowercased().contains(q)
+                || ($0.league?.lowercased().contains(q) ?? false)
+                || ($0.position?.lowercased().contains(q) ?? false)
+        }
+    }
+
+    /// Draft prospects grouped into the NHL's four Central Scouting lists, in order.
+    private func draftGroups(_ items: [Prospect]) -> [(key: String, title: String, items: [Prospect])] {
+        Dictionary(grouping: items) { $0.info?.category ?? "other" }
+            .map { (key: $0.key, title: $0.value.first?.categoryLabel ?? "Other", items: $0.value) }
+            .sorted { ($0.items.first?.categoryOrder ?? 9) < ($1.items.first?.categoryOrder ?? 9) }
     }
 
     /// Passive Draft Board / My Team indicator — a chip + page dots, deliberately
@@ -316,12 +390,13 @@ struct NewsView: View {
     /// "swipe between these," not "tap these."
     private var prospectIndicator: some View {
         VStack(spacing: 7) {
-            HStack(spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.xs) {
                 prospectChip("Draft Board", 0)
                 prospectChip("My Team", 1)
+                prospectChip("Mock Draft", 2, badge: isNewMock)
             }
             HStack(spacing: 6) {
-                ForEach(0..<2, id: \.self) { i in
+                ForEach(0..<3, id: \.self) { i in
                     Capsule()
                         .fill(prospectPage == i ? Theme.Palette.accent : Theme.Palette.border)
                         .frame(width: prospectPage == i ? 18 : 6, height: 6)
@@ -335,40 +410,237 @@ struct NewsView: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: prospectPage)
     }
 
-    private func prospectChip(_ label: String, _ idx: Int) -> some View {
+    private func prospectChip(_ label: String, _ idx: Int, badge: Bool = false) -> some View {
         let active = prospectPage == idx
         return Text(label)
             .font(.system(size: 13, weight: active ? .bold : .medium, design: .rounded))
             .foregroundStyle(active ? .white : Theme.Palette.textTertiary)
-            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.horizontal, Theme.Spacing.sm)
             .padding(.vertical, 6)
             .background { if active { Capsule().fill(Theme.Palette.accent) } }
+            .overlay(alignment: .topTrailing) {
+                if badge && !active {
+                    Circle().fill(Theme.Palette.defaultAccentAlt)
+                        .frame(width: 7, height: 7).offset(x: 1, y: -1)
+                }
+            }
             .accessibilityElement(children: .combine)
             .accessibilityLabel(label)
             .accessibilityValue(active ? "selected" : "swipe to view")
     }
 
     @ViewBuilder
-    private func prospectGrid(_ items: [Prospect], loading: Bool, draftBoard: Bool,
+    private func prospectGrid(_ allItems: [Prospect], loading: Bool, draftBoard: Bool,
                               refresh: @escaping () async -> Void) -> some View {
-        if loading && items.isEmpty {
+        let items = filtered(allItems)
+        let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
+                       GridItem(.flexible(), spacing: Theme.Spacing.sm)]
+        if loading && allItems.isEmpty {
             shimmer
-        } else if items.isEmpty {
+        } else if allItems.isEmpty {
             EmptyStateView(systemImage: "figure.hockey", title: "No prospects",
                            message: draftBoard ? "The draft board will appear here."
                                                : "No tracked prospects for this team yet.")
+        } else if items.isEmpty {
+            EmptyStateView(systemImage: "magnifyingglass", title: "No matches",
+                           message: "No prospects match “\(prospectQuery)”.")
         } else {
             ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Spacing.sm),
-                                    GridItem(.flexible(), spacing: Theme.Spacing.sm)],
-                          spacing: Theme.Spacing.sm) {
-                    ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
-                        prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
+                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
+                    if draftBoard {
+                        // The NHL ranks four separate lists; group + label them so
+                        // the per-list "#1, #2, …" numbering reads correctly.
+                        ForEach(draftGroups(items), id: \.key) { group in
+                            Section {
+                                ForEach(Array(group.items.enumerated()), id: \.element.id) { i, p in
+                                    prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
+                                }
+                            } header: {
+                                prospectSectionHeader(group.title, count: group.items.count)
+                            }
+                        }
+                    } else {
+                        ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
+                            prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
+                        }
                     }
                 }
                 .padding(Theme.Spacing.md)
             }
+            .scrollDismissesKeyboard(.immediately)
             .refreshable { await refresh() }
+        }
+    }
+
+    private func prospectSectionHeader(_ title: String, count: Int) -> some View {
+        HStack(spacing: 6) {
+            Text(title)
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Text("\(count)")
+                .font(.system(size: 11, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.Palette.textTertiary)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, Theme.Spacing.sm)
+        .padding(.bottom, Theme.Spacing.xxs)
+    }
+
+    // MARK: - Mock draft (3rd Prospects page)
+
+    @ViewBuilder
+    private var mockDraftPage: some View {
+        if store.loadingMock && store.mockDraft == nil {
+            shimmer
+        } else if let mock = store.mockDraft, !mock.picks.isEmpty {
+            MockDraftBoard(
+                mock: mock,
+                reveal: isNewMock && prospectPage == 2,
+                onRevealComplete: { seenMockEdition = mock.edition }
+            )
+        } else {
+            EmptyStateView(systemImage: "list.number", title: "No mock draft yet",
+                           message: "This week's projected first round will appear here.")
+        }
+    }
+
+    /// The projected first round, with a one-time slot-machine reveal for a new edition.
+    private struct MockDraftBoard: View {
+        let mock: MockDraft
+        let reveal: Bool
+        let onRevealComplete: () -> Void
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+        @State private var start = Date()
+        @State private var finished = false
+
+        private let spin = 0.7
+        private let perRow = 0.05
+        private var total: Double { spin + perRow * Double(mock.picks.count) + 0.3 }
+        private var pool: [String] { mock.picks.map(\.prospect.name) }
+
+        var body: some View {
+            ScrollView {
+                LazyVStack(spacing: Theme.Spacing.xs) {
+                    if let basis = mock.orderBasis {
+                        Text(basis)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.bottom, 2)
+                    }
+                    if reveal && !reduceMotion && !finished {
+                        TimelineView(.animation(minimumInterval: 1.0 / 14.0)) { ctx in
+                            rows(elapsed: ctx.date.timeIntervalSince(start))
+                        }
+                    } else {
+                        rows(elapsed: total)
+                    }
+                }
+                .padding(.horizontal, Theme.Spacing.md)
+                .padding(.bottom, Theme.Spacing.md)
+            }
+            .task(id: reveal) {
+                guard reveal else { return }
+                if reduceMotion {
+                    finished = true
+                    onRevealComplete()
+                    return
+                }
+                start = Date()
+                finished = false
+                try? await Task.sleep(nanoseconds: UInt64(total * 1_000_000_000))
+                finished = true
+                onRevealComplete()
+            }
+        }
+
+        @ViewBuilder
+        private func rows(elapsed: Double) -> some View {
+            ForEach(Array(mock.picks.enumerated()), id: \.element.id) { i, pick in
+                let locked = finished || elapsed >= spin + perRow * Double(i)
+                MockPickRow(pick: pick, locked: locked, shuffleName: shuffleName(i, elapsed))
+            }
+        }
+
+        private func shuffleName(_ i: Int, _ elapsed: Double) -> String {
+            guard !pool.isEmpty else { return "" }
+            return pool[(Int(elapsed / 0.08) + i * 3) % pool.count]
+        }
+    }
+
+    private struct MockPickRow: View {
+        let pick: MockPick
+        let locked: Bool
+        let shuffleName: String
+
+        private var groupColor: Color {
+            switch pick.need {
+            case "D": return Theme.Palette.defaultAccentAlt
+            case "G": return Color(hex: 0x8A5CF6)
+            default:  return Theme.Palette.accent
+            }
+        }
+
+        var body: some View {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("\(pick.overall)")
+                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .frame(width: 22, alignment: .center)
+                CrestView(abbrev: pick.team, size: 30)
+                ZStack {
+                    Circle().fill(LinearGradient(
+                        colors: [Theme.Palette.accent.opacity(0.5), Theme.Palette.accentAlt.opacity(0.3)],
+                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    if locked {
+                        if let url = pick.prospect.headshotURL {
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image { img.resizable().scaledToFill() } else { initials }
+                            }
+                        } else { initials }
+                    } else {
+                        Image(systemName: "hockey.puck.fill")
+                            .font(.system(size: 13)).foregroundStyle(.white.opacity(0.6))
+                    }
+                }
+                .frame(width: 38, height: 38).clipShape(Circle())
+                .overlay(Circle().strokeBorder(Theme.Palette.border, lineWidth: 1))
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        if locked, let flag = pick.prospect.flag { Text(flag).font(.system(size: 12)) }
+                        Text(locked ? pick.prospect.name : shuffleName)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(locked ? Theme.Palette.textPrimary : Theme.Palette.textTertiary)
+                            .lineLimit(1).minimumScaleFactor(0.8)
+                    }
+                    Text(locked ? pick.reason : " ")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                if locked {
+                    Text(pick.prospect.position ?? pick.need)
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Capsule().fill(groupColor))
+                }
+            }
+            .padding(.vertical, Theme.Spacing.xs)
+            .padding(.horizontal, Theme.Spacing.sm)
+            .frame(maxWidth: .infinity)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Palette.border, lineWidth: 1))
+        }
+
+        private var initials: some View {
+            Text(pick.prospect.initials)
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white.opacity(0.9))
         }
     }
 

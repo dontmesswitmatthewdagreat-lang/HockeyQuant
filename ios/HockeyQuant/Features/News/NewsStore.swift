@@ -10,9 +10,11 @@ final class NewsStore {
     private(set) var digests: [NewsDigest] = []
     private(set) var draftProspects: [Prospect] = []   // league draft board
     private(set) var teamProspects: [Prospect] = []    // favorite team's pool
+    private(set) var mockDraft: MockDraft?             // weekly first-round projection
     private(set) var loading = false
     private(set) var loadingDraft = false
     private(set) var loadingTeam = false
+    private(set) var loadingMock = false
     var error: String?
 
     func loadLatest(team: String?) async {
@@ -51,6 +53,16 @@ final class NewsStore {
         defer { loadingTeam = false }
         do {
             teamProspects = try await api.prospects(team: team)
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func loadMockDraft() async {
+        loadingMock = true
+        defer { loadingMock = false }
+        do {
+            mockDraft = try await api.mockDraft()
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }

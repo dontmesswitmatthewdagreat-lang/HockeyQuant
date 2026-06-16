@@ -621,6 +621,13 @@ extension APIClient {
         return try Self.decode(ProspectsResponse.self, from: data).prospects
     }
 
+    /// `GET /api/prospects/mock-draft` — the latest weekly first-round mock draft.
+    func mockDraft() async throws -> MockDraft? {
+        let url = apiURL("prospects").appendingPathComponent("mock-draft")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(MockDraftResponse.self, from: data).mockDraft
+    }
+
     /// `POST /api/me/device-token` — register this device's APNs token.
     func registerDeviceToken(_ token: String, authToken: String) async throws {
         let url = apiURL("me").appendingPathComponent("device-token")
