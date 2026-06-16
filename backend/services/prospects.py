@@ -10,6 +10,7 @@ from typing import List, Dict
 import requests
 
 from services.constants import NHL_DIVISIONS
+from services.prospect_headshots import attach_chl_headshots
 
 ALL_TEAMS = sorted({t for teams in NHL_DIVISIONS.values() for t in teams})
 NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
@@ -94,6 +95,7 @@ def sync_all(sb) -> int:
     rows = fetch_draft_rankings()
     for t in ALL_TEAMS:
         rows += fetch_team_prospects(t)
+    attach_chl_headshots(rows)   # CHL roster photos for draft-eligible prospects
     now = datetime.now(timezone.utc).isoformat()
     for r in rows:
         r["updated_at"] = now
