@@ -142,17 +142,20 @@ _Q_ICE_HOCKEY = "Q41466"
 
 
 def _wd_get(params: dict) -> dict:
-    """Polite Wikidata GET with retries; tolerates throttle/non-JSON responses."""
-    for i in range(3):
+    """Polite Wikidata GET with retries; tolerates throttle/non-JSON responses.
+    A small lead delay paces requests under Wikidata's per-IP limit (cloud IPs
+    like Render's otherwise get empty/ratelimited 200s)."""
+    time.sleep(0.2)
+    for i in range(4):
         try:
             r = _SESSION.get(_WD_API, params={**params, "format": "json"}, timeout=20)
-            if r.text.lstrip().startswith("{"):
+            if r.status_code == 200 and r.text.lstrip().startswith("{"):
                 data = r.json()
                 if "error" not in data:        # e.g. maxlag/ratelimited — back off
                     return data
         except Exception:
             pass
-        time.sleep(0.6 * (i + 1))
+        time.sleep(0.8 * (i + 1))
     return {}
 
 
@@ -223,6 +226,7 @@ def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Tuple[Optional[st
 
 
 _WIKI_RECHECK_DAYS = 7
+_WIKI_TIME_BUDGET_S = 75
 
 
 def attach_wikipedia_headshots(rows: List[dict]) -> int:
@@ -242,18 +246,24 @@ def attach_wikipedia_headshots(rows: List[dict]) -> int:
                and (r.get("info") or {}).get("wiki_ts", "") < cutoff]
     if not targets:
         return 0
+    targets.sort(key=lambda r: r.get("ranking") or 999)   # marquee names first
 
     today = date.today().isoformat()
-
-    def fill(r: dict) -> int:
+    deadline = time.monotonic() + _WIKI_TIME_BUDGET_S
+    filled = 0
+    # Serial + paced: Wikidata rate-limits bursts from cloud IPs (e.g. Render) by
+    # returning empty 200s, so we query one at a time. A time budget keeps the
+    # pass from threatening the sync timeout; anything past it is left uncached
+    # (no wiki_ts) so it's retried next sync rather than suppressed. High-ranked
+    # prospects come first, so the marquee names are always reached.
+    for r in targets:
+        if time.monotonic() > deadline:
+            break
         info = r.setdefault("info", {})
         url, searched_ok = _wikidata_headshot(r.get("name", ""), info.get("birth"))
         if searched_ok:
             info["wiki_ts"] = today   # cache only genuine results, never transient failures
         if url:
             info["headshot"] = url
-            return 1
-        return 0
-
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        return sum(ex.map(fill, targets))
+            filled += 1
+    return filled
