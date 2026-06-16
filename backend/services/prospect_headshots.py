@@ -33,7 +33,8 @@ CHL_CLIENTS = {"OHL": "ohl", "WHL": "whl", "QMJHL": "lhjmq"}
 _FEED = "https://lscluster.hockeytech.com/feed/index.php"
 _KEY = "f1aa699db3d81487"  # public LeagueStat key used by the CHL sites/apps
 _SESSION = requests.Session()
-_SESSION.headers["User-Agent"] = "HockeyQuant/1.0"
+# Descriptive UA per Wikimedia's policy (bare UAs from cloud IPs get throttled).
+_SESSION.headers["User-Agent"] = "HockeyQuant/1.0 (https://hockeyquant.onrender.com; matthew4000@icloud.com)"
 
 
 def _feed(client: str, view: str, **params) -> dict:
@@ -183,22 +184,29 @@ def _claim_image(claims: dict) -> Optional[str]:
     return None
 
 
-def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Optional[str]:
+def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Tuple[Optional[str], bool]:
     """
     A Wikimedia Commons headshot for `name`, but only when Wikidata confirms the
     matched entity is a human ice-hockey player whose birth year matches the
-    prospect's — so we never attach the wrong person's photo. Returns a
-    license-clean Commons URL, or None.
+    prospect's — so we never attach the wrong person's photo.
+
+    Returns (url_or_None, searched_ok). `searched_ok` is False when an API call
+    failed (transient) so the caller can avoid caching a non-result and retry
+    later; True means we genuinely completed the search (hit or real miss).
     """
     year = (birth_iso or "")[:4]
     search = _wd_get({"action": "wbsearchentities", "search": name,
                       "language": "en", "type": "item", "limit": 6})
-    for hit in search.get("search", []):
+    if "search" not in search:
+        return None, False   # search call failed — don't cache, retry next sync
+    for hit in search["search"]:
         qid = hit.get("id")
         if not qid:
             continue
-        claims = _wd_get({"action": "wbgetentities", "ids": qid, "props": "claims"}) \
-            .get("entities", {}).get(qid, {}).get("claims", {})
+        ent = _wd_get({"action": "wbgetentities", "ids": qid, "props": "claims"})
+        if "entities" not in ent:
+            return None, False   # entity lookup failed — this hit may be the match
+        claims = ent["entities"].get(qid, {}).get("claims", {})
         if _Q_HUMAN not in _claim_ids(claims, "P31"):
             continue
         if not (_Q_HOCKEY_PLAYER in _claim_ids(claims, "P106")
@@ -210,8 +218,8 @@ def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Optional[str]:
         image = _claim_image(claims)
         if image:
             f = urllib.parse.quote(image.replace(" ", "_"))
-            return f"https://commons.wikimedia.org/wiki/Special:FilePath/{f}?width=320"
-    return None
+            return f"https://commons.wikimedia.org/wiki/Special:FilePath/{f}?width=320", True
+    return None, True   # searched, no valid match
 
 
 _WIKI_RECHECK_DAYS = 7
@@ -239,8 +247,9 @@ def attach_wikipedia_headshots(rows: List[dict]) -> int:
 
     def fill(r: dict) -> int:
         info = r.setdefault("info", {})
-        info["wiki_ts"] = today    # mark checked (hit or miss) to gate re-queries
-        url = _wikidata_headshot(r.get("name", ""), info.get("birth"))
+        url, searched_ok = _wikidata_headshot(r.get("name", ""), info.get("birth"))
+        if searched_ok:
+            info["wiki_ts"] = today   # cache only genuine results, never transient failures
         if url:
             info["headshot"] = url
             return 1
