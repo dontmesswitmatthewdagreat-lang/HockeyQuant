@@ -10,12 +10,18 @@ Runs weekly via cron (idempotent per ISO week); stored in `mock_drafts`.
 """
 
 import datetime
+import json
+import re
 from typing import Dict, List, Optional
 
 import requests
 
 from services.constants import ALL_TEAMS, TEAM_FULL_NAMES
 from services.data_loader import get_data_loader
+from services.news_sources import _google_news, UA
+from services.llm import groq_chat
+
+_AI_MODEL = "llama-3.3-70b-versatile"
 
 NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
 
@@ -179,14 +185,220 @@ def _team_needs(standings_by_abbrev: Dict[str, dict]) -> Dict[str, dict]:
     return needs
 
 
+# MARK: - News + AI projection
+
+def _fetch_draft_news(draft_year: int) -> List[dict]:
+    """Recent draft news (lottery order, mock drafts, rumors) for the AI layer."""
+    queries = [
+        f"{draft_year} NHL Draft order lottery results",
+        f"{draft_year} NHL Mock Draft first round",
+        f"{draft_year} NHL Draft top prospects rankings",
+    ]
+    seen, items = set(), []
+    for q in queries:
+        try:
+            for it in _google_news(q, "Google News", None, limit=10):
+                key = it.get("url") or it.get("title")
+                if key and key not in seen:
+                    seen.add(key)
+                    items.append(it)
+        except Exception:
+            continue
+    return items[:40]
+
+
+def _news_block(items: List[dict], limit: int = 30) -> str:
+    return "\n".join(
+        f"- {it.get('title', '')}" + (f" — {it['snippet']}" if it.get("snippet") else "")
+        for it in items[:limit]
+    )
+
+
+def _ai_extract_order(items: List[dict], draft_year: int) -> List[str]:
+    """Best-effort first-round order (team abbrevs) from lottery/order reporting."""
+    if not items:
+        return []
+    system = (
+        f"You extract the {draft_year} NHL Draft FIRST-ROUND pick order from news. Use the "
+        "draft-lottery results and any reported/traded-pick order. List teams in pick order "
+        "using official NHL abbreviations (TOR, SJS, CHI, …). Only include teams you can "
+        "actually infer from the items — returning just the top few is fine.\n"
+        'Return ONLY JSON: {"order": ["TOR", "SJS", ...]}'
+    )
+    try:
+        raw = groq_chat(
+            [{"role": "system", "content": system},
+             {"role": "user", "content": "News:\n" + _news_block(items)}],
+            model=_AI_MODEL, max_tokens=400, temperature=0.1, response_json=True)
+        order = json.loads(raw).get("order", [])
+    except Exception:
+        return []
+    valid, out = set(ALL_TEAMS), []
+    for a in order:
+        a = str(a).upper().strip()
+        if a in valid and a not in out:
+            out.append(a)
+    return out
+
+
+def _ai_project_picks(order: List[str], pool: List[dict], needs: Dict[str, dict],
+                      items: List[dict]) -> Dict[int, dict]:
+    """AI picks a prospect (pool index) + rationale per slot from mock-draft/rumor news."""
+    if not items or not order:
+        return {}
+    pool_lines = "\n".join(
+        f"[{i}] {p['name']} ({p.get('position') or '?'}, {p.get('league') or '?'}, CS#{p.get('ranking') or '?'})"
+        for i, p in enumerate(pool[:90]))
+    order_lines = "\n".join(
+        f"{i + 1}: {TEAM_FULL_NAMES.get(t, t)} ({t}) — needs {needs.get(t, {}).get('primary', '?')}"
+        for i, t in enumerate(order))
+    system = (
+        "You are an NHL Draft analyst. Project a first-round pick ONLY when the provided news "
+        "actually supports it — a reported team–prospect link, a GM statement, a mock-draft "
+        "pairing, or a clear consensus #1. If the news does NOT tell you who a team takes, OMIT "
+        "that slot entirely (it will be filled by consensus ranking + team need). Never guess a "
+        "name to fill a slot. Goalies are almost never first-round picks — do not pick a goalie "
+        "unless the news explicitly reports it. Each prospect may be picked at most once.\n"
+        "- Only use prospect indices from the list.\n"
+        "- rationale: one short clause grounded in the news (quote/paraphrase the actual report).\n"
+        'Return ONLY JSON: {"picks": [{"slot": <int>, "idx": <int>, "rationale": "<text>"}]} '
+        "(include only the slots the news supports — likely just a handful)."
+    )
+    user = f"Draft order:\n{order_lines}\n\nProspects:\n{pool_lines}\n\nRecent news:\n{_news_block(items)}"
+    try:
+        raw = groq_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            model=_AI_MODEL, max_tokens=2400, temperature=0.3, response_json=True)
+        data = json.loads(raw)
+    except Exception:
+        return {}
+    out, used = {}, set()
+    for entry in data.get("picks", []):
+        try:
+            slot, idx = int(entry.get("slot")), int(entry.get("idx"))
+        except (TypeError, ValueError):
+            continue
+        if not (1 <= slot <= len(order)) or not (0 <= idx < len(pool)) or idx in used or slot in out:
+            continue
+        used.add(idx)
+        out[slot] = {"idx": idx, "rationale": str(entry.get("rationale") or "")[:140]}
+    return out
+
+
+# MARK: - Draft order resolution (official → news → standings)
+
+def _nhl_api_order(draft_year: int) -> List[str]:
+    """Official first-round order from the NHL API once published (lottery + traded picks).
+    Empty until the NHL populates it near draft day."""
+    for url in (f"https://api-web.nhle.com/v1/draft/picks/{draft_year}/1",
+                "https://api-web.nhle.com/v1/draft/picks/now"):
+        try:
+            d = requests.get(url, headers=NHL_HEADERS, timeout=15).json()
+        except Exception:
+            continue
+        if d.get("draftYear") != draft_year:
+            continue
+        r1 = [p for p in d.get("picks", []) if p.get("round") == 1 and p.get("teamAbbrev")]
+        if len(r1) >= 16:
+            r1.sort(key=lambda p: p.get("overallPick") or 0)
+            return [p["teamAbbrev"] for p in r1]
+    return []
+
+
+def _order_article_text(draft_year: int) -> str:
+    """Server-rendered NHL.com order-article text (has the full post-lottery order + trades)."""
+    slugs = [
+        f"{draft_year}-nhl-draft-1st-round-order",
+        f"{draft_year}-nhl-draft-first-round-order",
+        f"{draft_year}-nhl-draft-order",
+    ]
+    for slug in slugs:
+        try:
+            html = requests.get(f"https://www.nhl.com/news/{slug}",
+                                headers={"User-Agent": UA}, timeout=15).text
+        except Exception:
+            continue
+        txt = re.sub(r"<(script|style)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+        txt = re.sub(r"<[^>]+>", " ", txt)
+        txt = re.sub(r"\s+", " ", txt)
+        if len(re.findall(r"\b\d{1,2}\.\s*[A-Z]", txt)) >= 10:   # looks like a numbered order
+            return txt[:9000]
+    return ""
+
+
+def _ai_extract_order_from_text(text: str, draft_year: int) -> List[str]:
+    """Full first-round order (owners, traded picks included) extracted from an order article."""
+    if not text:
+        return []
+    system = (
+        f"Extract the {draft_year} NHL Draft FIRST-ROUND pick order from this article. Return the "
+        "team that OWNS each pick, in order (account for traded picks — the current owner, not the "
+        "original team), as official NHL abbreviations.\n"
+        'Return ONLY JSON: {"order": ["TOR", "SJS", ...]}'
+    )
+    try:
+        raw = groq_chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": text[:9000]}],
+            model=_AI_MODEL, max_tokens=700, temperature=0.0, response_json=True)
+        order = json.loads(raw).get("order", [])
+    except Exception:
+        return []
+    valid = set(ALL_TEAMS)
+    return [a for a in (str(x).upper().strip() for x in order) if a in valid]  # dups OK (trades)
+
+
+def _resolve_order(draft_year: int, standings: List[dict], news: List[dict]):
+    """(order, basis). Official NHL API order if published; else the published post-lottery order
+    read from an NHL.com order article (full, with traded picks); else the lottery winner(s) from
+    news headlines padded by reverse standings; else a reverse-standings projection."""
+    reverse = _draft_order(standings)
+    official = _nhl_api_order(draft_year)
+    if official:
+        return official, "Official NHL draft order"
+    from_article = _ai_extract_order_from_text(_order_article_text(draft_year), draft_year)
+    if len(from_article) >= 28:
+        return from_article, "Official post-lottery draft order"
+    from_news = _ai_extract_order(news, draft_year)
+    if from_news:
+        order = list(from_news)
+        for t in reverse:                      # fill remaining slots by reverse standings
+            if len(order) >= len(reverse):
+                break
+            if t not in order:
+                order.append(t)
+        return order, "Post-lottery order, via recent reporting"
+    as_of = standings[0].get("date") if standings else None
+    return reverse, f"Projected from current standings{f' (as of {as_of})' if as_of else ''}"
+
+
 # MARK: - Simulation
+
+def _prospect_payload(choice: dict, draft_year: int, fallback_id) -> dict:
+    """Shaped to match the iOS `Prospect` model so it reuses headshot/flag helpers."""
+    info = choice.get("info") or {}
+    return {
+        "id": str(choice.get("nhl_id") or choice.get("name") or fallback_id),
+        "nhl_id": choice.get("nhl_id"),
+        "name": choice.get("name"),
+        "team": None,
+        "position": choice.get("position"),
+        "draft_year": draft_year,
+        "league": choice.get("league"),
+        "ranking": choice.get("ranking"),
+        "notable": True,
+        "info": {
+            "headshot": info.get("headshot"),
+            "country": info.get("country"),
+            "category": info.get("category"),
+        },
+    }
+
 
 def build_mock_draft(sb) -> Optional[dict]:
     standings = _fetch_standings()
     if not standings:
         return None
     by_abbrev = {s["abbrev"]: s for s in standings}
-    order = _draft_order(standings)
     pool = _consensus_pool(sb)
     if not pool:
         return None
@@ -196,66 +408,60 @@ def build_mock_draft(sb) -> Optional[dict]:
     yr_rows = sb.table("prospects").select("draft_year").eq("notable", "true").limit(1).execute().data
     draft_year = (yr_rows[0].get("draft_year") if yr_rows else None) or datetime.date.today().year + 1
 
+    news = _fetch_draft_news(draft_year)
+    order, order_basis = _resolve_order(draft_year, standings, news)
+    ai_picks = _ai_project_picks(order, pool, needs, news)
+
     picks = []
     available = list(pool)
     for i, abbrev in enumerate(order):
         if not available:
             break
         need = needs.get(abbrev, {"primary": "F", "secondary": "D", "ranks": {}})
-        window = available[:_WINDOW]
 
-        def score(cand: dict) -> float:
-            s = -cand["value"]
-            if cand["group"] == need["primary"]:
-                s += _PRIMARY_BONUS
-            elif cand["group"] == need["secondary"]:
-                s += _SECONDARY_BONUS
-            if cand["group"] == "G" and need["primary"] != "G":
-                s -= _GOALIE_REACH_PENALTY
-            return s
+        choice, reason, source = None, None, "heuristic"
+        ai = ai_picks.get(i + 1)
+        if ai and pool[ai["idx"]] in available:           # AI-led: news / mock-draft consensus
+            choice = pool[ai["idx"]]
+            reason = ai["rationale"] or "Projected in recent mock drafts"
+            source = "ai"
 
-        choice = max(window, key=score)
+        if choice is None:                                # heuristic fills the gap (need + BPA)
+            window = available[:_WINDOW]
+
+            def score(cand: dict) -> float:
+                s = -cand["value"]
+                if cand["group"] == need["primary"]:
+                    s += _PRIMARY_BONUS
+                elif cand["group"] == need["secondary"]:
+                    s += _SECONDARY_BONUS
+                if cand["group"] == "G" and need["primary"] != "G":
+                    s -= _GOALIE_REACH_PENALTY
+                return s
+
+            choice = max(window, key=score)
+            g = choice["group"]
+            reason = _reason(g, need["ranks"].get(g, 16)) if g in (need["primary"], need["secondary"]) \
+                else "Best player available"
+
         available.remove(choice)
-        info = choice.get("info") or {}
-        # Reason reflects the actual pick: a need-fit, else best-player-available.
-        g = choice["group"]
-        if g in (need["primary"], need["secondary"]):
-            pick_reason = _reason(g, need["ranks"].get(g, 16))
-        else:
-            pick_reason = "Best player available"
         picks.append({
             "overall": i + 1,
             "round": 1,
             "team": abbrev,
             "team_name": TEAM_FULL_NAMES.get(abbrev, abbrev),
-            "need": g,
-            "reason": pick_reason,
-            # Shaped to match the iOS `Prospect` model so it reuses headshot/flag helpers.
-            "prospect": {
-                "id": str(choice.get("nhl_id") or choice.get("name") or (i + 1)),
-                "nhl_id": choice.get("nhl_id"),
-                "name": choice.get("name"),
-                "team": None,
-                "position": choice.get("position"),
-                "draft_year": draft_year,
-                "league": choice.get("league"),
-                "ranking": choice.get("ranking"),
-                "notable": True,
-                "info": {
-                    "headshot": info.get("headshot"),
-                    "country": info.get("country"),
-                    "category": info.get("category"),
-                },
-            },
+            "need": choice["group"],
+            "reason": reason,
+            "source": source,
+            "prospect": _prospect_payload(choice, draft_year, i + 1),
         })
 
     now = datetime.datetime.now(datetime.timezone.utc)
-    iso_year, iso_week, _ = datetime.date.today().isocalendar()
-    as_of = standings[0].get("date") or now.date().isoformat()
+    _, iso_week, _ = datetime.date.today().isocalendar()
     return {
         "draft_year": draft_year,
         "edition": f"{draft_year}-W{iso_week:02d}",
         "generated_at": now.isoformat(),
-        "order_basis": f"Projected from standings as of {as_of}",
+        "order_basis": order_basis,
         "picks": picks,
     }
