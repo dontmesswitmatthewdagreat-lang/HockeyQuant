@@ -8,7 +8,7 @@ struct NewsView: View {
     @Environment(\.openURL) private var openURL
     @State private var store = NewsStore()
     @State private var tab = 0                 // 0 = News, 1 = Prospects
-    @State private var prospectTeam: String?   // nil = draft board
+    @State private var prospectPage = 1        // 0 = Draft Board, 1 = My Team (default)
     @State private var showSearch = false
     @State private var showStory = false
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
@@ -26,8 +26,13 @@ struct NewsView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .task { await store.loadLatest(team: auth.favoriteTeam) }
-        .task(id: "\(tab)-\(prospectTeam ?? "league")") {
-            if tab == 1 { await store.loadProspects(team: prospectTeam) }
+        .task(id: tab) {
+            // Load both prospect lists so swiping between them is instant.
+            guard tab == 1 else { return }
+            if let fav = auth.favoriteTeam, store.teamProspects.isEmpty {
+                await store.loadTeamProspects(team: fav)
+            }
+            if store.draftProspects.isEmpty { await store.loadDraftProspects() }
         }
         .fullScreenCover(isPresented: $showStory) {
             NewsStoryView(digests: store.digests)
@@ -84,6 +89,9 @@ struct NewsView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { tab = idx } }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(tab == idx ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Digest
@@ -204,7 +212,7 @@ struct NewsView: View {
     private func heroCard(_ item: DigestItem) -> some View {
         Button { open(item) } label: {
             ZStack(alignment: .bottomLeading) {
-                newsImage(item).frame(height: 240).frame(maxWidth: .infinity).clipped()
+                newsImageFill(item, height: 240)
                 LinearGradient(colors: [.clear, .black.opacity(0.15), .black.opacity(0.85)],
                                startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
@@ -224,7 +232,7 @@ struct NewsView: View {
     private func compactCard(_ item: DigestItem) -> some View {
         Button { open(item) } label: {
             ZStack(alignment: .bottomLeading) {
-                newsImage(item).frame(height: 196).frame(maxWidth: .infinity).clipped()
+                newsImageFill(item, height: 196)
                 LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.88)],
                                startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
@@ -244,6 +252,16 @@ struct NewsView: View {
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+
+    /// A photo filling a definite width×height box, center-cropped (so the image
+    /// stays centered instead of overflowing off the right edge).
+    private func newsImageFill(_ item: DigestItem, height: CGFloat) -> some View {
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .overlay { newsImage(item) }
+            .clipped()
     }
 
     @ViewBuilder
@@ -272,33 +290,85 @@ struct NewsView: View {
 
     @ViewBuilder
     private var prospectsContent: some View {
-        VStack(spacing: 0) {
-            if auth.favoriteTeam != nil {
-                Picker("", selection: Binding(get: { prospectTeam ?? "" }, set: { prospectTeam = $0.isEmpty ? nil : $0 })) {
-                    Text("Draft Board").tag("")
-                    Text("My Team").tag(auth.favoriteTeam ?? "")
+        if let fav = auth.favoriteTeam {
+            VStack(spacing: 0) {
+                prospectIndicator
+                TabView(selection: $prospectPage) {
+                    prospectGrid(store.draftProspects, loading: store.loadingDraft, draftBoard: true) {
+                        await store.loadDraftProspects()
+                    }.tag(0)
+                    prospectGrid(store.teamProspects, loading: store.loadingTeam, draftBoard: false) {
+                        await store.loadTeamProspects(team: fav)
+                    }.tag(1)
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, Theme.Spacing.md).padding(.bottom, Theme.Spacing.sm)
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .animation(.easeInOut(duration: 0.25), value: prospectPage)
             }
-            if store.loadingProspects && store.prospects.isEmpty {
-                shimmer
-            } else if store.prospects.isEmpty {
-                EmptyStateView(systemImage: "figure.hockey", title: "No prospects",
-                               message: prospectTeam == nil ? "The draft board will appear here." : "No tracked prospects for this team yet.")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Spacing.sm),
-                                        GridItem(.flexible(), spacing: Theme.Spacing.sm)],
-                              spacing: Theme.Spacing.sm) {
-                        ForEach(Array(store.prospects.enumerated()), id: \.element.id) { i, p in
-                            prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
-                        }
+        } else {
+            prospectGrid(store.draftProspects, loading: store.loadingDraft, draftBoard: true) {
+                await store.loadDraftProspects()
+            }
+        }
+    }
+
+    /// Passive Draft Board / My Team indicator — a chip + page dots, deliberately
+    /// distinct from the underline-style News/Prospects tab buttons so it reads as
+    /// "swipe between these," not "tap these."
+    private var prospectIndicator: some View {
+        VStack(spacing: 7) {
+            HStack(spacing: Theme.Spacing.sm) {
+                prospectChip("Draft Board", 0)
+                prospectChip("My Team", 1)
+            }
+            HStack(spacing: 6) {
+                ForEach(0..<2, id: \.self) { i in
+                    Capsule()
+                        .fill(prospectPage == i ? Theme.Palette.accent : Theme.Palette.border)
+                        .frame(width: prospectPage == i ? 18 : 6, height: 6)
+                }
+            }
+            .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, Theme.Spacing.xxs)
+        .padding(.bottom, Theme.Spacing.sm)
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: prospectPage)
+    }
+
+    private func prospectChip(_ label: String, _ idx: Int) -> some View {
+        let active = prospectPage == idx
+        return Text(label)
+            .font(.system(size: 13, weight: active ? .bold : .medium, design: .rounded))
+            .foregroundStyle(active ? .white : Theme.Palette.textTertiary)
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.vertical, 6)
+            .background { if active { Capsule().fill(Theme.Palette.accent) } }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(label)
+            .accessibilityValue(active ? "selected" : "swipe to view")
+    }
+
+    @ViewBuilder
+    private func prospectGrid(_ items: [Prospect], loading: Bool, draftBoard: Bool,
+                              refresh: @escaping () async -> Void) -> some View {
+        if loading && items.isEmpty {
+            shimmer
+        } else if items.isEmpty {
+            EmptyStateView(systemImage: "figure.hockey", title: "No prospects",
+                           message: draftBoard ? "The draft board will appear here."
+                                               : "No tracked prospects for this team yet.")
+        } else {
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Spacing.sm),
+                                    GridItem(.flexible(), spacing: Theme.Spacing.sm)],
+                          spacing: Theme.Spacing.sm) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
+                        prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
                     }
-                    .padding(Theme.Spacing.md)
                 }
-                .refreshable { await store.loadProspects(team: prospectTeam) }
+                .padding(Theme.Spacing.md)
             }
+            .refreshable { await refresh() }
         }
     }
 

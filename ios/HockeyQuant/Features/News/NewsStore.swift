@@ -8,9 +8,11 @@ final class NewsStore {
     private let api = APIClient(environment: .production)
 
     private(set) var digests: [NewsDigest] = []
-    private(set) var prospects: [Prospect] = []
+    private(set) var draftProspects: [Prospect] = []   // league draft board
+    private(set) var teamProspects: [Prospect] = []    // favorite team's pool
     private(set) var loading = false
-    private(set) var loadingProspects = false
+    private(set) var loadingDraft = false
+    private(set) var loadingTeam = false
     var error: String?
 
     func loadLatest(team: String?) async {
@@ -34,11 +36,21 @@ final class NewsStore {
         }
     }
 
-    func loadProspects(team: String?) async {
-        loadingProspects = true
-        defer { loadingProspects = false }
+    func loadDraftProspects() async {
+        loadingDraft = true
+        defer { loadingDraft = false }
         do {
-            prospects = try await api.prospects(team: team)
+            draftProspects = try await api.prospects(team: nil)
+        } catch {
+            self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+        }
+    }
+
+    func loadTeamProspects(team: String) async {
+        loadingTeam = true
+        defer { loadingTeam = false }
+        do {
+            teamProspects = try await api.prospects(team: team)
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
