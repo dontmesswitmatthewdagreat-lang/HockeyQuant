@@ -54,18 +54,13 @@ enum Theme {
     // MARK: - Background
 
     /// The app-wide background. Flat neutral by default; when a favorite team is
-    /// themed, a bold team gradient with an accent glow in the corner. Use in a
-    /// screen's root `ZStack` in place of `Palette.background.ignoresSafeArea()`.
-    @MainActor static func backgroundView() -> some View {
-        let stops = Palette.backgroundStops.isEmpty
-            ? [Palette.background, Palette.background]
-            : Palette.backgroundStops
-        return ZStack {
-            LinearGradient(colors: stops, startPoint: .topLeading, endPoint: .bottomTrailing)
-            if Palette.backgroundGlow > 0 {
-                RadialGradient(colors: [Palette.accent.opacity(Palette.backgroundGlow), .clear],
-                               center: .topTrailing, startRadius: 0, endRadius: 540)
-            }
+    /// themed, a slowly-drifting team-colored gradient (`backgroundStops`). Use
+    /// in a screen's root `ZStack` in place of `Palette.background.ignoresSafeArea()`.
+    @MainActor @ViewBuilder static func backgroundView() -> some View {
+        if Palette.backgroundStops.isEmpty {
+            Palette.background
+        } else {
+            AnimatedTeamBackground(colors: Palette.backgroundStops)
         }
     }
 
@@ -100,6 +95,55 @@ enum Theme {
         static func caption() -> SwiftUI.Font { .system(size: 13, weight: .medium) }
         static func mono() -> SwiftUI.Font { .system(size: 15, weight: .semibold, design: .monospaced) }
         static func statNumber() -> SwiftUI.Font { .system(size: 20, weight: .bold, design: .rounded) }
+    }
+}
+
+// MARK: - Animated team background
+
+/// Soft, slowly-drifting team-colored "blobs" (aurora/mesh style): a few large
+/// radial gradients in light team tints float around over a white base, so the
+/// white cards + dark text stay readable on top. Respects Reduce Motion (still).
+struct AnimatedTeamBackground: View {
+    var colors: [Color]
+    var base: Color = .white
+    var radiusFactor: CGFloat = 0.66
+    var speed: Double = 1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack {
+                base
+                if reduceMotion {
+                    blobs(in: geo.size, t: 0)
+                } else {
+                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                        blobs(in: geo.size, t: context.date.timeIntervalSinceReferenceDate * speed)
+                    }
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipped()
+        }
+    }
+
+    private func blobs(in size: CGSize, t: TimeInterval) -> some View {
+        let minDim = min(size.width, size.height)
+        return ZStack {
+            ForEach(Array(colors.enumerated()), id: \.offset) { i, c in
+                let phase = Double(i) * 1.7
+                let sx = 0.24 + Double(i) * 0.045
+                let sy = 0.28 + Double(i) * 0.035
+                let x = 0.5 + 0.46 * cos(t * sx + phase)
+                let y = 0.5 + 0.46 * sin(t * sy + phase * 1.3)
+                let r = minDim * (radiusFactor + 0.12 * sin(t * 0.14 + phase))
+                Circle()
+                    .fill(RadialGradient(colors: [c, c.opacity(0)],
+                                         center: .center, startRadius: 0, endRadius: r))
+                    .frame(width: r * 2, height: r * 2)
+                    .position(x: x * size.width, y: y * size.height)
+            }
+        }
     }
 }
 

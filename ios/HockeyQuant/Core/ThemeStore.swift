@@ -54,9 +54,25 @@ final class ThemeStore {
         apply()
     }
 
-    /// Live preview while choosing a team in onboarding (not persisted).
+    /// Live ACCENT preview while choosing a team in onboarding (not persisted).
+    /// Deliberately updates only the accent colors — NOT the background gradient
+    /// or forced color scheme. Changing those in place during onboarding (no
+    /// `generation` rebuild, unlike `apply()`) swaps the root background view
+    /// type + `.preferredColorScheme` mid-flight and crashes. The full team
+    /// theme installs cleanly when onboarding finishes (`setTeamColors` → apply).
     func preview(team: String?) {
-        applyPalette(team: team)
+        guard let team, let info = TeamInfo.all[team] else {
+            accent = Theme.Palette.brandRed
+            Theme.Palette.accent = Theme.Palette.brandRed
+            Theme.Palette.accentAlt = Theme.Palette.defaultAccentAlt
+            Theme.Palette.cardBorder = Theme.Palette.defaultBorder
+            return
+        }
+        let acc = legible(info.primary)
+        accent = acc
+        Theme.Palette.accent = acc
+        Theme.Palette.accentAlt = legible(info.secondary)
+        Theme.Palette.cardBorder = acc
     }
 
     func resetToBrand() { setTeamColors(enabled: false) }
@@ -93,10 +109,17 @@ final class ThemeStore {
         Theme.Palette.accent = acc
         Theme.Palette.accentAlt = legible(info.secondary)
         Theme.Palette.cardBorder = acc
-        // Standard neutral background (no team gradient); follow the system scheme.
-        Theme.Palette.backgroundStops = []
+        // Animated background "blobs": 5 team-tinted clouds float over white.
+        // More saturated than a flat wash, but white cards + dark text still read.
+        Theme.Palette.backgroundStops = [
+            mix(info.primary, .white, 0.36),
+            mix(info.secondary, .white, 0.34),
+            mix(info.primary, .white, 0.54),
+            mix(info.secondary, .white, 0.48),
+            mix(info.primary, .white, 0.44),
+        ]
         Theme.Palette.backgroundGlow = 0
-        forcedScheme = nil
+        forcedScheme = .light   // white cards + dark text on the light gradient
         isTeamTheme = true
     }
 
@@ -115,9 +138,14 @@ final class ThemeStore {
     }
 
     /// A color that resolves differently in light vs dark mode.
-    private func dynamic(light: Color, dark: Color) -> Color {
+    /// `nonisolated` is essential: the dynamic `UIColor` provider closure must NOT
+    /// be `@MainActor`-isolated, because SwiftUI resolves colors on its async
+    /// render thread (e.g. while animating an accent). A MainActor-isolated
+    /// closure there hits a Swift-concurrency isolation assertion and crashes.
+    /// (Mirrors the non-isolated `Color(light:dark:)` initializer.)
+    nonisolated private func dynamic(light: Color, dark: Color) -> Color {
         let l = UIColor(light), d = UIColor(dark)
-        return Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? d : l })
+        return Color(uiColor: UIColor { traits in traits.userInterfaceStyle == .dark ? d : l })
     }
 
     // MARK: - Color math

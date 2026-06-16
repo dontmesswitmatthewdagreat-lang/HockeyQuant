@@ -67,37 +67,38 @@ struct RapidDigestCard: View {
     let asOf: String?
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: Theme.Spacing.xs) {
-                        Text("RAPID DIGEST")
-                            .font(.system(size: 21, weight: .heavy, design: .rounded))
-                            .foregroundStyle(Theme.Palette.accent)
-                            .lineLimit(1)
-                        GoalLightIcon(height: 22)
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            // Header (not a card).
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    Text("RAPID DIGEST")
+                        .font(.system(size: 21, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.accent)
+                        .lineLimit(1)
+                    GoalLightIcon(height: 22)
+                    Spacer(minLength: 0)
+                }
+                if let asOf {
+                    Text("as of \(asOf)")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .lineLimit(1)
+                }
+            }
+
+            // One skinny card per key point.
+            ForEach(Array(points.enumerated()), id: \.offset) { i, p in
+                Card(padding: Theme.Spacing.sm) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        PuckDot(size: 13)
+                        Text(p)
+                            .font(Theme.Font.body())
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 0)
                     }
-                    if let asOf {
-                        Text("as of \(asOf)")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Theme.Palette.textTertiary)
-                            .lineLimit(1)
-                    }
                 }
-
-                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                    ForEach(Array(points.enumerated()), id: \.offset) { i, p in
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            PuckDot(size: 13)
-                            Text(p)
-                                .font(Theme.Font.body())
-                                .foregroundStyle(Theme.Palette.textPrimary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .staggeredEntrance(index: i)
-                    }
-                }
+                .staggeredEntrance(index: i)
             }
         }
         .id(digestId)   // a fresh digest replays the staggered entrance
@@ -124,5 +125,40 @@ struct AnimatedGradientRing: View {
                                     center: .center, angle: angle),
                     lineWidth: lineWidth)
         }
+    }
+}
+
+// MARK: - Panning headline collage
+
+/// A continuously panning strip of the day's headline photos — used as the
+/// background of the "Watch today's recap" CTA (with a dark scrim on top so the
+/// text stays readable). Loops seamlessly by duplicating the tiles.
+struct HeadlineCollage: View {
+    let urls: [URL]
+    var speed: Double = 16
+
+    var body: some View {
+        GeometryReader { geo in
+            let h = geo.size.height
+            let tileW = max(h * 1.3, 120)
+            let count = max(urls.count, 1)
+            let total = Double(tileW) * Double(count)
+            TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                let dx = CGFloat((t * speed).truncatingRemainder(dividingBy: total))
+                HStack(spacing: 0) {
+                    ForEach(0..<(count * 2), id: \.self) { i in
+                        AsyncImage(url: urls[i % count]) { phase in
+                            if let img = phase.image { img.resizable().scaledToFill() }
+                            else { Color.black.opacity(0.25) }
+                        }
+                        .frame(width: tileW, height: h)
+                        .clipped()
+                    }
+                }
+                .offset(x: -dx)
+            }
+        }
+        .clipped()
     }
 }

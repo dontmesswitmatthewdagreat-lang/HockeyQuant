@@ -114,39 +114,63 @@ struct NewsView: View {
         return watchedIds.split(separator: ",").map(String.init).contains(id)
     }
 
+    /// Headline photos used as the panning collage behind the play CTA.
+    private var collageURLs: [URL] {
+        Array(store.digests.flatMap { $0.items }.compactMap { $0.image }.prefix(10))
+    }
+
     private var playCTA: some View {
-        let gradient = LinearGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
-                                      startPoint: .leading, endPoint: .trailing)
         let count = store.digests.first?.items.count ?? 0
         let watched = watchedCurrent
+        let urls = collageURLs
+        let onPhoto = !watched && !urls.isEmpty   // text sits on the dark collage
         return Button { showStory = true } label: {
             HStack(spacing: Theme.Spacing.md) {
                 ZStack {
-                    Circle()
-                        .fill(watched ? AnyShapeStyle(Theme.Palette.surface) : AnyShapeStyle(gradient))
-                        .frame(width: 48, height: 48)
-                        .overlay(Circle().strokeBorder(Theme.Palette.border, lineWidth: watched ? 1 : 0))
+                    if watched {
+                        Circle().fill(Theme.Palette.surface)
+                            .overlay(Circle().strokeBorder(Theme.Palette.border, lineWidth: 1))
+                    } else {
+                        AnimatedTeamBackground(
+                            colors: [Theme.Palette.accentAlt, Theme.Palette.accent, Theme.Palette.accentAlt],
+                            base: Theme.Palette.accent,
+                            radiusFactor: 0.8,
+                            speed: 3.5
+                        ).clipShape(Circle())
+                    }
                     Image(systemName: watched ? "checkmark" : "play.fill")
                         .font(.system(size: 19, weight: .black))
                         .foregroundStyle(watched ? Theme.Palette.strong : .white)
                 }
+                .frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(watched ? "You're caught up" : "Watch today's recap")
                         .font(.system(size: 17, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .foregroundStyle(onPhoto ? .white : Theme.Palette.textPrimary)
+                        .shadow(color: onPhoto ? .black.opacity(0.5) : .clear, radius: 3, y: 1)
                     Text(watched ? "Tap to rewatch the stories"
                          : (count > 0 ? "\(count) top stories · tap to play" : "Tap to play"))
-                        .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(onPhoto ? .white.opacity(0.9) : Theme.Palette.textSecondary)
+                        .shadow(color: onPhoto ? .black.opacity(0.5) : .clear, radius: 2, y: 1)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(watched ? Theme.Palette.textTertiary : Theme.Palette.accent)
+                    .foregroundStyle(onPhoto ? .white : (watched ? Theme.Palette.textTertiary : Theme.Palette.accent))
             }
             .padding(Theme.Spacing.md)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                    .fill(Theme.Palette.surface)
-            )
+            .background {
+                if onPhoto {
+                    ZStack {
+                        HeadlineCollage(urls: urls)
+                        LinearGradient(colors: [.black.opacity(0.65), .black.opacity(0.45), .black.opacity(0.68)],
+                                       startPoint: .leading, endPoint: .trailing)
+                    }
+                } else {
+                    Theme.Palette.surface
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
             .overlay {
                 if watched {
                     RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
@@ -170,9 +194,6 @@ struct NewsView: View {
                 Spacer()
                 kindBadge(d.kindLabel)
             }
-            if let kp = d.keyPoints, !kp.isEmpty {
-                RapidDigestCard(points: kp, digestId: d.id, asOf: d.asOf)
-            }
             if let lead = d.items.first { heroCard(lead).staggeredEntrance(index: 0) }
             ForEach(Array(d.items.dropFirst().enumerated()), id: \.element.id) { i, item in
                 compactCard(item).staggeredEntrance(index: min(i + 1, 8))
@@ -183,7 +204,7 @@ struct NewsView: View {
     private func heroCard(_ item: DigestItem) -> some View {
         Button { open(item) } label: {
             ZStack(alignment: .bottomLeading) {
-                newsImage(item).frame(height: 210).frame(maxWidth: .infinity).clipped()
+                newsImage(item).frame(height: 240).frame(maxWidth: .infinity).clipped()
                 LinearGradient(colors: [.clear, .black.opacity(0.15), .black.opacity(0.85)],
                                startPoint: .top, endPoint: .bottom)
                 VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
@@ -194,7 +215,7 @@ struct NewsView: View {
                 }
                 .padding(Theme.Spacing.md)
             }
-            .frame(height: 210)
+            .frame(height: 240)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
@@ -202,21 +223,25 @@ struct NewsView: View {
 
     private func compactCard(_ item: DigestItem) -> some View {
         Button { open(item) } label: {
-            Card {
-                HStack(spacing: Theme.Spacing.sm) {
-                    newsImage(item).frame(width: 72, height: 72)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: Theme.Spacing.xs) {
-                            tagChip(item.tag)
-                            Text(item.source).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.Palette.textTertiary).lineLimit(1)
-                        }
-                        Text(item.headline).font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(2)
-                        Text(item.blurb).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary).lineLimit(2)
+            ZStack(alignment: .bottomLeading) {
+                newsImage(item).frame(height: 196).frame(maxWidth: .infinity).clipped()
+                LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.88)],
+                               startPoint: .top, endPoint: .bottom)
+                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                    HStack(spacing: Theme.Spacing.xs) {
+                        tagChip(item.tag)
+                        Text(item.source).font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.85)).lineLimit(1)
                     }
-                    Spacer(minLength: 0)
+                    Text(item.headline).font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white).multilineTextAlignment(.leading).lineLimit(2)
+                    Text(item.blurb).font(Theme.Font.caption())
+                        .foregroundStyle(.white.opacity(0.82)).lineLimit(2)
                 }
+                .padding(Theme.Spacing.md)
             }
+            .frame(height: 196)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         }
         .buttonStyle(.plain)
     }

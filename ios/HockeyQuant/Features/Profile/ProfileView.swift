@@ -15,6 +15,8 @@ struct ProfileView: View {
     @State private var editingUsername = false
     @State private var usernameDraft = ""
     @State private var photoItem: PhotosPickerItem?
+    @AppStorage(DigestNotifier.enabledKey) private var digestEnabled = true
+    @AppStorage(DigestNotifier.freqKey) private var digestFreqHours = 12
 
     var body: some View {
         NavigationStack {
@@ -54,6 +56,7 @@ struct ProfileView: View {
                 avatarHeader
                 usernameCard
                 favoriteTeamCard
+                digestNotifyCard
                 aboutCard
                 PressableButton(action: { Task { await auth.signOut() } }) {
                     Text("Sign out")
@@ -150,6 +153,42 @@ struct ProfileView: View {
             }
         }
         .buttonStyle(.plain)
+    }
+
+    private var digestNotifyCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                Toggle(isOn: $digestEnabled) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Rapid Digest")
+                            .font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                        Text("The day's top stories, as a notification")
+                            .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                }
+                .tint(Theme.Palette.accent)
+                .onChange(of: digestEnabled) { _, _ in DigestNotifier.reschedule() }
+
+                if digestEnabled {
+                    Divider().background(Theme.Palette.border)
+                    HStack {
+                        Text("Frequency").font(Theme.Font.body()).foregroundStyle(Theme.Palette.textSecondary)
+                        Spacer()
+                        Menu {
+                            ForEach(DigestFrequency.allCases) { f in
+                                Button(f.label) { digestFreqHours = f.rawValue; DigestNotifier.reschedule() }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(DigestFrequency(rawValue: digestFreqHours)?.label ?? "Twice a day")
+                                Image(systemName: "chevron.up.chevron.down").font(.system(size: 11))
+                            }
+                            .font(Theme.Font.body()).foregroundStyle(Theme.Palette.accent)
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private var aboutCard: some View {

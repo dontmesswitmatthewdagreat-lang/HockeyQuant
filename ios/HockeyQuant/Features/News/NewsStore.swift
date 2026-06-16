@@ -18,6 +18,9 @@ final class NewsStore {
         defer { loading = false }
         do {
             digests = try await api.newsLatest(team: team)
+            if let kp = digests.compactMap(\.keyPoints).first(where: { !$0.isEmpty }) {
+                DigestNotifier.updatePoints(kp)
+            }
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
