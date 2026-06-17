@@ -52,7 +52,7 @@ struct PlayHeaderCard: View {
                     style: StrokeStyle(lineWidth: 6, lineCap: .round))
                 .rotationEffect(.degrees(-90))
             VStack(spacing: 0) {
-                Text("LVL").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                Text("LVL").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
                 Text("\(stats.level)").font(.system(size: 24, weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .contentTransition(.numericText())
@@ -64,7 +64,7 @@ struct PlayHeaderCard: View {
                 .font(.system(size: 11, weight: .semibold))
                 .monospacedDigit()
                 .contentTransition(.numericText())
-                .foregroundStyle(Theme.Palette.textSecondary)
+                .foregroundStyle(Theme.Palette.textPrimary)
                 .offset(y: 16)
         }
     }
@@ -73,7 +73,7 @@ struct PlayHeaderCard: View {
         VStack(alignment: .trailing, spacing: 2) {
             HStack(spacing: 4) {
                 Image(systemName: "flame.fill")
-                    .foregroundStyle(stats.currentStreak > 0 ? Theme.Palette.moderate : Theme.Palette.textTertiary)
+                    .foregroundStyle(stats.currentStreak > 0 ? Theme.Palette.moderate : Theme.Palette.textPrimary)
                     .scaleEffect(flamePulse && stats.currentStreak > 0 ? 1.15 : 1)
                     .animation(stats.currentStreak > 0 && !reduceMotion
                                ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
@@ -85,20 +85,20 @@ struct PlayHeaderCard: View {
             }
             Text("current streak")
                 .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.Palette.textTertiary)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Text("best \(stats.bestStreak)")
                 .font(.system(size: 10))
-                .foregroundStyle(Theme.Palette.textTertiary)
+                .foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 
     private var statsRow: some View {
         HStack(spacing: Theme.Spacing.sm) {
-            StatPill(label: "Picks", value: "\(stats.picksMade)")
+            StatPill(label: "Picks", value: "\(stats.picksMade)", labelColor: Theme.Palette.textPrimary)
             Divider().frame(height: 28).overlay(Theme.Palette.border)
-            StatPill(label: "Accuracy", value: stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—")
+            StatPill(label: "Accuracy", value: stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—", labelColor: Theme.Palette.textPrimary)
             Divider().frame(height: 28).overlay(Theme.Palette.border)
-            StatPill(label: "Beat model", value: "\(stats.beatsModel)")
+            StatPill(label: "Beat model", value: "\(stats.beatsModel)", labelColor: Theme.Palette.textPrimary)
         }
     }
 }
@@ -124,12 +124,12 @@ struct SeasonBanner: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: Theme.Spacing.xs) {
                         Text(tier.name)
-                            .font(Theme.Font.headline())
+                            .font(Theme.Font.headlineHeavy())
                             .foregroundStyle(Theme.Palette.textPrimary)
                         Spacer()
                         Text(Season.current.id)
                             .font(.system(size: 10, weight: .semibold))
-                            .foregroundStyle(Theme.Palette.textTertiary)
+                            .foregroundStyle(Theme.Palette.textPrimary)
                     }
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
@@ -141,11 +141,11 @@ struct SeasonBanner: View {
                     .frame(height: 5)
                     Text(nextTier.map { "\(stats.xp)/\($0.threshold) XP → \($0.name)" } ?? "Top tier · \(stats.xp) XP")
                         .font(.system(size: 11))
-                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .foregroundStyle(Theme.Palette.textPrimary)
             }
         }
     }
@@ -168,7 +168,7 @@ struct CallGameCard: View {
                 HStack(spacing: Theme.Spacing.sm) {
                     teamButton(game.away)
                     VStack(spacing: 2) {
-                        Text("@").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textTertiary)
+                        Text("@").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
                     }
                     .frame(width: 28)
                     teamButton(game.home)
@@ -182,7 +182,7 @@ struct CallGameCard: View {
         HStack {
             Text("Model: \(game.pick)")
                 .font(Theme.Font.caption())
-                .foregroundStyle(Theme.Palette.textSecondary)
+                .foregroundStyle(Theme.Palette.textPrimary)
             Spacer()
             if isSubmitting {
                 ProgressView()
@@ -217,11 +217,11 @@ struct CallGameCard: View {
                     .animation(.spring(response: 0.3, dampingFraction: 0.5), value: isUserPick)
                 Text(info.name)
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .foregroundStyle(Theme.Palette.textPrimary)
                     .lineLimit(1).minimumScaleFactor(0.7)
                 if isModelPick {
                     Text("MODEL").font(.system(size: 8, weight: .bold))
-                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -259,5 +259,48 @@ struct CallGameCard: View {
         .padding(.vertical, Theme.Spacing.xs)
         .background((correct ? Theme.Palette.positive : Theme.Palette.negative).opacity(0.1))
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+    }
+}
+
+// MARK: - Adaptive title
+
+/// A large title whose color flips black↔white to stay readable as the team
+/// background blobs drift beneath it. Samples the blob luminance under the title
+/// each frame and crossfades through a steep, narrow band (a quick gradient, with
+/// almost no time spent in the hard-to-read gray middle).
+struct AdaptiveBlobTitle: View {
+    let text: String
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var frame: CGRect = .zero
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 20.0, paused: reduceMotion)) { ctx in
+            let stops = Theme.Palette.backgroundStopsPrimary
+            Text(text)
+                .font(Theme.Font.display())
+                .foregroundStyle(Self.color(stops: stops, frame: frame,
+                                            screen: UIScreen.main.bounds.size,
+                                            t: reduceMotion ? 0 : ctx.date.timeIntervalSinceReferenceDate))
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { frame = geo.frame(in: .global) }
+                    .onChange(of: geo.frame(in: .global)) { _, f in frame = f }
+            }
+        )
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    /// Black on light background, white on dark — with a steep smoothstep so the
+    /// transition is fast and barely passes through gray.
+    private static func color(stops: [Color], frame: CGRect, screen: CGSize, t: TimeInterval) -> Color {
+        guard !stops.isEmpty, frame != .zero else { return Theme.Palette.textPrimary }
+        let lum = AnimatedTeamBackground.backgroundLuminance(
+            colors: stops, at: CGPoint(x: frame.midX, y: frame.midY), in: screen, t: t)
+        let u = max(0, min(1, (lum - 0.57) / (0.65 - 0.57)))   // narrow band → quick flip
+        let s = u * u * (3 - 2 * u)                            // dark→0 (white text), light→1 (black)
+        return Color(white: 1 - s)
     }
 }

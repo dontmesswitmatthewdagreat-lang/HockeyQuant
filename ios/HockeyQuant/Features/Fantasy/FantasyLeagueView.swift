@@ -16,6 +16,7 @@ struct FantasyLeagueView: View {
             Theme.backgroundView().ignoresSafeArea()
             content
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .navigationTitle(detail?.league.name ?? "League")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }

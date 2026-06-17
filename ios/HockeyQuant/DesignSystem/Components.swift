@@ -1,16 +1,50 @@
 import SwiftUI
 
+// MARK: - Card team-blobs (opt-in, per subtree)
+
+/// When true, `Card` drifts soft team-SECONDARY blobs inside its surface so the
+/// white boxes carry motion + color. Set via `.environment(\.cardTeamBlobs, true)`
+/// on a subtree (the Play tab); off everywhere else, so News etc. are unchanged.
+private struct CardTeamBlobsKey: EnvironmentKey { static let defaultValue = false }
+private struct CardSurfaceKey: EnvironmentKey { static let defaultValue: Color? = nil }
+extension EnvironmentValues {
+    var cardTeamBlobs: Bool {
+        get { self[CardTeamBlobsKey.self] }
+        set { self[CardTeamBlobsKey.self] = newValue }
+    }
+    /// Overrides a `Card`'s fill color (e.g. the Fantasy section paints cards yellow).
+    var cardSurfaceOverride: Color? {
+        get { self[CardSurfaceKey.self] }
+        set { self[CardSurfaceKey.self] = newValue }
+    }
+}
+
 // MARK: - Card
 
 /// Standard surface container used across the app.
 struct Card<Content: View>: View {
     var padding: CGFloat = Theme.Spacing.md
     @ViewBuilder var content: () -> Content
+    @Environment(\.cardTeamBlobs) private var teamBlobs
+    @Environment(\.cardSurfaceOverride) private var surfaceOverride
+    // Stable per-card phase so each card's blobs drift independently of its neighbors.
+    @State private var blobSeed = Double.random(in: 0..<1000)
 
     var body: some View {
         content()
             .padding(padding)
-            .background(Theme.Palette.surface)
+            .background {
+                ZStack {
+                    surfaceOverride ?? Theme.Palette.surface
+                    if teamBlobs, !Theme.Palette.cardBlobStops.isEmpty {
+                        AnimatedTeamBackground(colors: Theme.Palette.cardBlobStops,
+                                               base: .clear, radiusFactor: 1.0, speed: 2.4, fps: 24,
+                                               spread: true, seed: blobSeed)
+                            .opacity(0.8)
+                            .allowsHitTesting(false)
+                    }
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
@@ -107,6 +141,7 @@ struct WinProbBar: View {
 struct StatPill: View {
     let label: String
     let value: String
+    var labelColor: Color = Theme.Palette.textSecondary   // overridable (Play header uses black)
 
     var body: some View {
         VStack(spacing: 2) {
@@ -115,7 +150,7 @@ struct StatPill: View {
                 .foregroundStyle(Theme.Palette.textPrimary)
             Text(label)
                 .font(Theme.Font.caption())
-                .foregroundStyle(Theme.Palette.textSecondary)
+                .foregroundStyle(labelColor)
         }
         .frame(maxWidth: .infinity)
     }

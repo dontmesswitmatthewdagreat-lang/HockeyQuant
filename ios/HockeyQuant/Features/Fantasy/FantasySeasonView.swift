@@ -12,6 +12,7 @@ struct FantasySeasonView: View {
     @State private var simulating = false
     @State private var working = false
     @State private var error: String?
+    @Environment(\.cardSurfaceOverride) private var cardSurface
 
     var body: some View {
         ZStack {
@@ -47,6 +48,7 @@ struct FantasySeasonView: View {
                 ErrorStateView(message: error) { Task { await load() } }
             }
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .task { await load() }
     }
 
@@ -141,7 +143,7 @@ struct FantasySeasonView: View {
                 .font(.system(size: 12, weight: .medium, design: .rounded)).foregroundStyle(Theme.Palette.textSecondary)
         }
         .padding(.horizontal, Theme.Spacing.sm).padding(.vertical, Theme.Spacing.xs)
-        .background(Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+        .background(cardSurface ?? Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
     }
 
     // MARK: - Standings
@@ -164,7 +166,7 @@ struct FantasySeasonView: View {
                     }
                 }
                 .padding(Theme.Spacing.sm)
-                .background(row.isMe ? Theme.Palette.accent.opacity(0.10) : Theme.Palette.surface)
+                .background(row.isMe ? Theme.Palette.accent.opacity(0.10) : (cardSurface ?? Theme.Palette.surface))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
                     .stroke(row.isMe ? Theme.Palette.accent : Color.clear, lineWidth: 1.5))
@@ -190,7 +192,7 @@ struct FantasySeasonView: View {
                     Spacer()
                 }
                 .padding(.horizontal, Theme.Spacing.sm).padding(.vertical, 6)
-                .background(Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+                .background(cardSurface ?? Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
             }
         }
     }
@@ -230,7 +232,7 @@ struct FantasySeasonView: View {
             Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
         }
         .padding(Theme.Spacing.sm)
-        .background(Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        .background(cardSurface ?? Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
     }
 
     private func playoffHeadline(_ m: ScheduleItem, _ s: FantasySeasonResponse) -> String {

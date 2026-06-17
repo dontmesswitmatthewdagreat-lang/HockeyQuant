@@ -14,6 +14,7 @@ struct FantasyHomeView: View {
                 ProgressView().tint(Theme.Palette.accent)
             }
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .navigationTitle("Fantasy")
         .navigationBarTitleDisplayMode(.large)
         .task {

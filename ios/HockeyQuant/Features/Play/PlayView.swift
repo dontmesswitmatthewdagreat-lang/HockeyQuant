@@ -22,7 +22,9 @@ struct PlayView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                Theme.backgroundView().ignoresSafeArea()
+                // Play tab: background blobs use the team's PRIMARY only; the
+                // SECONDARY drifts inside the cards (via `cardTeamBlobs` below).
+                Theme.backgroundView(stops: Theme.Palette.backgroundStopsPrimary).ignoresSafeArea()
                 if auth.isInitializing {
                     ProgressView()
                 } else if !auth.isSignedIn {
@@ -31,7 +33,8 @@ struct PlayView: View {
                     signedInContent
                 }
             }
-            .navigationTitle("Play")
+            .environment(\.cardTeamBlobs, true)
+            .navigationBarTitleDisplayMode(.inline)   // custom adaptive "Play" lives in the content
             .toolbar {
                 if auth.isSignedIn {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -106,19 +109,26 @@ struct PlayView: View {
     // MARK: - Sign-in gate
 
     private var signInPrompt: some View {
-        VStack(spacing: Theme.Spacing.md) {
-            Image(systemName: "gamecontroller.fill")
-                .font(.system(size: 44))
-                .foregroundStyle(Theme.Palette.accent)
-            Text("Call the game")
-                .font(Theme.Font.title())
-                .foregroundStyle(Theme.Palette.textPrimary)
-            Text("Sign in on the Profile tab to make daily picks, build streaks, earn XP, and climb the leaderboard.")
-                .font(Theme.Font.body())
-                .foregroundStyle(Theme.Palette.textSecondary)
-                .multilineTextAlignment(.center)
+        VStack(alignment: .leading, spacing: 0) {
+            AdaptiveBlobTitle(text: "Play").padding(.horizontal, Theme.Spacing.md)
+            Spacer()
+            VStack(spacing: Theme.Spacing.md) {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 44))
+                    .foregroundStyle(Theme.Palette.accent)
+                Text("Call the game")
+                    .font(Theme.Font.title())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text("Sign in on the Profile tab to make daily picks, build streaks, earn XP, and climb the leaderboard.")
+                    .font(Theme.Font.body())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(Theme.Spacing.xl)
+            Spacer()
         }
-        .padding(Theme.Spacing.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - Signed in
@@ -126,6 +136,7 @@ struct PlayView: View {
     private var signedInContent: some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
+                AdaptiveBlobTitle(text: "Play")
                 PlayHeaderCard(stats: game.stats ?? .empty)
                 NavigationLink { SeasonView() } label: {
                     SeasonBanner(stats: game.seasonStats)
@@ -160,11 +171,11 @@ struct PlayView: View {
                     Image(systemName: "trophy.fill").font(.system(size: 20)).foregroundStyle(Theme.Palette.accent)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Fantasy League").font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
-                    Text("Draft a team, score real weekly goals, win your league").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
+                    Text("Fantasy League").font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
+                    Text("Draft a team, score real weekly goals, win your league").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
                 }
                 Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textPrimary)
             }
         }
     }
@@ -187,7 +198,7 @@ struct PlayView: View {
                 if game.achievements.isEmpty {
                     Text("Make picks to start earning badges.")
                         .font(Theme.Font.caption())
-                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .foregroundStyle(Theme.Palette.textPrimary)
                 } else {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: Theme.Spacing.sm) {
@@ -209,11 +220,11 @@ struct PlayView: View {
                     .frame(width: 48, height: 48)
                 Image(systemName: achievement.icon)
                     .font(.system(size: 20))
-                    .foregroundStyle(earned ? Theme.Palette.accent : Theme.Palette.textTertiary)
+                    .foregroundStyle(earned ? Theme.Palette.accent : Theme.Palette.textPrimary)
             }
             Text(achievement.name)
                 .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(earned ? Theme.Palette.textPrimary : Theme.Palette.textTertiary)
+                .foregroundStyle(earned ? Theme.Palette.textPrimary : Theme.Palette.textPrimary)
                 .lineLimit(1)
                 .frame(width: 60)
         }
@@ -228,7 +239,7 @@ struct PlayView: View {
             stepButton("chevron.left") { model.step(days: -1) }.accessibilityLabel("Previous day")
             PressableButton(action: { showingDatePicker = true }) {
                 Text(model.dateLabel)
-                    .font(Theme.Font.headline())
+                    .font(Theme.Font.headlineHeavy())
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .frame(maxWidth: .infinity)
             }
@@ -299,6 +310,6 @@ struct PlayView: View {
     private func sectionHeader(_ text: String) -> some View {
         Text(text.uppercased())
             .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Theme.Palette.textTertiary)
+            .foregroundStyle(Theme.Palette.textPrimary)
     }
 }

@@ -21,6 +21,7 @@ struct DraftRoomView: View {
                 ProgressView().tint(Theme.Palette.accent)
             }
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .navigationTitle("Draft")
         .navigationBarTitleDisplayMode(.inline)
         .task {

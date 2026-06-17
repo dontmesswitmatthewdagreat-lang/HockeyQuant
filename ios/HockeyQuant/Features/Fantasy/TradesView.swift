@@ -36,6 +36,7 @@ struct TradesView: View {
                 .padding(Theme.Spacing.md)
             }
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .navigationTitle("Trades")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }

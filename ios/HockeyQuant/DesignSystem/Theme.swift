@@ -20,8 +20,15 @@ enum Theme {
 
         /// App background gradient stops + corner glow, driven by `ThemeStore`.
         /// Empty stops → the flat neutral background (the default, no-team look).
+        /// `backgroundStops` mixes the team's primary + secondary (News + default).
         @MainActor static var backgroundStops: [Color] = []
         @MainActor static var backgroundGlow: Double = 0
+
+        /// Play-tab split: the background uses ONLY the team's PRIMARY color
+        /// (`backgroundStopsPrimary`), while the team's SECONDARY color drifts as
+        /// soft blobs *inside* the white cards (`cardBlobStops`). Empty = no team.
+        @MainActor static var backgroundStopsPrimary: [Color] = []
+        @MainActor static var cardBlobStops: [Color] = []
 
         // Semantic (adapt to light/dark via asset-free dynamic colors).
         // surface/surfaceRaised/border are overridable so `ThemeStore` can paint
@@ -30,6 +37,9 @@ enum Theme {
         static let defaultSurface = Color(light: 0xFFFFFF, dark: 0x151A22)
         static let defaultSurfaceRaised = Color(light: 0xFFFFFF, dark: 0x1C232E)
         static let defaultBorder = Color(light: 0xE6E8EC, dark: 0x262E3A)
+        /// Fantasy-section card fill — a deep marigold yellow-orange so the Fantasy
+        /// screens read as a distinct "game within the app" (via `.environment(\.cardSurfaceOverride, …)`).
+        static let fantasySurface = Color(light: 0xFFC24C, dark: 0x3A2B10)
         @MainActor static var surface = defaultSurface
         @MainActor static var surfaceRaised = defaultSurfaceRaised
         @MainActor static var border = defaultBorder
@@ -56,11 +66,14 @@ enum Theme {
     /// The app-wide background. Flat neutral by default; when a favorite team is
     /// themed, a slowly-drifting team-colored gradient (`backgroundStops`). Use
     /// in a screen's root `ZStack` in place of `Palette.background.ignoresSafeArea()`.
-    @MainActor @ViewBuilder static func backgroundView() -> some View {
-        if Palette.backgroundStops.isEmpty {
+    /// Pass `stops:` to override (e.g. the Play tab uses `backgroundStopsPrimary`
+    /// for a primary-only wash); defaults to the mixed `backgroundStops`.
+    @MainActor @ViewBuilder static func backgroundView(stops: [Color]? = nil) -> some View {
+        let resolved = stops ?? Palette.backgroundStops
+        if resolved.isEmpty {
             Palette.background
         } else {
-            AnimatedTeamBackground(colors: Palette.backgroundStops)
+            AnimatedTeamBackground(colors: resolved)
         }
     }
 
@@ -91,6 +104,7 @@ enum Theme {
         static func display() -> SwiftUI.Font { .system(size: 34, weight: .heavy, design: .rounded) }
         static func title() -> SwiftUI.Font { .system(size: 22, weight: .bold, design: .rounded) }
         static func headline() -> SwiftUI.Font { .system(size: 17, weight: .semibold, design: .rounded) }
+        static func headlineHeavy() -> SwiftUI.Font { .system(size: 17, weight: .heavy, design: .rounded) }
         static func body() -> SwiftUI.Font { .system(size: 15, weight: .regular) }
         static func caption() -> SwiftUI.Font { .system(size: 13, weight: .medium) }
         static func mono() -> SwiftUI.Font { .system(size: 15, weight: .semibold, design: .monospaced) }
@@ -108,6 +122,9 @@ struct AnimatedTeamBackground: View {
     var base: Color = .white
     var radiusFactor: CGFloat = 0.66
     var speed: Double = 1
+    var fps: Double = 30           // lower for the many small in-card instances
+    var spread: Bool = false       // anchor blobs in separate regions so they don't bunch (in-card use)
+    var seed: Double = 0           // phase offset so sibling instances (e.g. cards) animate independently
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -115,10 +132,10 @@ struct AnimatedTeamBackground: View {
             ZStack {
                 base
                 if reduceMotion {
-                    blobs(in: geo.size, t: 0)
+                    blobs(in: geo.size, t0: 0)
                 } else {
-                    TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-                        blobs(in: geo.size, t: context.date.timeIntervalSinceReferenceDate * speed)
+                    TimelineView(.animation(minimumInterval: 1.0 / fps)) { context in
+                        blobs(in: geo.size, t0: context.date.timeIntervalSinceReferenceDate * speed)
                     }
                 }
             }
@@ -127,15 +144,23 @@ struct AnimatedTeamBackground: View {
         }
     }
 
-    private func blobs(in size: CGSize, t: TimeInterval) -> some View {
+    private func blobs(in size: CGSize, t0: TimeInterval) -> some View {
         let minDim = min(size.width, size.height)
+        let n = max(1.0, Double(colors.count))
+        let t = t0 + seed                 // per-instance offset → independent motion
         return ZStack {
             ForEach(Array(colors.enumerated()), id: \.offset) { i, c in
                 let phase = Double(i) * 1.7
                 let sx = 0.24 + Double(i) * 0.045
                 let sy = 0.28 + Double(i) * 0.035
-                let x = 0.5 + 0.46 * cos(t * sx + phase)
-                let y = 0.5 + 0.46 * sin(t * sy + phase * 1.3)
+                // Default: all blobs orbit the center (full-screen washes). `spread`:
+                // anchor each blob in its own band (across the width, alternating
+                // top/bottom) with a wider local drift, so in-card blobs stay apart.
+                let cx = spread ? (Double(i) + 0.5) / n : 0.5
+                let cy = spread ? (i % 2 == 0 ? 0.32 : 0.68) : 0.5
+                let amp = spread ? 0.26 : 0.46
+                let x = cx + amp * cos(t * sx + phase)
+                let y = cy + amp * sin(t * sy + phase * 1.3)
                 let r = minDim * (radiusFactor + 0.12 * sin(t * 0.14 + phase))
                 Circle()
                     .fill(RadialGradient(colors: [c, c.opacity(0)],
@@ -144,6 +169,36 @@ struct AnimatedTeamBackground: View {
                     .position(x: x * size.width, y: y * size.height)
             }
         }
+    }
+}
+
+extension AnimatedTeamBackground {
+    /// Luminance (0 = black … 1 = white) of the default centered-orbit blob field
+    /// at screen point `p` and time `t`, composited over a white base. Lets text
+    /// overlaid on the background flip black↔white to stay readable as blobs drift
+    /// beneath it. Mirrors the non-`spread` blob math + `backgroundView` defaults.
+    static func backgroundLuminance(colors: [Color], at p: CGPoint, in size: CGSize,
+                                    t: TimeInterval, radiusFactor: CGFloat = 0.66) -> Double {
+        guard size.width > 0, size.height > 0, !colors.isEmpty else { return 1 }
+        let minDim = Double(min(size.width, size.height))
+        var rr = 1.0, gg = 1.0, bb = 1.0    // white base
+        for (i, c) in colors.enumerated() {
+            let phase = Double(i) * 1.7
+            let sx = 0.24 + Double(i) * 0.045
+            let sy = 0.28 + Double(i) * 0.035
+            let cx = (0.5 + 0.46 * cos(t * sx + phase)) * Double(size.width)
+            let cy = (0.5 + 0.46 * sin(t * sy + phase * 1.3)) * Double(size.height)
+            let rad = minDim * (Double(radiusFactor) + 0.12 * sin(t * 0.14 + phase))
+            guard rad > 0 else { continue }
+            let a = max(0, 1 - hypot(Double(p.x) - cx, Double(p.y) - cy) / rad)   // linear radial falloff
+            if a <= 0 { continue }
+            var cr: CGFloat = 0, cg: CGFloat = 0, cb: CGFloat = 0, ca: CGFloat = 0
+            UIColor(c).getRed(&cr, green: &cg, blue: &cb, alpha: &ca)
+            rr = rr * (1 - a) + Double(cr) * a
+            gg = gg * (1 - a) + Double(cg) * a
+            bb = bb * (1 - a) + Double(cb) * a
+        }
+        return 0.2126 * rr + 0.7152 * gg + 0.0722 * bb
     }
 }
 

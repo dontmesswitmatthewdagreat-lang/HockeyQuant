@@ -13,6 +13,7 @@ struct GlobalLeagueView: View {
     @State private var joining = false
     @State private var pickingSlot: RosterSlot?
     @State private var error: String?
+    @Environment(\.cardSurfaceOverride) private var cardSurface
 
     var body: some View {
         ZStack {
@@ -25,6 +26,7 @@ struct GlobalLeagueView: View {
                 joinedView(d)
             }
         }
+        .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
         .navigationTitle("Global League")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
@@ -107,7 +109,7 @@ struct GlobalLeagueView: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
             .padding(.horizontal, Theme.Spacing.sm).padding(.vertical, 8)
-            .background(Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+            .background(cardSurface ?? Theme.Palette.surface).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
         }
     }
 
@@ -122,7 +124,7 @@ struct GlobalLeagueView: View {
             Text(String(format: "%.1f", row.points)).font(.system(size: 16, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
         }
         .padding(Theme.Spacing.sm)
-        .background(row.isMe ? Theme.Palette.accent.opacity(0.10) : Theme.Palette.surface)
+        .background(row.isMe ? Theme.Palette.accent.opacity(0.10) : (cardSurface ?? Theme.Palette.surface))
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).stroke(row.isMe ? Theme.Palette.accent : .clear, lineWidth: 1.5))
     }

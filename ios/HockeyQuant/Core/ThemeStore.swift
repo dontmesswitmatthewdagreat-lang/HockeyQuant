@@ -97,6 +97,8 @@ final class ThemeStore {
             Theme.Palette.accentAlt = Theme.Palette.defaultAccentAlt
             Theme.Palette.cardBorder = Theme.Palette.defaultBorder
             Theme.Palette.backgroundStops = []
+            Theme.Palette.backgroundStopsPrimary = []
+            Theme.Palette.cardBlobStops = []
             Theme.Palette.backgroundGlow = 0
             forcedScheme = nil
             isTeamTheme = false
@@ -117,6 +119,20 @@ final class ThemeStore {
             mix(info.primary, .white, 0.54),
             mix(info.secondary, .white, 0.48),
             mix(info.primary, .white, 0.44),
+        ]
+        // Play tab: primary-only background wash (more saturated than News so it pops) …
+        Theme.Palette.backgroundStopsPrimary = [
+            mix(info.primary, .white, 0.22),
+            mix(info.primary, .white, 0.42),
+            mix(info.primary, .white, 0.30),
+            mix(info.primary, .white, 0.48),
+            mix(info.primary, .white, 0.26),
+        ]
+        // … and bolder secondary-color blobs that drift inside the white cards.
+        Theme.Palette.cardBlobStops = [
+            mix(info.secondary, .white, 0.20),
+            mix(info.secondary, .white, 0.36),
+            mix(info.secondary, .white, 0.48),
         ]
         Theme.Palette.backgroundGlow = 0
         forcedScheme = .light   // white cards + dark text on the light gradient
