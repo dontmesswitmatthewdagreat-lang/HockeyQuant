@@ -50,6 +50,7 @@ def generate_mock_draft():
         "edition": mock["edition"],
         "generated_at": mock["generated_at"],
         "order_basis": mock["order_basis"],
+        "lottery_odds": mock.get("lottery_odds", []),
         "picks": mock["picks"],
     }], on_conflict="draft_year,edition").execute()
     return {"edition": mock["edition"], "picks": len(mock["picks"])}

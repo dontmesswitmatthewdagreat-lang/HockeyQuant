@@ -33,6 +33,11 @@ _SECONDARY_BONUS = 0.75
 _GOALIE_REACH_PENALTY = 6.0    # goalies essentially never reach round 1
 _WINDOW = 5                    # consider the top-N available at each pick
 
+# NHL Draft Lottery: odds (%) of winning the No. 1 pick by lottery position
+# (1 = worst record). Current 2-draw system, stable since 2021-22. Sums to 100.
+LOTTERY_ODDS = [18.5, 13.5, 11.5, 9.5, 8.5, 7.5, 6.5, 6.0,
+                5.0, 3.5, 3.0, 2.5, 2.0, 1.5, 0.5, 0.5]
+
 
 def _ordinal(n: int) -> str:
     if 10 <= n % 100 <= 20:
@@ -82,15 +87,54 @@ def _fetch_standings() -> List[dict]:
             "gamesPlayed": r.get("gamesPlayed") or 0,
             "goalFor": r.get("goalFor") or 0,
             "goalAgainst": r.get("goalAgainst") or 0,
+            # 0 = division top-3, 1-2 = the two wildcards (in a playoff spot);
+            # >= 3 = currently out of the playoffs -> in the draft lottery.
+            "wildcardSequence": r.get("wildcardSequence"),
             "date": r.get("date"),
         })
     return out
 
 
+def _standings_key(s: dict):
+    return (s["points"], s["regulationWins"], s["goalDifferential"])
+
+
+def _playoff_split(standings: List[dict]):
+    """(lottery_teams, playoff_teams), each worst-record-first.
+
+    The draft is playoff-aware: the 16 non-playoff teams pick 1-16 (and are the
+    only teams in the lottery), then the 16 playoff teams pick 17-32. Pure points
+    order is wrong near the cutline — a wildcard team can have fewer points than a
+    non-playoff team in the other conference. `wildcardSequence` gives the live
+    "if the season ended today" picture; we fall back to bottom-16-by-points only
+    if that field is unavailable."""
+    has_seq = standings and all(s.get("wildcardSequence") is not None for s in standings)
+    if has_seq:
+        lottery = [s for s in standings if (s.get("wildcardSequence") or 0) >= 3]
+        playoff = [s for s in standings if (s.get("wildcardSequence") or 0) < 3]
+        if 12 <= len(lottery) <= 18:    # sanity (expect 16/16)
+            return sorted(lottery, key=_standings_key), sorted(playoff, key=_standings_key)
+    ordered = sorted(standings, key=_standings_key)
+    return ordered[:16], ordered[16:]
+
+
 def _draft_order(standings: List[dict]) -> List[str]:
-    """Worst record picks first (points, then regulation wins, then goal diff)."""
-    ordered = sorted(standings, key=lambda s: (s["points"], s["regulationWins"], s["goalDifferential"]))
-    return [s["abbrev"] for s in ordered]
+    """Worst record picks first, playoff-aware (non-playoff teams 1-16, then playoff teams)."""
+    lottery, playoff = _playoff_split(standings)
+    return [s["abbrev"] for s in lottery] + [s["abbrev"] for s in playoff]
+
+
+def _lottery_odds(standings: List[dict]) -> List[dict]:
+    """Each lottery team's chance (%) at the No. 1 pick, by current standings."""
+    lottery, _ = _playoff_split(standings)
+    return [{
+        "abbrev": s["abbrev"],
+        "team_name": TEAM_FULL_NAMES.get(s["abbrev"], s["abbrev"]),
+        "odds": LOTTERY_ODDS[i] if i < len(LOTTERY_ODDS) else 0.0,
+        "draft_slot": i + 1,
+        "points": s.get("points") or 0,
+        "games_played": s.get("gamesPlayed") or 0,
+    } for i, s in enumerate(lottery)]
 
 
 # MARK: - Consensus prospect board
@@ -347,6 +391,13 @@ def _ai_extract_order_from_text(text: str, draft_year: int) -> List[str]:
     return [a for a in (str(x).upper().strip() for x in order) if a in valid]  # dups OK (trades)
 
 
+def _log_order(order: List[str], basis: str):
+    """Record which cascade tier produced the order (visible in Render logs) so a
+    future season's broken article slug / API gap is obvious at a glance."""
+    print(f"[mock-draft] draft order via: {basis} | top5={order[:5]}", flush=True)
+    return order, basis
+
+
 def _resolve_order(draft_year: int, standings: List[dict], news: List[dict]):
     """(order, basis). Official NHL API order if published; else the published post-lottery order
     read from an NHL.com order article (full, with traded picks); else the lottery winner(s) from
@@ -354,10 +405,10 @@ def _resolve_order(draft_year: int, standings: List[dict], news: List[dict]):
     reverse = _draft_order(standings)
     official = _nhl_api_order(draft_year)
     if official:
-        return official, "Official NHL draft order"
+        return _log_order(official, "Official NHL draft order")
     from_article = _ai_extract_order_from_text(_order_article_text(draft_year), draft_year)
     if len(from_article) >= 28:
-        return from_article, "Official post-lottery draft order"
+        return _log_order(from_article, "Official post-lottery draft order")
     from_news = _ai_extract_order(news, draft_year)
     if from_news:
         order = list(from_news)
@@ -366,9 +417,9 @@ def _resolve_order(draft_year: int, standings: List[dict], news: List[dict]):
                 break
             if t not in order:
                 order.append(t)
-        return order, "Post-lottery order, via recent reporting"
+        return _log_order(order, "Post-lottery order, via recent reporting")
     as_of = standings[0].get("date") if standings else None
-    return reverse, f"Projected from current standings{f' (as of {as_of})' if as_of else ''}"
+    return _log_order(reverse, f"Projected from current standings{f' (as of {as_of})' if as_of else ''}")
 
 
 # MARK: - Simulation
@@ -408,6 +459,7 @@ def build_mock_draft(sb) -> Optional[dict]:
     yr_rows = sb.table("prospects").select("draft_year").eq("notable", "true").limit(1).execute().data
     draft_year = (yr_rows[0].get("draft_year") if yr_rows else None) or datetime.date.today().year + 1
 
+    lottery_odds = _lottery_odds(standings)
     news = _fetch_draft_news(draft_year)
     order, order_basis = _resolve_order(draft_year, standings, news)
     ai_picks = _ai_project_picks(order, pool, needs, news)
@@ -458,10 +510,14 @@ def build_mock_draft(sb) -> Optional[dict]:
 
     now = datetime.datetime.now(datetime.timezone.utc)
     _, iso_week, _ = datetime.date.today().isocalendar()
+    edition = f"{draft_year}-W{iso_week:02d}"
+    print(f"[mock-draft] built {edition}: basis={order_basis!r}, "
+          f"lottery_teams={len(lottery_odds)}, ai_picks={len(ai_picks)}", flush=True)
     return {
         "draft_year": draft_year,
-        "edition": f"{draft_year}-W{iso_week:02d}",
+        "edition": edition,
         "generated_at": now.isoformat(),
         "order_basis": order_basis,
+        "lottery_odds": lottery_odds,
         "picks": picks,
     }

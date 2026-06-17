@@ -16,13 +16,32 @@ struct MockPick: Codable, Identifiable, Hashable {
     var id: Int { overall }
 }
 
+/// One non-playoff team's draft-lottery standing: its chance at the No. 1 pick,
+/// computed from current standings (worst record = best odds). Shown as a bar
+/// chart during the regular season; replaced by results once the lottery is in.
+struct LotteryOdds: Codable, Hashable, Identifiable {
+    let abbrev: String
+    let teamName: String
+    let odds: Double        // percent chance at the No. 1 overall pick
+    let draftSlot: Int      // current draft position, 1 = worst record
+    let points: Int
+    let gamesPlayed: Int
+
+    var id: String { abbrev }
+}
+
 /// A server-generated first-round mock draft, refreshed weekly.
 struct MockDraft: Codable, Hashable {
     let draftYear: Int
     let edition: String          // ISO year-week, e.g. "2026-W25" — drives the "new" badge
     let generatedAt: String?
     let orderBasis: String?
+    let lotteryOdds: [LotteryOdds]?
     let picks: [MockPick]
+
+    /// Pre-lottery while the order is still a standings projection; once the order
+    /// goes official (NHL API / post-lottery reporting) the odds card shows results.
+    var lotteryIsOfficial: Bool { !(orderBasis ?? "").hasPrefix("Projected") }
 }
 
 struct MockDraftResponse: Codable { let mockDraft: MockDraft? }

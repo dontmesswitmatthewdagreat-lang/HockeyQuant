@@ -522,6 +522,12 @@ struct NewsView: View {
         var body: some View {
             ScrollView {
                 LazyVStack(spacing: Theme.Spacing.xs) {
+                    if let odds = mock.lotteryOdds, !odds.isEmpty {
+                        LotteryCard(odds: odds,
+                                    isOfficial: mock.lotteryIsOfficial,
+                                    topPicks: Array(mock.picks.prefix(3)))
+                            .padding(.bottom, Theme.Spacing.xs)
+                    }
                     if let basis = mock.orderBasis {
                         Text(basis)
                             .font(.system(size: 11))
@@ -641,6 +647,122 @@ struct NewsView: View {
             Text(pick.prospect.initials)
                 .font(.system(size: 13, weight: .heavy, design: .rounded))
                 .foregroundStyle(.white.opacity(0.9))
+        }
+    }
+
+    /// Top-of-page draft-lottery card. Pre-lottery: an animated bar chart of each
+    /// non-playoff team's chance at the No. 1 pick (worst record = best odds).
+    /// Once the order goes official, it flips to the locked top-3 results.
+    private struct LotteryCard: View {
+        let odds: [LotteryOdds]
+        let isOfficial: Bool
+        let topPicks: [MockPick]
+        @State private var animateIn = false
+
+        private var maxOdds: Double { max(odds.map(\.odds).max() ?? 18.5, 0.1) }
+
+        var body: some View {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(spacing: 6) {
+                    Image(systemName: isOfficial ? "trophy.fill" : "chart.bar.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(isOfficial ? Theme.Palette.moderate : Theme.Palette.accent)
+                    Text(isOfficial ? "Lottery Results" : "Draft Lottery Odds")
+                        .font(.system(size: 15, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Spacer(minLength: 0)
+                    Text(isOfficial ? "OFFICIAL" : "PROJECTED")
+                        .font(.system(size: 9, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().fill(Theme.Palette.border.opacity(0.5)))
+                }
+                if isOfficial {
+                    resultsView
+                } else {
+                    Text("Chance at the No. 1 pick — if the season ended today")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                    oddsChart
+                }
+            }
+            .padding(Theme.Spacing.md)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Palette.border, lineWidth: 1))
+            .task { withAnimation(.easeOut(duration: 0.7)) { animateIn = true } }
+        }
+
+        private var oddsChart: some View {
+            VStack(spacing: 5) {
+                ForEach(odds) { team in
+                    HStack(spacing: 8) {
+                        Text("\(team.draftSlot)")
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                            .frame(width: 16, alignment: .trailing)
+                        CrestView(abbrev: team.abbrev, size: 20)
+                        GeometryReader { geo in
+                            let frac = team.odds / maxOdds
+                            ZStack(alignment: .leading) {
+                                Capsule().fill(Theme.Palette.border.opacity(0.4))
+                                Capsule()
+                                    .fill(LinearGradient(
+                                        colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
+                                        startPoint: .leading, endPoint: .trailing))
+                                    .frame(width: max(6, geo.size.width * frac * (animateIn ? 1 : 0)))
+                            }
+                            .frame(maxHeight: .infinity)
+                        }
+                        .frame(height: 8)
+                        Text(String(format: "%.1f%%", team.odds))
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .frame(width: 42, alignment: .trailing)
+                    }
+                }
+            }
+        }
+
+        private var resultsView: some View {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                if let win = topPicks.first {
+                    Text("🏆 \(win.teamName) won the No. 1 pick")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+                HStack(spacing: Theme.Spacing.sm) {
+                    ForEach(topPicks) { pick in
+                        VStack(spacing: 4) {
+                            CrestView(abbrev: pick.team, size: 34)
+                            Text(Self.ordinal(pick.overall))
+                                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                                .foregroundStyle(Theme.Palette.accent)
+                            Text(pick.prospect.name)
+                                .font(.system(size: 10))
+                                .foregroundStyle(Theme.Palette.textTertiary)
+                                .lineLimit(1).minimumScaleFactor(0.7)
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+        }
+
+        private static func ordinal(_ n: Int) -> String {
+            switch n % 100 {
+            case 11, 12, 13: return "\(n)th"
+            default:
+                switch n % 10 {
+                case 1: return "\(n)st"
+                case 2: return "\(n)nd"
+                case 3: return "\(n)rd"
+                default: return "\(n)th"
+                }
+            }
         }
     }
 
