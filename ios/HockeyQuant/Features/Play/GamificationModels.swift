@@ -4,13 +4,15 @@ import Foundation
 // so snake_case columns are mapped via explicit CodingKeys.
 
 struct UserStats: Decodable, Sendable {
-    let totalXp: Int
-    let level: Int
+    let totalXp: Int            // legacy (frozen since the Stanley Cup redesign)
+    let level: Int             // legacy
     let currentStreak: Int
     let bestStreak: Int
     let picksMade: Int
     let picksCorrect: Int
     let beatsModel: Int
+    let stanleyCups: Int       // trophy ladder — from weekly fantasy head-to-head
+    let capSpace: Int          // salary-cap budget earned from correct picks
 
     enum CodingKeys: String, CodingKey {
         case totalXp = "total_xp"
@@ -20,15 +22,37 @@ struct UserStats: Decodable, Sendable {
         case picksMade = "picks_made"
         case picksCorrect = "picks_correct"
         case beatsModel = "beats_model"
+        case stanleyCups = "stanley_cups"
+        case capSpace = "cap_space"
+    }
+
+    // Tolerant decode: a missing column (e.g. before migration 015 is applied)
+    // defaults to 0 instead of failing the whole stats load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        totalXp       = try c.decodeIfPresent(Int.self, forKey: .totalXp) ?? 0
+        level         = try c.decodeIfPresent(Int.self, forKey: .level) ?? 1
+        currentStreak = try c.decodeIfPresent(Int.self, forKey: .currentStreak) ?? 0
+        bestStreak    = try c.decodeIfPresent(Int.self, forKey: .bestStreak) ?? 0
+        picksMade     = try c.decodeIfPresent(Int.self, forKey: .picksMade) ?? 0
+        picksCorrect  = try c.decodeIfPresent(Int.self, forKey: .picksCorrect) ?? 0
+        beatsModel    = try c.decodeIfPresent(Int.self, forKey: .beatsModel) ?? 0
+        stanleyCups   = try c.decodeIfPresent(Int.self, forKey: .stanleyCups) ?? 0
+        capSpace      = try c.decodeIfPresent(Int.self, forKey: .capSpace) ?? 0
+    }
+
+    init(totalXp: Int, level: Int, currentStreak: Int, bestStreak: Int, picksMade: Int,
+         picksCorrect: Int, beatsModel: Int, stanleyCups: Int, capSpace: Int) {
+        self.totalXp = totalXp; self.level = level; self.currentStreak = currentStreak
+        self.bestStreak = bestStreak; self.picksMade = picksMade; self.picksCorrect = picksCorrect
+        self.beatsModel = beatsModel; self.stanleyCups = stanleyCups; self.capSpace = capSpace
     }
 
     var accuracy: Double { picksMade > 0 ? Double(picksCorrect) / Double(picksMade) * 100 : 0 }
-    var xpIntoLevel: Int { totalXp % 100 }
-    var xpForNextLevel: Int { 100 }
-    var progressToNextLevel: Double { Double(xpIntoLevel) / 100.0 }
 
     static let empty = UserStats(totalXp: 0, level: 1, currentStreak: 0, bestStreak: 0,
-                                 picksMade: 0, picksCorrect: 0, beatsModel: 0)
+                                 picksMade: 0, picksCorrect: 0, beatsModel: 0,
+                                 stanleyCups: 0, capSpace: 0)
 }
 
 struct UserPick: Decodable, Identifiable, Sendable {

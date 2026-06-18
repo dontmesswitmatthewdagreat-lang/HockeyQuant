@@ -114,3 +114,37 @@ struct SeasonGoal: Identifiable, Sendable {
         ]
     }
 }
+
+/// The Stanley Cup **arena ladder** — your tier by Cup count (replaces the XP/level
+/// track on the Play home). You climb by winning weekly fantasy head-to-head matches.
+struct Arena: Identifiable, Sendable {
+    let name: String
+    let icon: String
+    let colorHex: UInt32
+    let threshold: Int        // Stanley Cups required to reach this arena
+
+    var id: String { name }
+    var color: Color { Color(hex: colorHex) }
+
+    static let ladder: [Arena] = [
+        Arena(name: "Beer League",  icon: "mug.fill",          colorHex: 0x8A93A1, threshold: 0),
+        Arena(name: "Junior",       icon: "hockey.puck.fill",  colorHex: 0x14CA64, threshold: 75),
+        Arena(name: "Minor Pro",    icon: "shield.fill",       colorHex: 0x0A84FF, threshold: 200),
+        Arena(name: "The Show",     icon: "star.fill",         colorHex: 0x5E5CE6, threshold: 400),
+        Arena(name: "Contender",    icon: "flame.fill",        colorHex: 0xFF9F0A, threshold: 700),
+        Arena(name: "Cup Favorite", icon: "trophy.fill",       colorHex: 0xAF52DE, threshold: 1100),
+        Arena(name: "Dynasty",      icon: "crown.fill",        colorHex: 0xFFD23F, threshold: 1600),
+    ]
+
+    static func current(forCups cups: Int) -> Arena { ladder.last { cups >= $0.threshold } ?? ladder[0] }
+    static func next(forCups cups: Int) -> Arena? { ladder.first { $0.threshold > cups } }
+
+    /// Progress 0–1 from the current arena toward the next.
+    static func progress(forCups cups: Int) -> Double {
+        let cur = current(forCups: cups)
+        guard let nxt = next(forCups: cups) else { return 1 }
+        let span = Double(nxt.threshold - cur.threshold)
+        guard span > 0 else { return 1 }
+        return min(1, max(0, Double(cups - cur.threshold) / span))
+    }
+}

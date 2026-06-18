@@ -53,7 +53,7 @@ struct PlayView: View {
             }
             .overlay(alignment: .top) {
                 if let xpToast {
-                    CelebrationToast(icon: "bolt.fill", title: "+\(xpToast) XP earned!", subtitle: "Your picks came through.")
+                    CelebrationToast(icon: "dollarsign.circle.fill", title: "+\(xpToast) Cap Space!", subtitle: "Your picks came through.")
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }

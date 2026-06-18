@@ -7,14 +7,15 @@ struct PlayHeaderCard: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var ring: Double = 0
-    @State private var displayXp: Int = 0
-    @State private var flamePulse = false
+    @State private var displayCups: Int = 0
+
+    private var arena: Arena { Arena.current(forCups: stats.stanleyCups) }
 
     var body: some View {
         Card {
             VStack(spacing: Theme.Spacing.md) {
-                HStack(alignment: .center) {
-                    levelRing
+                HStack(alignment: .top) {
+                    cupRing
                     Spacer()
                     streakBadge
                 }
@@ -23,66 +24,57 @@ struct PlayHeaderCard: View {
             }
         }
         .onAppear { animateIn() }
-        .onChange(of: stats.totalXp) { _, _ in animateIn() }
+        .onChange(of: stats.stanleyCups) { _, _ in animateIn() }
     }
 
     private func animateIn() {
+        let target = Arena.progress(forCups: stats.stanleyCups)
         guard !reduceMotion else {
-            ring = stats.progressToNextLevel
-            displayXp = stats.totalXp
+            ring = target
+            displayCups = stats.stanleyCups
             return
         }
         withAnimation(.easeOut(duration: 0.9)) {
-            ring = stats.progressToNextLevel
-            displayXp = stats.totalXp
+            ring = target
+            displayCups = stats.stanleyCups
         }
-        if stats.currentStreak > 0 { flamePulse = true }
     }
 
-    private var levelRing: some View {
-        ZStack {
-            Circle()
-                .stroke(Theme.Palette.border, lineWidth: 6)
-            Circle()
-                .trim(from: 0, to: max(0.02, ring))
-                .stroke(
-                    AngularGradient(
-                        colors: [Theme.Palette.accent, Theme.Palette.accentAlt, Theme.Palette.accent],
-                        center: .center),
-                    style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-            VStack(spacing: 0) {
-                Text("LVL").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
-                Text("\(stats.level)").font(.system(size: 24, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .contentTransition(.numericText())
+    // Stanley Cup count + arena progress (replaces the old XP/level ring).
+    private var cupRing: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle()
+                    .stroke(Theme.Palette.border, lineWidth: 6)
+                Circle()
+                    .trim(from: 0, to: max(0.02, ring))
+                    .stroke(
+                        AngularGradient(
+                            colors: [arena.color, Theme.Palette.accent, arena.color],
+                            center: .center),
+                        style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                VStack(spacing: 0) {
+                    Image(systemName: "trophy.fill").font(.system(size: 12)).foregroundStyle(arena.color)
+                    Text("\(displayCups)").font(.system(size: 22, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .contentTransition(.numericText())
+                    Text("CUPS").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
+                }
             }
-        }
-        .frame(width: 72, height: 72)
-        .overlay(alignment: .bottom) {
-            Text("\(displayXp) XP")
-                .font(.system(size: 11, weight: .semibold))
-                .monospacedDigit()
-                .contentTransition(.numericText())
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .offset(y: 16)
+            .frame(width: 72, height: 72)
+            Text(arena.name)
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(arena.color)
         }
     }
 
     private var streakBadge: some View {
         VStack(alignment: .trailing, spacing: 2) {
-            HStack(spacing: 4) {
-                Image(systemName: "flame.fill")
-                    .foregroundStyle(stats.currentStreak > 0 ? Theme.Palette.moderate : Theme.Palette.textPrimary)
-                    .scaleEffect(flamePulse && stats.currentStreak > 0 ? 1.15 : 1)
-                    .animation(stats.currentStreak > 0 && !reduceMotion
-                               ? .easeInOut(duration: 0.7).repeatForever(autoreverses: true)
-                               : .default, value: flamePulse)
-                Text("\(stats.currentStreak)")
-                    .font(.system(size: 28, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .contentTransition(.numericText())
-            }
+            Text("\(stats.currentStreak)")
+                .font(.system(size: 28, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .contentTransition(.numericText())
             Text("current streak")
                 .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(Theme.Palette.textPrimary)
@@ -94,12 +86,17 @@ struct PlayHeaderCard: View {
 
     private var statsRow: some View {
         HStack(spacing: Theme.Spacing.sm) {
-            StatPill(label: "Picks", value: "\(stats.picksMade)", labelColor: Theme.Palette.textPrimary)
+            StatPill(label: "Cap Space", value: capText, labelColor: Theme.Palette.textPrimary)
             Divider().frame(height: 28).overlay(Theme.Palette.border)
             StatPill(label: "Accuracy", value: stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—", labelColor: Theme.Palette.textPrimary)
             Divider().frame(height: 28).overlay(Theme.Palette.border)
-            StatPill(label: "Beat model", value: "\(stats.beatsModel)", labelColor: Theme.Palette.textPrimary)
+            StatPill(label: "Picks", value: "\(stats.picksMade)", labelColor: Theme.Palette.textPrimary)
         }
+    }
+
+    private var capText: String {
+        let v = stats.capSpace
+        return v >= 1000 ? String(format: "%.1fK", Double(v) / 1000) : "\(v)"
     }
 }
 

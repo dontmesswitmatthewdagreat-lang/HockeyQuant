@@ -46,12 +46,12 @@ final class GamificationStore {
         do {
             let rows: [UserStats] = try await client.from("user_stats").select().execute().value
             let fresh = rows.first ?? .empty
-            // Celebrate XP earned since we last looked (skip first-ever load).
-            let xpKey = key("lastSeenXp")
-            if let last = defaults.object(forKey: xpKey) as? Int, fresh.totalXp > last {
-                pendingXpGain = fresh.totalXp - last
+            // Celebrate Cap Space earned since we last looked (skip first-ever load).
+            let capKey = key("lastSeenCap")
+            if let last = defaults.object(forKey: capKey) as? Int, fresh.capSpace > last {
+                pendingXpGain = fresh.capSpace - last
             }
-            defaults.set(fresh.totalXp, forKey: xpKey)
+            defaults.set(fresh.capSpace, forKey: capKey)
             stats = fresh
         } catch {
             Log.error("loadStats failed", error)
