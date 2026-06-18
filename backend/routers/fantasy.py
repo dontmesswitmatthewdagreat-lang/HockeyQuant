@@ -38,6 +38,12 @@ ROSTER_SLOTS = [
 ]
 SLOTS_PER_TEAM = len(ROSTER_SLOTS)
 
+# Off-season prospect farm: drafted prospects (dynasty assets) live here, separate from
+# the 12 active NHL slots that score weekly Cup matchups. One draft round per farm slot.
+FARM_SLOTS = [("PR1", "FARM"), ("PR2", "FARM"), ("PR3", "FARM"),
+              ("PR4", "FARM"), ("PR5", "FARM"), ("PR6", "FARM")]
+OFFSEASON_ROUNDS = len(FARM_SLOTS)
+
 REG_SEASON_WEEKS = 24          # fantasy regular-season length
 GOALIE_BONUS = 1.20            # better weekly GSAX
 GOALIE_PENALTY = 0.80          # worse weekly GSAX
@@ -198,7 +204,7 @@ def sync_prospects_to_players(sb) -> int:
             "active": False,
             "is_prospect": True,
             "prospect_ranking": rank,
-            "draft_class": p.get("draft_year"),
+            "draft_class": p.get("draft_year") or current_season_year(),
             "cost": _prospect_cost(rank),
             "updated_at": _now(),
         })
@@ -346,13 +352,15 @@ class JoinLeagueRequest(BaseModel):
 
 
 def _league_summary(sb, league: dict, uid: str) -> dict:
-    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league["id"]).execute().data
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order,cap_space").eq("league_id", league["id"]).execute().data
     mine = next((m for m in members if m["user_id"] == uid), None)
     return {
         "id": league["id"],
         "name": league["name"],
         "league_type": league["league_type"],
         "status": league["status"],
+        "season_phase": league.get("season_phase", "regular"),
+        "mode": league.get("mode", "group"),
         "max_members": league["max_members"],
         "unique_players": league["unique_players"],
         "invite_code": league["invite_code"],
@@ -362,6 +370,7 @@ def _league_summary(sb, league: dict, uid: str) -> dict:
         "is_commissioner": league["commissioner_id"] == uid,
         "member_count": len(members),
         "my_team_name": mine["team_name"] if mine else None,
+        "my_cap_space": (mine.get("cap_space") if mine else 0) or 0,
     }
 
 
@@ -384,10 +393,15 @@ def create_league(req: CreateLeagueRequest, authorization: Optional[str] = Heade
         "pick_clock_seconds": PACE_SECONDS[req.draft_pace],
     }]).data[0]
 
+    # Group/solo leagues are franchises: each manager gets a Cap Space bank (the full
+    # NHL cap to start; it carries over season-to-season). The global league uses the
+    # per-user Cap Space earned from picks instead.
+    start_cap = 0 if req.league_type == "global" else season_cap_max(current_season_year())
     sb.table("fantasy_members").insert([{
         "league_id": league["id"],
         "user_id": uid,
         "team_name": req.team_name,
+        "cap_space": start_cap,
     }]).execute()
 
     sb.table("fantasy_draft_state").insert([{
@@ -415,10 +429,12 @@ def join_league(req: JoinLeagueRequest, authorization: Optional[str] = Header(No
     if len(members) >= league["max_members"]:
         raise HTTPException(status_code=400, detail="This league is full")
 
+    start_cap = 0 if league["league_type"] == "global" else season_cap_max(league["season_year"])
     sb.table("fantasy_members").insert([{
         "league_id": league["id"],
         "user_id": uid,
         "team_name": req.team_name,
+        "cap_space": start_cap,
     }]).execute()
     return _league_summary(sb, league, uid)
 
@@ -719,6 +735,126 @@ def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
         } for m in members],
         "available_players": available,
     }
+
+
+# ---------------------------------------------------------------------------
+# Off-season franchise cycle: reset → random roster → (lottery → draft → trades)
+# ---------------------------------------------------------------------------
+
+def _member_roster_cost(sb, member_id: str) -> int:
+    slots = sb.table("fantasy_roster_slots").select("player_id").eq("member_id", member_id).execute().data
+    pids = [s["player_id"] for s in slots if s["player_id"]]
+    if not pids:
+        return 0
+    total = 0
+    for p in sb.table("fantasy_players").select("cost").in_("id", list(set(pids))).execute().data:
+        total += p.get("cost") or 0
+    return total
+
+
+def _random_starter_roster(sb, league: dict, member: dict) -> None:
+    """Fill a member's 12 active NHL slots with random affordable players (one per
+    position), deducting their cost from the franchise Cap Space bank. Always leaves
+    enough room to fill the remaining slots at the league minimum (feasible)."""
+    budget = (member.get("cap_space") or 0)
+    slots = sb.table("fantasy_roster_slots").select("id,slot,slot_type,player_id") \
+        .eq("member_id", member["id"]).execute().data
+    active = [s for s in slots if s["slot_type"] != "FARM" and s["player_id"] is None]
+    pool: dict = {}
+    for st in {st for _, st in ROSTER_SLOTS}:
+        pool[st] = sb.table("fantasy_players").select("id,cost") \
+            .eq("active", "true").eq("is_prospect", "false").eq("roster_pos", st).limit(600).execute().data
+    remaining = budget
+    n = len(active)
+    for i, slot in enumerate(active):
+        slots_left_after = n - i - 1
+        cap_here = remaining - _NHL_MIN * slots_left_after
+        bucket = pool.get(slot["slot_type"], [])
+        cands = [p for p in bucket if (p.get("cost") or _NHL_MIN) <= cap_here]
+        if not cands:
+            cands = [p for p in bucket if (p.get("cost") or _NHL_MIN) <= remaining] or bucket
+        if not cands:
+            continue
+        pick = random.choice(cands)
+        sb.table("fantasy_roster_slots").update({"player_id": pick["id"]}).eq("id", slot["id"]).execute()
+        remaining -= (pick.get("cost") or _NHL_MIN)
+    sb.table("fantasy_members").update({"cap_space": max(0, remaining)}).eq("id", member["id"]).execute()
+
+
+def _archive_season(sb, league: dict, members: list) -> None:
+    """Best-effort archive of the season being left behind (kept across the reset)."""
+    season = league["season_year"]
+    rows = []
+    for m in members:
+        rows.append({
+            "league_id": league["id"], "season_year": season, "member_id": m["id"],
+            "team_name": m.get("team_name"), "team_rating": _member_roster_cost(sb, m["id"]),
+        })
+    if rows:
+        try:
+            sb.table("fantasy_team_archive").upsert(rows, on_conflict="league_id,season_year,member_id").execute()
+        except Exception:
+            pass   # archive is best-effort; never block the reset
+
+
+def _enter_offseason(sb, league: dict) -> None:
+    """Reset a group/solo league into the off-season build phase: archive the prior
+    season (if any), clear rosters/matchups, keep each manager's Cap Space, seed a
+    random affordable NHL starter roster, recreate roster slots (12 active + farm), and
+    mint this season's draft-pick assets. Leaves the league in `offseason_lottery`."""
+    league_id = league["id"]
+    season = league["season_year"]
+    members = sb.table("fantasy_members").select("id,user_id,team_name,cap_space").eq("league_id", league_id).execute().data
+    if not members:
+        raise HTTPException(status_code=400, detail="League has no managers")
+
+    if league.get("status") in ("active", "playoffs", "complete"):
+        _archive_season(sb, league, members)
+
+    # Clear rosters, picks, schedule (Cap Space on fantasy_members is preserved).
+    for tbl in ("fantasy_weekly_results", "fantasy_matchups", "fantasy_draft_picks", "fantasy_roster_slots"):
+        try:
+            sb.table(tbl).delete().eq("league_id", league_id).execute()
+        except Exception:
+            pass
+
+    # Recreate roster slots (12 active + farm) and seed a random starter roster.
+    for m in members:
+        sb.table("fantasy_roster_slots").insert([{
+            "league_id": league_id, "member_id": m["id"], "slot": s, "slot_type": st,
+        } for s, st in (ROSTER_SLOTS + FARM_SLOTS)]).execute()
+        _random_starter_roster(sb, league, m)
+
+    # Mint draft-pick assets: one per round per member (lottery sets the order next).
+    sb.table("fantasy_draft_pick_assets").delete().eq("league_id", league_id).eq("season_year", season).execute()
+    assets = []
+    for rnd in range(1, OFFSEASON_ROUNDS + 1):
+        for m in members:
+            assets.append({"league_id": league_id, "season_year": season, "round": rnd,
+                           "original_member_id": m["id"], "owner_member_id": m["id"]})
+    if assets:
+        sb.table("fantasy_draft_pick_assets").insert(assets).execute()
+
+    sb.table("fantasy_leagues").update({"status": "open", "season_phase": "offseason_lottery"}).eq("id", league_id).execute()
+    sb.table("fantasy_draft_state").update({
+        "status": "not_started", "current_pick_number": 0, "current_member_id": None,
+        "required_slot_type": None, "round": 0, "updated_at": _now(),
+    }).eq("league_id", league_id).execute()
+
+
+@router.post("/fantasy/leagues/{league_id}/start-offseason")
+def start_offseason(league_id: str, authorization: Optional[str] = Header(None)):
+    """Commissioner: drop the league into the off-season build phase (reset + random
+    starter rosters + Cap Space carryover + draft-pick assets), ready for the lottery."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can start the off-season")
+    if league.get("league_type") == "global":
+        raise HTTPException(status_code=400, detail="The global league has no off-season draft")
+    _enter_offseason(sb, league)
+    return _league_summary(sb, _require_league(sb, league_id), uid)
 
 
 # ---------------------------------------------------------------------------

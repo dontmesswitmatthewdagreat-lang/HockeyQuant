@@ -163,6 +163,7 @@ def _consensus_pool(sb) -> List[dict]:
             "name": p.get("name"),
             "position": p.get("position"),
             "league": p.get("league"),
+            "draft_year": p.get("draft_year"),
             "group": _group(p.get("position")),
             "ranking": p.get("ranking"),
             "value": value,
