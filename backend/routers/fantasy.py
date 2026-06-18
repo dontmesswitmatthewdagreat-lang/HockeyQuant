@@ -136,9 +136,27 @@ def _roster_pos(position_code: str, shoots: Optional[str]) -> Optional[str]:
 # Player pool sync (cron/admin)
 # ---------------------------------------------------------------------------
 
+# Player acquisition cost (the salary-cap budget you spend in the global league).
+# The league scores skaters by goals and the starter by GSAX, so scoring drives a
+# skater's price and wins (a quality + volume proxy) drive a goalie's. All tunable.
+_COST_BASE = 25
+
+def _player_cost(prod) -> int:
+    """prod = ("skater", goals) | ("goalie", wins) | None (didn't play → cheap flyer)."""
+    if not prod:
+        return 20
+    kind, val = prod
+    return _COST_BASE + (val * 12 if kind == "goalie" else val * 10)
+
+
+def _user_cap_space(sb, uid: str) -> int:
+    rows = sb.table("user_stats").select("cap_space").eq("user_id", uid).execute().data
+    return (rows[0].get("cap_space") if rows else 0) or 0
+
+
 @router.post("/fantasy/sync-players")
 def sync_players():
-    """Fetch all 32 NHL team rosters and upsert the fantasy player pool."""
+    """Fetch all 32 NHL team rosters + season production and upsert the player pool with costs."""
     sb = _sb()
     now_iso = datetime.now(timezone.utc).isoformat()
     rows: List[dict] = []
@@ -157,6 +175,18 @@ def sync_players():
         except Exception:
             failed.append(team)
             continue
+
+        # Season production by nhl_id, for player cost: goals (skaters) / wins (goalies).
+        prod: dict = {}
+        try:
+            cs = requests.get(f"https://api-web.nhle.com/v1/club-stats/{team}/now",
+                              headers=NHL_HEADERS, timeout=15).json()
+            for s in cs.get("skaters", []):
+                prod[s.get("playerId")] = ("skater", int(s.get("goals") or 0))
+            for g in cs.get("goalies", []):
+                prod[g.get("playerId")] = ("goalie", int(g.get("wins") or 0))
+        except Exception:
+            pass
 
         for group_key in ("forwards", "defensemen", "goalies"):
             for p in data.get(group_key, []):
@@ -177,6 +207,7 @@ def sync_players():
                     "is_goalie": pos == "G",
                     "sweater": p.get("sweaterNumber"),
                     "headshot": p.get("headshot"),
+                    "cost": _player_cost(prod.get(p.get("id"))),
                     "active": True,
                     "updated_at": now_iso,
                 })
@@ -198,13 +229,14 @@ def list_players(slot_type: Optional[str] = None, q: Optional[str] = None, limit
     """List the player pool, optionally filtered by slot type (LW/RW/C/LHD/RHD/G) and name search."""
     sb = _sb()
     query = sb.table("fantasy_players").select(
-        "id,nhl_id,full_name,team,position,shoots,roster_pos,is_goalie,sweater,headshot"
+        "id,nhl_id,full_name,team,position,shoots,roster_pos,is_goalie,sweater,headshot,cost"
     ).eq("active", "true")
     if slot_type:
         query = query.eq("roster_pos", slot_type)
     if q:
         query = query.ilike("full_name", f"*{q}*")
-    rows = query.order("full_name").limit(min(limit, 1000)).execute().data
+    # Priciest (best) players first — the market reads as a value board.
+    rows = query.order("cost", desc=True).limit(min(limit, 1000)).execute().data
     return {"players": rows, "count": len(rows)}
 
 
@@ -1043,17 +1075,20 @@ def global_league(authorization: Optional[str] = Header(None)):
     league = _get_or_create_global(sb, season, uid)
     me = _member_for_user(sb, league["id"], uid)
     roster = []
+    roster_cost = 0
     if me:
         slots = sb.table("fantasy_roster_slots").select("slot,slot_type,player_id").eq("member_id", me["id"]).execute().data
         pids = [s["player_id"] for s in slots if s["player_id"]]
         pmap = {}
         if pids:
-            for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", pids).execute().data:
+            for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater,cost").in_("id", pids).execute().data:
                 pmap[p["id"]] = p
         order = [s for s, _ in ROSTER_SLOTS]
         roster = sorted([{"slot": s["slot"], "slot_type": s["slot_type"], "player": pmap.get(s["player_id"]) if s["player_id"] else None} for s in slots],
                         key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
-    return {"league": _league_summary(sb, league, uid), "joined": me is not None, "my_roster": roster}
+        roster_cost = sum((pmap[s["player_id"]].get("cost") or 0) for s in slots if s["player_id"] and s["player_id"] in pmap)
+    return {"league": _league_summary(sb, league, uid), "joined": me is not None, "my_roster": roster,
+            "cap_space": _user_cap_space(sb, uid), "roster_cost": roster_cost}
 
 
 @router.post("/fantasy/global/join")
@@ -1086,11 +1121,26 @@ def global_set_slot(req: SetSlotRequest, authorization: Optional[str] = Header(N
     slot_type = next((st for s, st in ROSTER_SLOTS if s == req.slot), None)
     if not slot_type:
         raise HTTPException(status_code=400, detail="Invalid slot")
-    player = sb.table("fantasy_players").select("id,roster_pos").eq("id", req.player_id).execute().data
+    player = sb.table("fantasy_players").select("id,roster_pos,cost").eq("id", req.player_id).execute().data
     if not player or player[0]["roster_pos"] != slot_type:
         raise HTTPException(status_code=400, detail=f"That player isn't an eligible {slot_type}")
+
+    # Salary cap: the roster total (with this player swapped into the slot) must fit your Cap Space.
+    new_cost = player[0].get("cost") or 0
+    slots = sb.table("fantasy_roster_slots").select("slot,player_id").eq("member_id", me["id"]).execute().data
+    other_pids = [s["player_id"] for s in slots if s["player_id"] and s["slot"] != req.slot]
+    other_total = 0
+    if other_pids:
+        for p in sb.table("fantasy_players").select("cost").in_("id", other_pids).execute().data:
+            other_total += p.get("cost") or 0
+    cap = _user_cap_space(sb, uid)
+    new_total = other_total + new_cost
+    if new_total > cap:
+        raise HTTPException(status_code=400,
+                            detail=f"Over the cap — that roster needs {new_total} Cap Space, you have {cap}. Win more picks to earn Cap Space.")
+
     sb.table("fantasy_roster_slots").update({"player_id": req.player_id}).eq("member_id", me["id"]).eq("slot", req.slot).execute()
-    return {"slot": req.slot, "player_id": req.player_id}
+    return {"slot": req.slot, "player_id": req.player_id, "roster_cost": new_total, "cap_space": cap}
 
 
 @router.get("/fantasy/global/leaderboard")

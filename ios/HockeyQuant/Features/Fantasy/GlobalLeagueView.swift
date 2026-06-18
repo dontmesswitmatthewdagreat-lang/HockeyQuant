@@ -31,7 +31,9 @@ struct GlobalLeagueView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .sheet(item: $pickingSlot) { slot in
-            SlotPickerSheet(store: store, slotType: slot.slotType) { player in
+            // Budget for this slot = remaining cap + whatever the current occupant frees up.
+            let budget = (data?.remaining ?? 0) + (slot.player?.cost ?? 0)
+            SlotPickerSheet(store: store, slotType: slot.slotType, budget: budget) { player in
                 Task { await setSlot(slot.slot, player.id) }
             }
         }
@@ -82,15 +84,45 @@ struct GlobalLeagueView: View {
             ScrollView {
                 VStack(spacing: Theme.Spacing.xs) {
                     if tab == 0 {
-                        Text("Tap a slot to pick any eligible player (duplicates allowed).")
+                        budgetCard(d)
+                        Text("Tap a slot to sign a player — your roster must fit under your Cap Space.")
                             .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
-                            .frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, Theme.Spacing.xs)
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, Theme.Spacing.xs)
                         ForEach(d.myRoster) { slot in rosterSlotRow(slot) }
                     } else {
                         ForEach(Array(leaderboard.enumerated()), id: \.element.id) { i, row in leaderRow(i + 1, row) }
                     }
                 }.padding(.horizontal, Theme.Spacing.md).padding(.bottom, Theme.Spacing.lg)
             }
+        }
+    }
+
+    private func budgetCard(_ d: GlobalResponse) -> some View {
+        Card {
+            VStack(spacing: Theme.Spacing.xs) {
+                HStack {
+                    budgetStat("Cap Space", d.cap, Theme.Palette.accent)
+                    Spacer()
+                    budgetStat("Spent", d.spent, Theme.Palette.textPrimary)
+                    Spacer()
+                    budgetStat("Free", d.remaining, d.remaining > 0 ? Theme.Palette.positive : Theme.Palette.negative)
+                }
+                GeometryReader { geo in
+                    let frac = d.cap > 0 ? min(1, Double(d.spent) / Double(d.cap)) : 0
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.Palette.border)
+                        Capsule().fill(d.spent > d.cap ? Theme.Palette.negative : Theme.Palette.accent)
+                            .frame(width: max(2, geo.size.width * frac))
+                    }
+                }.frame(height: 6)
+            }
+        }
+    }
+
+    private func budgetStat(_ label: String, _ value: Int, _ color: Color) -> some View {
+        VStack(spacing: 1) {
+            Text("$\(value)").font(.system(size: 16, weight: .heavy, design: .rounded)).foregroundStyle(color)
+            Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.Palette.textPrimary)
         }
     }
 
@@ -106,6 +138,9 @@ struct GlobalLeagueView: View {
                     Text("Tap to pick").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.accent)
                 }
                 Spacer()
+                if let p = slot.player {
+                    Text("$\(p.cost ?? 0)").font(.system(size: 12, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
+                }
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
             .padding(.horizontal, Theme.Spacing.sm).padding(.vertical, 8)
@@ -148,6 +183,7 @@ struct GlobalLeagueView: View {
 struct SlotPickerSheet: View {
     let store: FantasyStore
     let slotType: String
+    var budget: Int = .max          // most a single player in this slot can cost
     let onPick: (FantasyPlayer) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -158,14 +194,26 @@ struct SlotPickerSheet: View {
     var body: some View {
         NavigationStack {
             List {
-                ForEach(players) { p in
-                    Button { onPick(p); dismiss() } label: {
-                        HStack(spacing: Theme.Spacing.sm) {
-                            CrestView(abbrev: p.team, size: 26)
-                            Text(p.fullName).foregroundStyle(Theme.Palette.textPrimary)
-                            Spacer()
-                            Text(p.team).font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                Section {
+                    ForEach(players) { p in
+                        let cost = p.cost ?? 0
+                        let affordable = cost <= budget
+                        Button { if affordable { onPick(p); dismiss() } } label: {
+                            HStack(spacing: Theme.Spacing.sm) {
+                                CrestView(abbrev: p.team, size: 26)
+                                Text(p.fullName).foregroundStyle(Theme.Palette.textPrimary)
+                                Spacer()
+                                Text("$\(cost)").font(.system(size: 13, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(affordable ? Theme.Palette.accent : Theme.Palette.negative)
+                            }
+                            .opacity(affordable ? 1 : 0.45)
                         }
+                        .disabled(!affordable)
+                    }
+                } header: {
+                    if budget != .max {
+                        Text("$\(budget) to spend on this slot").textCase(nil)
+                            .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }
             }

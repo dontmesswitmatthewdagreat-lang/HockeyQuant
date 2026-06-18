@@ -52,6 +52,7 @@ struct FantasyPlayer: Codable, Identifiable, Hashable {
     let isGoalie: Bool?
     let sweater: Int?
     let headshot: String?
+    let cost: Int?               // salary-cap price, from real production
 }
 
 struct FantasyPlayersResponse: Codable { let players: [FantasyPlayer]; let count: Int }
@@ -159,6 +160,12 @@ struct GlobalResponse: Codable {
     let league: FantasyLeagueSummary
     let joined: Bool
     let myRoster: [RosterSlot]
+    let capSpace: Int?           // your salary-cap budget (earned from picks)
+    let rosterCost: Int?         // total cost of your current roster
+
+    var cap: Int { capSpace ?? 0 }
+    var spent: Int { rosterCost ?? 0 }
+    var remaining: Int { max(0, cap - spent) }
 }
 
 struct GlobalLeaderboardRow: Codable, Identifiable, Hashable {
