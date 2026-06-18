@@ -654,6 +654,23 @@ def make_pick(league_id: str, req: PickRequest, authorization: Optional[str] = H
     if state["current_member_id"] != me["id"]:
         raise HTTPException(status_code=403, detail="It's not your pick")
 
+    # Off-season prospect draft: cap-enforced pick of a prospect into an open farm slot.
+    if league.get("season_phase") == "offseason_draft":
+        prow = sb.table("fantasy_players").select("id,is_prospect,cost").eq("id", req.player_id).execute().data
+        if not prow or not prow[0].get("is_prospect"):
+            raise HTTPException(status_code=400, detail="Pick a prospect")
+        if req.player_id in _drafted_player_ids(sb, league_id):
+            raise HTTPException(status_code=400, detail="That prospect is already drafted")
+        cost = prow[0].get("cost") or 0
+        if cost > _member_cap(sb, me["id"]):
+            raise HTTPException(status_code=400, detail="Over the cap for that prospect — trade or pick a cheaper one")
+        slot = _first_open_farm(sb, me["id"])
+        if not slot:
+            raise HTTPException(status_code=400, detail="Your prospect slots are full")
+        _assign_prospect(sb, league, me["id"], req.player_id, slot, state["current_pick_number"], cost)
+        _offseason_advance(sb, league)
+        return get_draft(league_id, authorization)
+
     required = state["required_slot_type"]
     player = sb.table("fantasy_players").select("id,roster_pos").eq("id", req.player_id).execute().data
     if not player or player[0]["roster_pos"] != required:
@@ -686,6 +703,11 @@ def autopick(league_id: str, expected_pick: Optional[int] = None, authorization:
     if not me or not (league["commissioner_id"] == uid or state["current_member_id"] == me["id"] or expired):
         raise HTTPException(status_code=403, detail="Not allowed to autopick now")
 
+    if league.get("season_phase") == "offseason_draft":
+        _cpu_prospect_pick(sb, league, state["current_member_id"], state["current_pick_number"])
+        _offseason_advance(sb, league)
+        return get_draft(league_id, authorization)
+
     required = state["required_slot_type"]
     pool = _eligible_pool(sb, league, required)
     if not pool:
@@ -704,10 +726,11 @@ def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
     if not me:
         raise HTTPException(status_code=403, detail="You are not in this league")
     state = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data[0]
-    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league_id).execute().data
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order,is_cpu").eq("league_id", league_id).execute().data
+    offseason = league.get("season_phase") == "offseason_draft"
 
-    # Usernames
-    user_ids = [m["user_id"] for m in members]
+    # Usernames (CPU members have no user_id)
+    user_ids = [m["user_id"] for m in members if m["user_id"]]
     names = {}
     if user_ids:
         profs = sb.table("profiles").select("id,username").in_("id", user_ids).execute().data
@@ -718,7 +741,7 @@ def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
     pids = [s["player_id"] for s in slots if s["player_id"]]
     players_by_id = {}
     if pids:
-        prows = sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", list(set(pids))).execute().data
+        prows = sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater,cost,prospect_ranking,is_prospect").in_("id", list(set(pids))).execute().data
         players_by_id = {p["id"]: p for p in prows}
 
     rosters = {}
@@ -733,8 +756,14 @@ def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
 
     current_id = state.get("current_member_id")
     current_member = next((m for m in members if m["id"] == current_id), None)
-    available = _eligible_pool(sb, league, state["required_slot_type"]) if state["status"] == "in_progress" else []
+    if state["status"] != "in_progress":
+        available = []
+    elif offseason:
+        available = _offseason_eligible(sb, league)
+    else:
+        available = _eligible_pool(sb, league, state["required_slot_type"])
 
+    slot_order = [s for s, _ in (ROSTER_SLOTS + FARM_SLOTS)]
     return {
         "league": _league_summary(sb, league, uid),
         "state": {
@@ -745,14 +774,16 @@ def get_draft(league_id: str, authorization: Optional[str] = Header(None)):
             "required_slot_type": state["required_slot_type"],
             "current_member_id": current_id,
             "current_team_name": current_member["team_name"] if current_member else None,
-            "current_username": names.get(current_member["user_id"]) if current_member else None,
+            "current_username": (names.get(current_member["user_id"]) if current_member and current_member.get("user_id") else ("CPU" if current_member else None)),
             "is_my_pick": current_id == me["id"],
             "pick_deadline": state.get("pick_deadline"),
+            "is_offseason": offseason,
+            "my_cap_space": _member_cap(sb, me["id"]),
         },
         "members": [{
             "id": m["id"], "team_name": m["team_name"], "draft_order": m.get("draft_order"),
-            "username": names.get(m["user_id"]), "is_me": m["user_id"] == uid,
-            "roster": sorted(rosters.get(m["id"], []), key=lambda r: [s for s, _ in ROSTER_SLOTS].index(r["slot"]) if r["slot"] in [s for s, _ in ROSTER_SLOTS] else 99),
+            "username": names.get(m["user_id"]), "is_cpu": bool(m.get("is_cpu")), "is_me": m["user_id"] == uid,
+            "roster": sorted(rosters.get(m["id"], []), key=lambda r: slot_order.index(r["slot"]) if r["slot"] in slot_order else 99),
         } for m in members],
         "available_players": available,
     }
@@ -922,6 +953,8 @@ def _run_lottery(sb, league: dict) -> dict:
                      "username": names.get(m["user_id"]), "odds": odds[m["id"]]})
     payload = {"order": rows, "reveal": list(reversed(rows)), "ran_at": _now()}   # reveal from last pick → #1
     sb.table("fantasy_leagues").update({"lottery": payload, "season_phase": "offseason_draft"}).eq("id", league_id).execute()
+    league["season_phase"] = "offseason_draft"
+    _start_prospect_draft(sb, league)   # put the snake draft on the clock (auto-runs leading CPU picks)
     return payload
 
 
@@ -936,6 +969,103 @@ def run_lottery(league_id: str, authorization: Optional[str] = Header(None)):
     if league.get("season_phase") != "offseason_lottery":
         raise HTTPException(status_code=400, detail="The lottery isn't open right now")
     return _run_lottery(sb, league)
+
+
+# --- Prospect draft (snake by lottery order, into the farm; cap-enforced) -----
+
+def _snake_member(order_ids: list, n: int, pick_number: int) -> str:
+    """Member on the clock for a 1-based snake pick (round 1 ascending, round 2 reversed…)."""
+    rnd, pos = divmod(pick_number - 1, n)
+    if rnd % 2 == 1:
+        pos = n - 1 - pos
+    return order_ids[pos]
+
+
+def _offseason_eligible(sb, league: dict) -> List[dict]:
+    """Undrafted prospects for this league, best consensus rank first."""
+    taken = _drafted_player_ids(sb, league["id"])
+    rows = sb.table("fantasy_players").select(
+        "id,full_name,team,roster_pos,is_goalie,sweater,headshot,cost,prospect_ranking,is_prospect"
+    ).eq("is_prospect", "true").order("prospect_ranking").limit(400).execute().data
+    return [r for r in rows if r["id"] not in taken]
+
+
+def _first_open_farm(sb, member_id: str) -> Optional[dict]:
+    rows = sb.table("fantasy_roster_slots").select("id,slot,slot_type,player_id") \
+        .eq("member_id", member_id).eq("slot_type", "FARM").execute().data
+    return next((r for r in rows if r["player_id"] is None), None)
+
+
+def _member_cap(sb, member_id: str) -> int:
+    rows = sb.table("fantasy_members").select("cap_space").eq("id", member_id).execute().data
+    return (rows[0].get("cap_space") if rows else 0) or 0
+
+
+def _assign_prospect(sb, league: dict, member_id: str, player_id: str, slot_row: dict, pick_number: int, cost: int) -> None:
+    sb.table("fantasy_roster_slots").update({"player_id": player_id}).eq("id", slot_row["id"]).execute()
+    sb.table("fantasy_draft_picks").insert([{
+        "league_id": league["id"], "pick_number": pick_number, "member_id": member_id,
+        "player_id": player_id, "slot": slot_row["slot"], "slot_type": "FARM",
+    }]).execute()
+    sb.table("fantasy_members").update({"cap_space": max(0, _member_cap(sb, member_id) - (cost or 0))}).eq("id", member_id).execute()
+
+
+def _cpu_prospect_pick(sb, league: dict, member_id: str, pick_number: int) -> bool:
+    """A CPU (or auto-pick) takes the best-ranked prospect it can afford for an open farm slot."""
+    slot = _first_open_farm(sb, member_id)
+    if not slot:
+        return False
+    pool = _offseason_eligible(sb, league)
+    if not pool:
+        return False
+    cap = _member_cap(sb, member_id)
+    pick = next((p for p in pool if (p.get("cost") or 0) <= cap), None) or min(pool, key=lambda p: p.get("cost") or 0)
+    _assign_prospect(sb, league, member_id, pick["id"], slot, pick_number, pick.get("cost") or 0)
+    return True
+
+
+def _offseason_advance(sb, league: dict) -> None:
+    """Advance the snake prospect draft, auto-running CPU picks until a human is on the
+    clock or the draft completes (→ offseason_open)."""
+    league_id = league["id"]
+    members = sb.table("fantasy_members").select("id,user_id,draft_order,is_cpu").eq("league_id", league_id).execute().data
+    order_ids = [m["id"] for m in sorted(members, key=lambda m: (m.get("draft_order") or 999))]
+    by_id = {m["id"]: m for m in members}
+    n = len(order_ids)
+    total = n * OFFSEASON_ROUNDS
+    pick = sb.table("fantasy_draft_state").select("current_pick_number").eq("league_id", league_id).execute().data[0]["current_pick_number"]
+    while True:
+        pick += 1
+        if pick > total:
+            sb.table("fantasy_draft_state").update({
+                "status": "complete", "current_pick_number": total, "current_member_id": None,
+                "required_slot_type": None, "pick_deadline": None, "updated_at": _now(),
+            }).eq("league_id", league_id).execute()
+            sb.table("fantasy_leagues").update({"season_phase": "offseason_open"}).eq("id", league_id).execute()
+            return
+        picker_id = _snake_member(order_ids, n, pick)
+        rnd = (pick - 1) // n + 1
+        if by_id[picker_id].get("is_cpu"):
+            _cpu_prospect_pick(sb, league, picker_id, pick)
+            sb.table("fantasy_draft_state").update({"current_pick_number": pick, "round": rnd, "updated_at": _now()}).eq("league_id", league_id).execute()
+            continue
+        secs = league.get("pick_clock_seconds") or DEFAULT_PICK_SECONDS
+        deadline = (datetime.now(timezone.utc) + timedelta(seconds=secs)).replace(microsecond=0).isoformat()
+        sb.table("fantasy_draft_state").update({
+            "status": "in_progress", "current_pick_number": pick, "current_member_id": picker_id,
+            "required_slot_type": "FARM", "round": rnd, "pick_deadline": deadline, "updated_at": _now(),
+        }).eq("league_id", league_id).execute()
+        return
+
+
+def _start_prospect_draft(sb, league: dict) -> None:
+    league_id = league["id"]
+    n = len(sb.table("fantasy_members").select("id").eq("league_id", league_id).execute().data)
+    sb.table("fantasy_draft_state").update({
+        "status": "in_progress", "current_pick_number": 0, "total_picks": n * OFFSEASON_ROUNDS,
+        "round": 0, "current_member_id": None, "required_slot_type": "FARM", "updated_at": _now(),
+    }).eq("league_id", league_id).execute()
+    _offseason_advance(sb, league)
 
 
 # ---------------------------------------------------------------------------
