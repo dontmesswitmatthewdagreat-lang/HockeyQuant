@@ -1180,6 +1180,100 @@ def global_leaderboard(authorization: Optional[str] = Header(None)):
     return {"leaderboard": board}
 
 
+# ---------------------------------------------------------------------------
+# Stanley Cup ladder — weekly head-to-head in the global league (phase 1c)
+# ---------------------------------------------------------------------------
+
+_CUP_WIN = 25      # Cups for a weekly win
+_CUP_LOSS = 15     # Cups lost on a weekly loss (floored at 0)
+_CUP_TIE = 5       # Cups for a tie
+
+
+def _global_week_scores(sb, league_id: str, season: int, week: int) -> dict:
+    """Each member's score for `week`: rostered skater goals + starter GSAX."""
+    slots = sb.table("fantasy_roster_slots").select("member_id,slot,player_id").eq("league_id", league_id).execute().data
+    skater_ids = list({s["player_id"] for s in slots if s["player_id"] and not s["slot"].startswith("G_")})
+    starter_ids = list({s["player_id"] for s in slots if s["player_id"] and s["slot"] == "G_START"})
+    goals = defaultdict(int)
+    if skater_ids:
+        for r in sb.table("fantasy_weekly_player_goals").select("player_id,goals").eq("season_year", season).eq("week", week).in_("player_id", skater_ids).execute().data:
+            goals[r["player_id"]] += r["goals"]
+    gsax = defaultdict(float)
+    if starter_ids:
+        for r in sb.table("fantasy_weekly_goalie_stats").select("player_id,gsax").eq("season_year", season).eq("week", week).in_("player_id", starter_ids).execute().data:
+            gsax[r["player_id"]] += r["gsax"]
+    by_member = defaultdict(list)
+    for s in slots:
+        by_member[s["member_id"]].append(s)
+    out = {}
+    for mid, ms in by_member.items():
+        g = sum(goals.get(s["player_id"], 0) for s in ms if s["player_id"] and not s["slot"].startswith("G_"))
+        gx = sum(gsax.get(s["player_id"], 0.0) for s in ms if s["slot"] == "G_START" and s["player_id"])
+        out[mid] = round(g + gx, 1)
+    return out
+
+
+def score_cup_week(sb, week: int, season: Optional[int] = None, simulate: bool = False) -> dict:
+    """Matchmake global-league managers by Cup count, play a weekly head-to-head, and
+    apply Cup deltas (win +25 / loss -15 floored at 0 / tie +5). Idempotent per week.
+    `simulate` fabricates scores (offseason testing, when weekly stats are empty)."""
+    season = season or current_season_year()
+    league = _get_or_create_global(sb, season, None)
+    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league["id"]).execute().data
+    if not members:
+        return {"matches": 0, "reason": "no members"}
+    if sb.table("cup_matches").select("id").eq("season_year", season).eq("week", week).limit(1).execute().data:
+        return {"matches": 0, "reason": "already scored"}
+
+    cups = {}
+    for r in sb.table("user_stats").select("user_id,stanley_cups").in_("user_id", [m["user_id"] for m in members]).execute().data:
+        cups[r["user_id"]] = r.get("stanley_cups") or 0
+
+    scores = _global_week_scores(sb, league["id"], season, week)
+    if simulate:
+        scores = {m["id"]: round(random.uniform(0, 12), 1) for m in members}
+
+    # Matchmake: sort by Cup count, pair adjacent; odd one out plays the field average.
+    ordered = sorted(members, key=lambda m: (-cups.get(m["user_id"], 0), m["team_name"] or ""))
+    rows, deltas = [], defaultdict(int)   # deltas: user_id -> total Cup change this week
+    i = 0
+    while i < len(ordered):
+        a = ordered[i]
+        b = ordered[i + 1] if i + 1 < len(ordered) else None
+        sa = scores.get(a["id"], 0.0)
+        if b is None:
+            ghost = round(sum(scores.values()) / max(1, len(scores)), 1)
+            da = _CUP_WIN if sa >= ghost else -_CUP_LOSS
+            rows.append({"season_year": season, "week": week, "member_a": a["id"], "member_b": None,
+                         "score_a": sa, "score_b": ghost, "cups_a": da, "cups_b": 0,
+                         "winner_member_id": a["id"] if sa >= ghost else None, "is_ghost": True, "graded": True})
+            deltas[a["user_id"]] += da
+            i += 1
+        else:
+            sbv = scores.get(b["id"], 0.0)
+            if sa > sbv:   da, db, w = _CUP_WIN, -_CUP_LOSS, a["id"]
+            elif sbv > sa: da, db, w = -_CUP_LOSS, _CUP_WIN, b["id"]
+            else:          da, db, w = _CUP_TIE, _CUP_TIE, None
+            rows.append({"season_year": season, "week": week, "member_a": a["id"], "member_b": b["id"],
+                         "score_a": sa, "score_b": sbv, "cups_a": da, "cups_b": db,
+                         "winner_member_id": w, "is_ghost": False, "graded": True})
+            deltas[a["user_id"]] += da
+            deltas[b["user_id"]] += db
+            i += 2
+
+    sb.table("cup_matches").upsert(rows, on_conflict="season_year,week,member_a").execute()
+    for uid, d in deltas.items():
+        sb.table("user_stats").upsert({"user_id": uid, "stanley_cups": max(0, cups.get(uid, 0) + d)},
+                                      on_conflict="user_id").execute()
+    return {"matches": len(rows), "members": len(members), "season": season, "week": week}
+
+
+@router.post("/fantasy/cup/score-week")
+def cup_score_week(week: int, simulate: bool = False):
+    """Cron/admin: run the weekly global-league Cup matches for `week`. Idempotent per week."""
+    return score_cup_week(_sb(), week, simulate=simulate)
+
+
 @router.get("/fantasy/leagues/{league_id}/rosters")
 def all_rosters(league_id: str, authorization: Optional[str] = Header(None)):
     """Every manager's roster (for the trade UI). Members only."""
