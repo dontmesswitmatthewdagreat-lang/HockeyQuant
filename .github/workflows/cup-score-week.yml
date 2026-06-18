@@ -1,0 +1,37 @@
+# HockeyQuant — Weekly Stanley Cup matchups
+# Each Tuesday morning (ET) runs the global-league head-to-head for the week that
+# just ended: matchmakes managers by Cup count, scores their rosters, and applies
+# the Cup deltas (win +25 / loss −15 floored at 0 / tie +5). With no `week` param
+# the endpoint auto-advances to the next un-scored week, and it's idempotent per week.
+
+name: Cup Score Week
+
+on:
+  schedule:
+    - cron: '0 14 * * 2'   # 14:00 UTC Tuesday (~9–10 AM ET)
+  workflow_dispatch:
+    inputs:
+      week:
+        description: 'Week number to score (blank = next un-scored week)'
+        required: false
+      simulate:
+        description: 'Fabricate scores (offseason testing only)'
+        required: false
+        default: 'false'
+
+jobs:
+  cup-score-week:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Score the weekly Cup matchups
+        run: |
+          URL="https://hockeyquant.onrender.com/api/fantasy/cup/score-week"
+          PARAMS=""
+          if [ -n "${{ github.event.inputs.week }}" ]; then PARAMS="?week=${{ github.event.inputs.week }}"; fi
+          if [ "${{ github.event.inputs.simulate }}" = "true" ]; then
+            [ -z "$PARAMS" ] && PARAMS="?simulate=true" || PARAMS="$PARAMS&simulate=true"
+          fi
+          curl -s --max-time 180 -X POST "${URL}${PARAMS}"

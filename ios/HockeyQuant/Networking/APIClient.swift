@@ -595,6 +595,12 @@ extension APIClient {
         return try Self.decode(GlobalLeaderboardResponse.self, from: data).leaderboard
     }
 
+    func cupMatchup(token: String) async throws -> CupMatchupResponse {
+        let url = fantasyURL("cup").appendingPathComponent("my-matchup")
+        let data = try await perform("GET", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(CupMatchupResponse.self, from: data)
+    }
+
     /// `GET /api/news/latest` — the league morning digest + the team's recent digests.
     func newsLatest(team: String?) async throws -> [NewsDigest] {
         var comps = URLComponents(

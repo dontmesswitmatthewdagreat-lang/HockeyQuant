@@ -110,4 +110,5 @@ final class FantasyStore {
     func globalJoin(teamName: String) async throws -> FantasyLeagueSummary { try await api.globalJoin(teamName: teamName, token: token()) }
     func globalSetSlot(slot: String, playerId: String) async throws { try await api.globalSetSlot(slot: slot, playerId: playerId, token: token()) }
     func globalLeaderboard() async throws -> [GlobalLeaderboardRow] { try await api.globalLeaderboard(token: token()) }
+    func cupMatchup() async throws -> CupMatchupResponse { try await api.cupMatchup(token: token()) }
 }

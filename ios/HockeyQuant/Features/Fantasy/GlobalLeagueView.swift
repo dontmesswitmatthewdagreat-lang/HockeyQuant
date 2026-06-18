@@ -7,6 +7,7 @@ struct GlobalLeagueView: View {
 
     @State private var data: GlobalResponse?
     @State private var leaderboard: [GlobalLeaderboardRow] = []
+    @State private var matchup: CupMatch?
     @State private var tab = 0
     @State private var loading = true
     @State private var teamName = ""
@@ -47,6 +48,7 @@ struct GlobalLeagueView: View {
         do {
             data = try await store.global()
             leaderboard = try await store.globalLeaderboard()
+            matchup = (try? await store.cupMatchup())?.match
         } catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
         loading = false
     }
@@ -84,6 +86,7 @@ struct GlobalLeagueView: View {
             ScrollView {
                 VStack(spacing: Theme.Spacing.xs) {
                     if tab == 0 {
+                        if let m = matchup { matchupCard(m) }
                         budgetCard(d)
                         Text("Tap a slot to sign a player — your roster must fit under your Cap Space.")
                             .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
@@ -95,6 +98,58 @@ struct GlobalLeagueView: View {
                 }.padding(.horizontal, Theme.Spacing.md).padding(.bottom, Theme.Spacing.lg)
             }
         }
+    }
+
+    // MARK: Weekly Cup matchup
+
+    private func cupColor(_ m: CupMatch) -> Color {
+        m.didWin ? Theme.Palette.positive : (m.didLose ? Theme.Palette.negative : Theme.Palette.accent)
+    }
+
+    private func matchupCard(_ m: CupMatch) -> some View {
+        Card {
+            VStack(spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("Week \(m.week) · Cup Match")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Spacer()
+                    Text(m.didWin ? "WON" : (m.didLose ? "LOST" : "TIE"))
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(cupColor(m))
+                        .clipShape(Capsule())
+                }
+                HStack(alignment: .center, spacing: Theme.Spacing.sm) {
+                    teamColumn(name: m.myTeam, score: m.myScore, mine: true)
+                    Text("vs").font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                    teamColumn(name: m.opponentTeam, score: m.opponentScore, mine: false)
+                }
+                HStack(spacing: 4) {
+                    Image(systemName: "trophy.fill").font(.system(size: 12))
+                    Text(m.cupDelta >= 0 ? "+\(m.cupDelta) Cups" : "\(m.cupDelta) Cups")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded))
+                }
+                .foregroundStyle(cupColor(m))
+                if m.isGhost {
+                    Text("No live opponent near you yet — you played the league average. Cups still count.")
+                        .font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.Palette.textPrimary)
+                        .multilineTextAlignment(.center)
+                }
+            }
+        }
+    }
+
+    private func teamColumn(name: String, score: Double, mine: Bool) -> some View {
+        VStack(spacing: 2) {
+            Text(name).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
+                .lineLimit(1).minimumScaleFactor(0.7)
+            Text(String(format: "%.1f", score))
+                .font(.system(size: 22, weight: .heavy, design: .rounded))
+                .foregroundStyle(mine ? Theme.Palette.accent : Theme.Palette.textSecondary)
+            Text(mine ? "You" : "Opponent").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
+        }.frame(maxWidth: .infinity)
     }
 
     private func budgetCard(_ d: GlobalResponse) -> some View {

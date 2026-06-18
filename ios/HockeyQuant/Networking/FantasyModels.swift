@@ -182,6 +182,31 @@ struct GlobalLeaderboardRow: Codable, Identifiable, Hashable {
 
 struct GlobalLeaderboardResponse: Codable { let leaderboard: [GlobalLeaderboardRow] }
 
+// MARK: - Stanley Cup weekly matchup
+
+/// One weekly global-league head-to-head, from the signed-in manager's point of view.
+struct CupMatch: Codable, Hashable {
+    let week: Int
+    let myTeam: String
+    let myUsername: String?
+    let opponentTeam: String
+    let opponentUsername: String?
+    let myScore: Double
+    let opponentScore: Double
+    let cupDelta: Int            // Cups won (+) or lost (−) this week
+    let result: String           // win | loss | tie
+    let isGhost: Bool            // true when matched against the field average (no live opponent)
+
+    var didWin: Bool { result == "win" }
+    var didLose: Bool { result == "loss" }
+}
+
+struct CupMatchupResponse: Codable {
+    let joined: Bool
+    let stanleyCups: Int
+    let match: CupMatch?
+}
+
 // MARK: - Request bodies
 
 struct CreateLeagueBody: Encodable {

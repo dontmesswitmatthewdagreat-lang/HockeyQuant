@@ -22,6 +22,10 @@ insert into public.season_caps (season_year, cap_dollars) values
     (2027, 113500000)    -- 2027-28 (announced)
 on conflict (season_year) do update set cap_dollars = excluded.cap_dollars;
 
+-- Lock it down: only the SECURITY DEFINER grading function reads this (and bypasses
+-- RLS); clients get the cap through the backend, so no client-facing policy is needed.
+alter table public.season_caps enable row level security;
+
 -- 2. Grading clamps earned Cap Space at the season's NHL cap ----------------
 create or replace function public.grade_user_picks_for_game(
     p_game_date text, p_away text, p_home text, p_actual_winner text

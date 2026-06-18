@@ -76,6 +76,8 @@ struct UserPick: Decodable, Identifiable, Sendable {
 struct LeaderboardEntry: Decodable, Identifiable, Sendable {
     let userId: String
     let username: String?
+    let stanleyCups: Int
+    let capSpace: Int
     let totalXp: Int
     let level: Int
     let currentStreak: Int
@@ -85,10 +87,13 @@ struct LeaderboardEntry: Decodable, Identifiable, Sendable {
 
     var id: String { userId }
     var displayName: String { username ?? "Player \(userId.prefix(4))" }
+    var arena: Arena { Arena.current(forCups: stanleyCups) }
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
         case username
+        case stanleyCups = "stanley_cups"
+        case capSpace = "cap_space"
         case totalXp = "total_xp"
         case level
         case currentStreak = "current_streak"

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Global leaderboard ranked by XP. Pushed within the Play navigation stack.
+/// Global leaderboard ranked by Stanley Cups. Pushed within the Play navigation stack.
 struct LeaderboardView: View {
     @Environment(GamificationStore.self) private var game
     @State private var loading = true
@@ -42,7 +42,7 @@ struct LeaderboardView: View {
             EmptyStateView(
                 systemImage: "trophy",
                 title: "No rankings yet",
-                message: "Be the first — make some picks and earn XP to top the board."
+                message: "Be the first — make picks, build your team, and win weekly matchups to earn Stanley Cups."
             )
         } else {
             list
@@ -69,9 +69,12 @@ struct LeaderboardView: View {
                 Text(entry.displayName)
                     .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textPrimary)
-                Text("Lvl \(entry.level) · \(entry.picksCorrect)/\(entry.picksMade) · \(Int(entry.accuracy.rounded()))%")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.textTertiary)
+                HStack(spacing: 4) {
+                    Image(systemName: entry.arena.icon).font(.system(size: 9)).foregroundStyle(entry.arena.color)
+                    Text("\(entry.arena.name) · \(entry.picksCorrect)/\(entry.picksMade) · \(Int(entry.accuracy.rounded()))%")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
             }
             Spacer()
             if entry.currentStreak > 0 {
@@ -82,8 +85,11 @@ struct LeaderboardView: View {
                 .foregroundStyle(Theme.Palette.moderate)
             }
             VStack(alignment: .trailing, spacing: 0) {
-                Text("\(entry.totalXp)").font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
-                Text("XP").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
+                HStack(spacing: 3) {
+                    Image(systemName: "trophy.fill").font(.system(size: 11)).foregroundStyle(Color(hex: 0xFFD23F))
+                    Text("\(entry.stanleyCups)").font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
+                }
+                Text("CUPS").font(.system(size: 9, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
         }
         .padding(Theme.Spacing.sm)

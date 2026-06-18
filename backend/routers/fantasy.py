@@ -154,6 +154,11 @@ def _user_cap_space(sb, uid: str) -> int:
     return (rows[0].get("cap_space") if rows else 0) or 0
 
 
+def _user_cups(sb, uid: str) -> int:
+    rows = sb.table("user_stats").select("stanley_cups").eq("user_id", uid).execute().data
+    return (rows[0].get("stanley_cups") if rows else 0) or 0
+
+
 # The maximum Cap Space = the real NHL salary-cap upper limit for the season, which
 # rises each year (NHL/NHLPA announced schedule). Mirrors the season_caps table the
 # grading function clamps against (migration 017).
@@ -1287,10 +1292,91 @@ def score_cup_week(sb, week: int, season: Optional[int] = None, simulate: bool =
     return {"matches": len(rows), "members": len(members), "season": season, "week": week}
 
 
+def _next_cup_week(sb, season: int) -> int:
+    """The next un-scored Cup week for the season (1 if none scored yet)."""
+    weeks = [r["week"] for r in sb.table("cup_matches").select("week").eq("season_year", season).execute().data]
+    return (max(weeks) + 1) if weeks else 1
+
+
 @router.post("/fantasy/cup/score-week")
-def cup_score_week(week: int, simulate: bool = False):
-    """Cron/admin: run the weekly global-league Cup matches for `week`. Idempotent per week."""
-    return score_cup_week(_sb(), week, simulate=simulate)
+def cup_score_week(week: Optional[int] = None, simulate: bool = False):
+    """Cron/admin: run the weekly global-league Cup matches. With no `week`, scores the
+    next un-scored week of the current season (the weekly cron's normal path), so each
+    weekly run advances the ladder by exactly one matchup. Idempotent per week."""
+    sb = _sb()
+    season = current_season_year()
+    wk = week if week is not None else _next_cup_week(sb, season)
+    return score_cup_week(sb, wk, season=season, simulate=simulate)
+
+
+@router.get("/fantasy/cup/my-matchup")
+def cup_my_matchup(authorization: Optional[str] = Header(None)):
+    """The signed-in manager's most recent weekly Cup head-to-head (for the matchup card):
+    you vs your opponent, the week's scores, and the Cups won/lost. Returns the latest
+    graded `cup_matches` row involving you, plus your current Cup total and Arena."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    season = current_season_year()
+    league = _get_or_create_global(sb, season, uid)
+    me = _member_for_user(sb, league["id"], uid)
+    cups = _user_cups(sb, uid)
+    if not me:
+        return {"joined": False, "stanley_cups": cups, "match": None}
+
+    rows = sb.table("cup_matches").select(
+        "week,member_a,member_b,score_a,score_b,cups_a,cups_b,winner_member_id,is_ghost"
+    ).eq("season_year", season).or_(
+        f"member_a.eq.{me['id']},member_b.eq.{me['id']}"
+    ).order("week", desc=True).limit(1).execute().data
+    if not rows:
+        return {"joined": True, "stanley_cups": cups, "match": None}
+
+    m = rows[0]
+    i_am_a = m["member_a"] == me["id"]
+    opp_id = m["member_b"] if i_am_a else m["member_a"]
+    my_score = m["score_a"] if i_am_a else m["score_b"]
+    opp_score = m["score_b"] if i_am_a else m["score_a"]
+    my_delta = m["cups_a"] if i_am_a else m["cups_b"]
+
+    # Opponent name (a ghost match is played against the field average).
+    member_ids = [x for x in (m["member_a"], m["member_b"]) if x]
+    mmap = {x["id"]: x for x in sb.table("fantasy_members").select(
+        "id,user_id,team_name").in_("id", member_ids).execute().data}
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select(
+        "id,username").in_("id", [x["user_id"] for x in mmap.values()]).execute().data} if mmap else {}
+    my_team = mmap.get(me["id"], {}).get("team_name") or "Your Team"
+    if m["is_ghost"] or not opp_id:
+        opp_team, opp_user = "Field Average", None
+    else:
+        opp_team = mmap.get(opp_id, {}).get("team_name") or "Opponent"
+        opp_user = names.get(mmap.get(opp_id, {}).get("user_id"))
+
+    # Result derived from the week scores (matches the scoring engine exactly).
+    if m["is_ghost"]:
+        result = "win" if my_score >= opp_score else "loss"
+    elif my_score > opp_score:
+        result = "win"
+    elif my_score < opp_score:
+        result = "loss"
+    else:
+        result = "tie"
+
+    return {
+        "joined": True,
+        "stanley_cups": cups,
+        "match": {
+            "week": m["week"],
+            "my_team": my_team,
+            "my_username": names.get(me["user_id"]),
+            "opponent_team": opp_team,
+            "opponent_username": opp_user,
+            "my_score": my_score,
+            "opponent_score": opp_score,
+            "cup_delta": my_delta,
+            "result": result,
+            "is_ghost": m["is_ghost"],
+        },
+    }
 
 
 @router.get("/fantasy/leagues/{league_id}/rosters")
