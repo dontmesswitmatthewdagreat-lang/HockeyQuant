@@ -36,9 +36,9 @@ final class FantasyStore {
     }
 
     @discardableResult
-    func create(name: String, teamName: String, leagueType: String, maxMembers: Int, draftPace: String) async -> FantasyLeagueSummary? {
+    func create(name: String, teamName: String, leagueType: String, mode: String = "group", cpuCount: Int = 0, maxMembers: Int, draftPace: String) async -> FantasyLeagueSummary? {
         do {
-            let league = try await api.createLeague(name: name, teamName: teamName, leagueType: leagueType, maxMembers: maxMembers, draftPace: draftPace, token: token())
+            let league = try await api.createLeague(name: name, teamName: teamName, leagueType: leagueType, mode: mode, cpuCount: cpuCount, maxMembers: maxMembers, draftPace: draftPace, token: token())
             await loadLeagues()
             return league
         } catch {
@@ -65,6 +65,14 @@ final class FantasyStore {
 
     func startDraft(_ id: String) async throws -> DraftResponse {
         try await api.startDraft(id, token: token())
+    }
+
+    func startOffseason(_ id: String) async throws -> FantasyLeagueSummary {
+        try await api.startOffseason(id, token: token())
+    }
+
+    func runLottery(_ id: String) async throws -> LotteryResult {
+        try await api.runLottery(id, token: token())
     }
 
     func draftState(_ id: String) async throws -> DraftResponse {

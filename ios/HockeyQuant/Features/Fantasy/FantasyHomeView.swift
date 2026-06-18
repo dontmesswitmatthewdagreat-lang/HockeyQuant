@@ -161,41 +161,47 @@ private struct CreateLeagueSheet: View {
 
     @State private var name = ""
     @State private var teamName = ""
-    @State private var leagueType = "group"
+    @State private var mode = "solo"
+    @State private var cpuCount = 5
     @State private var maxMembers = 8
     @State private var draftPace: DraftPace = .standard
     @State private var saving = false
+
+    private var leagueType: String { mode == "global" ? "global" : "group" }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("League") {
                     TextField("League name", text: $name)
-                    Picker("Type", selection: $leagueType) {
+                    Picker("Mode", selection: $mode) {
+                        Text("Solo (vs CPU)").tag("solo")
                         Text("Private group").tag("group")
                         Text("Global (open)").tag("global")
                     }
-                    if leagueType == "group" {
+                    if mode == "solo" {
+                        Stepper("CPU rivals: \(cpuCount)", value: $cpuCount, in: 1...11)
+                    } else if mode == "group" {
                         Stepper("Max managers: \(maxMembers)", value: $maxMembers, in: 2...16)
                     }
                 }
-                Section("Draft format") {
-                    Picker("Pace", selection: $draftPace) {
-                        ForEach(DraftPace.allCases) { p in
-                            Label(p.title, systemImage: p.icon).tag(p)
+                if mode != "global" {
+                    Section("Draft format") {
+                        Picker("Pace", selection: $draftPace) {
+                            ForEach(DraftPace.allCases) { p in
+                                Label(p.title, systemImage: p.icon).tag(p)
+                            }
                         }
+                        Text(draftPace.blurb)
+                            .font(Theme.Font.caption())
+                            .foregroundStyle(Theme.Palette.textSecondary)
                     }
-                    Text(draftPace.blurb)
-                        .font(Theme.Font.caption())
-                        .foregroundStyle(Theme.Palette.textSecondary)
                 }
                 Section("Your team") {
                     TextField("Team name", text: $teamName)
                 }
                 Section {
-                    Text(leagueType == "group"
-                         ? "Private leagues use a unique player pool (no duplicates) and get a mid-season trade deadline."
-                         : "The global league lets every manager draft anyone — duplicate players are allowed across teams.")
+                    Text(modeBlurb)
                         .font(Theme.Font.caption())
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
@@ -212,10 +218,20 @@ private struct CreateLeagueSheet: View {
         }
     }
 
+    private var modeBlurb: String {
+        switch mode {
+        case "solo": return "Play the full off-season solo: a draft lottery, a prospect draft, and trades against \(cpuCount) CPU-run franchises, then the regular season."
+        case "global": return "The global league lets every manager draft anyone — duplicate players are allowed across teams."
+        default: return "Private leagues run the off-season franchise cycle with your friends: lottery, prospect draft, and trades."
+        }
+    }
+
     private func create() {
         saving = true
         Task {
-            let created = await store.create(name: name, teamName: teamName, leagueType: leagueType, maxMembers: maxMembers, draftPace: draftPace.rawValue)
+            let created = await store.create(name: name, teamName: teamName, leagueType: leagueType,
+                                             mode: mode, cpuCount: mode == "solo" ? cpuCount : 0,
+                                             maxMembers: maxMembers, draftPace: draftPace.rawValue)
             saving = false
             if created != nil { dismiss() }
         }

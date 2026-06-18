@@ -466,8 +466,8 @@ extension APIClient {
     }
 
     /// `POST /api/fantasy/leagues` — create a league.
-    func createLeague(name: String, teamName: String, leagueType: String, maxMembers: Int, draftPace: String, token: String) async throws -> FantasyLeagueSummary {
-        let body = CreateLeagueBody(name: name, teamName: teamName, leagueType: leagueType, maxMembers: maxMembers, draftPace: draftPace)
+    func createLeague(name: String, teamName: String, leagueType: String, mode: String, cpuCount: Int, maxMembers: Int, draftPace: String, token: String) async throws -> FantasyLeagueSummary {
+        let body = CreateLeagueBody(name: name, teamName: teamName, leagueType: leagueType, mode: mode, cpuCount: cpuCount, maxMembers: maxMembers, draftPace: draftPace)
         let data = try await perform("POST", fantasyURL("leagues"), token: token, body: body)
         return try Self.decode(FantasyLeagueSummary.self, from: data)
     }
@@ -492,6 +492,22 @@ extension APIClient {
         let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("start-draft")
         let data = try await perform("POST", url, token: token, body: Optional<Int>.none)
         return try Self.decode(DraftResponse.self, from: data)
+    }
+
+    /// `POST /api/fantasy/leagues/{id}/start-offseason` (commissioner) — reset into the
+    /// off-season build phase (random starter rosters + Cap Space carryover).
+    func startOffseason(_ id: String, token: String) async throws -> FantasyLeagueSummary {
+        let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("start-offseason")
+        let data = try await perform("POST", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(FantasyLeagueSummary.self, from: data)
+    }
+
+    /// `POST /api/fantasy/leagues/{id}/lottery/run` (commissioner) — run the weighted
+    /// draft lottery; returns the odds + suspense reveal sequence.
+    func runLottery(_ id: String, token: String) async throws -> LotteryResult {
+        let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("lottery").appendingPathComponent("run")
+        let data = try await perform("POST", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(LotteryResult.self, from: data)
     }
 
     /// `GET /api/fantasy/leagues/{id}/draft` — live draft state + board.

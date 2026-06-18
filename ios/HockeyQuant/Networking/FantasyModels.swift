@@ -7,6 +7,8 @@ struct FantasyLeagueSummary: Codable, Identifiable, Hashable {
     let name: String
     let leagueType: String      // group | global
     let status: String          // open | drafting | active | playoffs | complete
+    let seasonPhase: String?    // offseason_lottery | offseason_draft | offseason_open | regular | playoffs | complete
+    let mode: String?           // group | global | solo
     let maxMembers: Int
     let uniquePlayers: Bool
     let inviteCode: String
@@ -16,18 +18,40 @@ struct FantasyLeagueSummary: Codable, Identifiable, Hashable {
     let isCommissioner: Bool
     let memberCount: Int
     let myTeamName: String?
+    let myCapSpace: Int?        // this manager's franchise Cap Space bank (group/solo)
 
     var isGroup: Bool { leagueType == "group" }
+    var phase: String { seasonPhase ?? "regular" }
+    var isOffseason: Bool { phase.hasPrefix("offseason") }
+}
+
+// MARK: - Draft lottery
+
+struct LotteryPick: Codable, Identifiable, Hashable {
+    let pick: Int
+    let memberId: String
+    let teamName: String
+    let username: String?
+    let odds: Double
+
+    var id: String { memberId }
+}
+
+struct LotteryResult: Codable, Hashable {
+    let order: [LotteryPick]      // pick 1 … n
+    let reveal: [LotteryPick]     // suspense order: last pick revealed first, #1 last
+    let ranAt: String?
 }
 
 struct MyLeaguesResponse: Codable { let leagues: [FantasyLeagueSummary] }
 
 struct LeagueMember: Codable, Identifiable, Hashable {
     let id: String
-    let userId: String
+    let userId: String?
     let teamName: String
     let draftOrder: Int?
     let username: String?
+    let isCpu: Bool?
     let isMe: Bool
 }
 
@@ -37,6 +61,7 @@ struct LeagueDetail: Codable {
     let league: FantasyLeagueSummary
     let members: [LeagueMember]
     let draft: DraftStatus?
+    let lottery: LotteryResult?
 }
 
 // MARK: - Players
@@ -213,6 +238,8 @@ struct CreateLeagueBody: Encodable {
     let name: String
     let teamName: String
     let leagueType: String
+    let mode: String
+    let cpuCount: Int
     let maxMembers: Int
     let draftPace: String
 }
