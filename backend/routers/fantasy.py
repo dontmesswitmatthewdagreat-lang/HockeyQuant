@@ -149,6 +149,64 @@ def _player_cost(prod) -> int:
     return _NHL_MIN + val * (230_000 if kind == "goalie" else 235_000)
 
 
+# Prospects are entry-level, but to make the cap bind we scale their (ELC-flavored)
+# cap hit by consensus draft rank: the #1 prospect is a real cap commitment, decaying
+# to the league minimum deep in the board.
+_PROSPECT_TOP_COST = 8_000_000
+_PROSPECT_COST_STEP = 115_000
+
+def _prospect_roster_pos(position: Optional[str], shoots: Optional[str]) -> Optional[str]:
+    """Map an NHL draft positionCode to a roster slot type (D split by handedness)."""
+    p = (position or "").upper()
+    if p == "C": return "C"
+    if p in ("L", "LW"): return "LW"
+    if p in ("R", "RW"): return "RW"
+    if p == "G": return "G"
+    if p == "LD": return "LHD"
+    if p == "RD": return "RHD"
+    if p == "D": return "RHD" if (shoots or "L").upper() == "R" else "LHD"
+    if p == "F": return "C"          # generic forward → center
+    return None
+
+
+def _prospect_cost(rank: int) -> int:
+    cost = max(_NHL_MIN, _PROSPECT_TOP_COST - (rank - 1) * _PROSPECT_COST_STEP)
+    return int(round(cost / 100_000) * 100_000)
+
+
+def sync_prospects_to_players(sb) -> int:
+    """Mirror the current draft class (consensus board) into fantasy_players as
+    draftable, cap-priced prospects. Idempotent (upsert on nhl_id)."""
+    from services.draft_simulator import _consensus_pool
+    pool = _consensus_pool(sb)
+    rows = []
+    for i, p in enumerate(pool):
+        info = p.get("info") or {}
+        rpos = _prospect_roster_pos(p.get("position"), info.get("shoots"))
+        if not rpos or not p.get("nhl_id"):
+            continue
+        rank = i + 1
+        rows.append({
+            "nhl_id": p["nhl_id"],
+            "full_name": p.get("name") or "Prospect",
+            "team": (info.get("club") or p.get("league") or "DRAFT")[:24],
+            "position": ((p.get("position") or "")[:3]) or "F",
+            "shoots": info.get("shoots"),
+            "roster_pos": rpos,
+            "is_goalie": rpos == "G",
+            "headshot": info.get("headshot"),
+            "active": False,
+            "is_prospect": True,
+            "prospect_ranking": rank,
+            "draft_class": p.get("draft_year"),
+            "cost": _prospect_cost(rank),
+            "updated_at": _now(),
+        })
+    for i in range(0, len(rows), 200):
+        sb.table("fantasy_players").upsert(rows[i:i + 200], on_conflict="nhl_id").execute()
+    return len(rows)
+
+
 def _user_cap_space(sb, uid: str) -> int:
     rows = sb.table("user_stats").select("cap_space").eq("user_id", uid).execute().data
     return (rows[0].get("cap_space") if rows else 0) or 0
@@ -241,6 +299,13 @@ def sync_players():
             sb.table("fantasy_players").upsert(rows[i:i + 300], on_conflict="nhl_id").execute()
 
     return {"synced": len(rows), "teams_ok": len(ALL_TEAMS) - len(failed), "failed": failed}
+
+
+@router.post("/fantasy/sync-prospects")
+def sync_prospects():
+    """Cron/admin: mirror the current prospect draft class into fantasy_players,
+    cap-priced by consensus rank, so they can be drafted in off-season leagues."""
+    return {"synced": sync_prospects_to_players(_sb())}
 
 
 # ---------------------------------------------------------------------------
