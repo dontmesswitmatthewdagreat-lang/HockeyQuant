@@ -121,7 +121,7 @@ struct GlobalLeagueView: View {
 
     private func budgetStat(_ label: String, _ value: Int, _ color: Color) -> some View {
         VStack(spacing: 1) {
-            Text("$\(value)").font(.system(size: 16, weight: .heavy, design: .rounded)).foregroundStyle(color)
+            Text(value.asCapMoney).font(.system(size: 15, weight: .heavy, design: .rounded)).foregroundStyle(color)
             Text(label).font(.system(size: 9, weight: .medium)).foregroundStyle(Theme.Palette.textPrimary)
         }
     }
@@ -139,7 +139,7 @@ struct GlobalLeagueView: View {
                 }
                 Spacer()
                 if let p = slot.player {
-                    Text("$\(p.cost ?? 0)").font(.system(size: 12, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
+                    Text((p.cost ?? 0).asCapMoney).font(.system(size: 12, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
                 }
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
@@ -203,7 +203,7 @@ struct SlotPickerSheet: View {
                                 CrestView(abbrev: p.team, size: 26)
                                 Text(p.fullName).foregroundStyle(Theme.Palette.textPrimary)
                                 Spacer()
-                                Text("$\(cost)").font(.system(size: 13, weight: .heavy, design: .rounded))
+                                Text(cost.asCapMoney).font(.system(size: 13, weight: .heavy, design: .rounded))
                                     .foregroundStyle(affordable ? Theme.Palette.accent : Theme.Palette.negative)
                             }
                             .opacity(affordable ? 1 : 0.45)
@@ -212,7 +212,7 @@ struct SlotPickerSheet: View {
                     }
                 } header: {
                     if budget != .max {
-                        Text("$\(budget) to spend on this slot").textCase(nil)
+                        Text("\(budget.asCapMoney) to spend on this slot").textCase(nil)
                             .foregroundStyle(Theme.Palette.textSecondary)
                     }
                 }

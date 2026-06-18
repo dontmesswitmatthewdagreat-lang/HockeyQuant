@@ -136,17 +136,17 @@ def _roster_pos(position_code: str, shoots: Optional[str]) -> Optional[str]:
 # Player pool sync (cron/admin)
 # ---------------------------------------------------------------------------
 
-# Player acquisition cost (the salary-cap budget you spend in the global league).
-# The league scores skaters by goals and the starter by GSAX, so scoring drives a
-# skater's price and wins (a quality + volume proxy) drive a goalie's. All tunable.
-_COST_BASE = 25
+# Player cost in real NHL cap dollars. League minimum / entry-level at the floor,
+# ~$12-13M for elite scorers and starters (scoring drives a skater's price; wins —
+# a quality + volume proxy — drive a goalie's). Stored in dollars; the app shows $M.
+_NHL_MIN = 775_000   # league minimum / ELC
 
 def _player_cost(prod) -> int:
-    """prod = ("skater", goals) | ("goalie", wins) | None (didn't play → cheap flyer)."""
+    """prod = ("skater", goals) | ("goalie", wins) | None (didn't play / ELC → minimum)."""
     if not prod:
-        return 20
+        return _NHL_MIN
     kind, val = prod
-    return _COST_BASE + (val * 12 if kind == "goalie" else val * 10)
+    return _NHL_MIN + val * (230_000 if kind == "goalie" else 235_000)
 
 
 def _user_cap_space(sb, uid: str) -> int:

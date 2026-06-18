@@ -94,10 +94,7 @@ struct PlayHeaderCard: View {
         }
     }
 
-    private var capText: String {
-        let v = stats.capSpace
-        return v >= 1000 ? String(format: "%.1fK", Double(v) / 1000) : "\(v)"
-    }
+    private var capText: String { stats.capSpace.asCapMoney }
 }
 
 // MARK: - Season banner (entry to the meta-game)

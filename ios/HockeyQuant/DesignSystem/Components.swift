@@ -256,3 +256,10 @@ enum Haptics {
         gen.notificationOccurred(.success)
     }
 }
+
+// MARK: - Cap money formatting
+
+extension Int {
+    /// A Cap Space dollar amount shown in millions, e.g. 12_275_000 → "$12.3M".
+    var asCapMoney: String { String(format: "$%.1fM", Double(self) / 1_000_000) }
+}
