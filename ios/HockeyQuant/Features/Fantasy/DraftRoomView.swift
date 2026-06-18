@@ -99,8 +99,21 @@ struct DraftRoomView: View {
                     .foregroundStyle(Theme.Palette.textPrimary)
                 if let u = s.currentUsername { Text("@\(u)").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary) }
 
-                // Lottery-assigned required position — the "wheel" result.
-                if let req = s.requiredSlotType {
+                if s.isOffseason == true {
+                    // Off-season prospect draft: pick anyone, constrained by Cap Space.
+                    VStack(spacing: 4) {
+                        Text("PICK A PROSPECT").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                        if s.isMyPick {
+                            Text("\((s.myCapSpace ?? 0).asCapMoney) to spend")
+                                .font(.system(size: 18, weight: .heavy, design: .rounded))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, Theme.Spacing.md).padding(.vertical, Theme.Spacing.sm)
+                                .background(Theme.Palette.accent).clipShape(Capsule())
+                        }
+                    }
+                    .padding(.top, Theme.Spacing.xs)
+                } else if let req = s.requiredSlotType {
+                    // In-season draft: the lottery-assigned required position (the "wheel").
                     VStack(spacing: 4) {
                         Text("MUST DRAFT").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
                         HStack(spacing: Theme.Spacing.xs) {
@@ -169,15 +182,16 @@ struct DraftRoomView: View {
     // MARK: - Pick list (my turn)
 
     private func pickList(_ draft: DraftResponse) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        let offseason = draft.state.isOffseason == true
+        return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             HStack {
-                Text("AVAILABLE \(FantasySlot.label(draft.state.requiredSlotType ?? "").uppercased())")
+                Text(offseason ? "AVAILABLE PROSPECTS" : "AVAILABLE \(FantasySlot.label(draft.state.requiredSlotType ?? "").uppercased())")
                     .font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
                 Spacer()
                 autopickButton()
             }
             ForEach(Array(draft.availablePlayers.enumerated()), id: \.element.id) { index, player in
-                playerRow(player, canDraft: true)
+                playerRow(player, canDraft: true, cap: offseason ? draft.state.myCapSpace : nil)
                     .staggeredEntrance(index: min(index, 8))
             }
             if draft.availablePlayers.isEmpty {
@@ -187,38 +201,55 @@ struct DraftRoomView: View {
     }
 
     private func waitingPool(_ draft: DraftResponse) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        let offseason = draft.state.isOffseason == true
+        return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
             HStack {
                 Text("WAITING…").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
                 Spacer()
                 autopickButton()  // commissioner can autopick for AFK managers
             }
             ForEach(draft.availablePlayers.prefix(6)) { player in
-                playerRow(player, canDraft: false)
+                playerRow(player, canDraft: false, cap: offseason ? draft.state.myCapSpace : nil)
             }
         }
     }
 
-    private func playerRow(_ player: FantasyPlayer, canDraft: Bool) -> some View {
-        Card {
+    private func playerRow(_ player: FantasyPlayer, canDraft: Bool, cap: Int?) -> some View {
+        let prospect = player.isProspect == true
+        let cost = player.cost ?? 0
+        let affordable = cap == nil || cost <= (cap ?? 0)
+        return Card {
             HStack(spacing: Theme.Spacing.sm) {
-                CrestView(abbrev: player.team, size: 34)
+                if prospect {
+                    Text("#\(player.prospectRanking ?? 0)")
+                        .font(.system(size: 13, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
+                        .frame(width: 34)
+                } else {
+                    CrestView(abbrev: player.team, size: 34)
+                }
                 VStack(alignment: .leading, spacing: 1) {
                     Text(player.fullName).font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary).lineLimit(1)
-                    Text("\(player.team)\(player.sweater.map { " · #\($0)" } ?? "") · \(player.rosterPos)")
-                        .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                    Text(prospect
+                         ? "\(player.rosterPos) · \(player.team)"
+                         : "\(player.team)\(player.sweater.map { " · #\($0)" } ?? "") · \(player.rosterPos)")
+                        .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary).lineLimit(1)
                 }
                 Spacer()
+                if prospect {
+                    Text(cost.asCapMoney).font(.system(size: 13, weight: .heavy, design: .rounded))
+                        .foregroundStyle(affordable ? Theme.Palette.accent : Theme.Palette.negative)
+                }
                 if canDraft {
                     PressableButton(action: { pick(player.id) }) {
                         Text("Draft").font(Theme.Font.caption())
                             .foregroundStyle(.white)
                             .padding(.horizontal, Theme.Spacing.md).padding(.vertical, 6)
-                            .background(Theme.Palette.accent).clipShape(Capsule())
+                            .background(affordable ? Theme.Palette.accent : Theme.Palette.accent.opacity(0.35)).clipShape(Capsule())
                     }
-                    .disabled(working)
+                    .disabled(working || !affordable)
                 }
             }
+            .opacity(canDraft && !affordable ? 0.55 : 1)
         }
     }
 
@@ -275,8 +306,11 @@ struct DraftRoomView: View {
                 Card {
                     VStack(spacing: Theme.Spacing.sm) {
                         Image(systemName: "checkmark.seal.fill").font(.system(size: 44)).foregroundStyle(Theme.Palette.strong)
-                        Text("Draft complete!").font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
-                        Text("Every roster is full. Weekly matchups & scoring are coming next.")
+                        Text(draft.state.isOffseason == true ? "Prospect draft complete!" : "Draft complete!")
+                            .font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
+                        Text(draft.state.isOffseason == true
+                             ? "Your farm is stocked. Trade players, picks, and Cap Space, then start the season."
+                             : "Every roster is full. Weekly matchups & scoring are coming next.")
                             .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary).multilineTextAlignment(.center)
                     }.frame(maxWidth: .infinity)
                 }

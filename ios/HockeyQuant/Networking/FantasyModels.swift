@@ -78,6 +78,8 @@ struct FantasyPlayer: Codable, Identifiable, Hashable {
     let sweater: Int?
     let headshot: String?
     let cost: Int?               // salary-cap price, from real production
+    let isProspect: Bool?        // off-season draft class
+    let prospectRanking: Int?    // consensus board rank (1 = best)
 }
 
 struct FantasyPlayersResponse: Codable { let players: [FantasyPlayer]; let count: Int }
@@ -95,6 +97,8 @@ struct DraftState: Codable, Hashable {
     let currentUsername: String?
     let isMyPick: Bool
     let pickDeadline: String?
+    let isOffseason: Bool?        // off-season prospect draft (vs in-season positional draft)
+    let myCapSpace: Int?          // your remaining franchise Cap Space (off-season)
 }
 
 struct RosterSlot: Codable, Hashable, Identifiable {
@@ -109,6 +113,7 @@ struct DraftMember: Codable, Identifiable, Hashable {
     let teamName: String
     let draftOrder: Int?
     let username: String?
+    let isCpu: Bool?
     let isMe: Bool
     let roster: [RosterSlot]
 }

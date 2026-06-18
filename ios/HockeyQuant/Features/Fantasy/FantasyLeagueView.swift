@@ -22,8 +22,11 @@ struct FantasyLeagueView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
         .navigationDestination(isPresented: $showLottery) {
-            LotteryView(store: store, leagueId: leagueId, onDone: { Task { await load() } })
+            LotteryView(store: store, leagueId: leagueId, onDone: { showLottery = false })
         }
+        // Whenever we return from the lottery (any path), reload so the new phase routes
+        // straight to the prospect draft instead of showing a stale lottery hub.
+        .onChange(of: showLottery) { _, shown in if !shown { Task { await load() } } }
     }
 
     private func load() async {
@@ -42,7 +45,7 @@ struct FantasyLeagueView: View {
             case "offseason_lottery":
                 offseasonHub(detail)
             case "offseason_draft":
-                offseasonDraftHub(detail)   // prospect draft (stage 4 wires the room)
+                DraftRoomView(store: store, leagueId: leagueId)   // cap-gated prospect draft
             case "offseason_open":
                 offseasonOpenHub(detail)    // trades + start season (stage 5/6)
             default:

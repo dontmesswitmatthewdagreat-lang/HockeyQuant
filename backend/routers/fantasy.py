@@ -804,33 +804,36 @@ def _member_roster_cost(sb, member_id: str) -> int:
     return total
 
 
-def _random_starter_roster(sb, league: dict, member: dict) -> None:
-    """Fill a member's 12 active NHL slots with random affordable players (one per
-    position), deducting their cost from the franchise Cap Space bank. Always leaves
-    enough room to fill the remaining slots at the league minimum (feasible)."""
-    budget = (member.get("cap_space") or 0)
-    slots = sb.table("fantasy_roster_slots").select("id,slot,slot_type,player_id") \
-        .eq("member_id", member["id"]).execute().data
-    active = [s for s in slots if s["slot_type"] != "FARM" and s["player_id"] is None]
-    pool: dict = {}
+def _starter_pools(sb) -> dict:
+    """Active NHL players by roster position (fetched once, reused for all members)."""
+    pools: dict = {}
     for st in {st for _, st in ROSTER_SLOTS}:
-        pool[st] = sb.table("fantasy_players").select("id,cost") \
+        pools[st] = sb.table("fantasy_players").select("id,cost") \
             .eq("active", "true").eq("is_prospect", "false").eq("roster_pos", st).limit(600).execute().data
-    remaining = budget
-    n = len(active)
-    for i, slot in enumerate(active):
+    return pools
+
+
+def _starter_slot_rows(league_id: str, member: dict, pools: dict, taken: set) -> tuple:
+    """Build a member's 18 roster-slot rows (12 active filled with random affordable NHL
+    players, 6 empty farm) in one shot, returning (rows, remaining_cap). `taken` keeps
+    players unique across the league. Leaves room to fill the rest at the minimum."""
+    remaining = member.get("cap_space") or 0
+    rows = []
+    n = len(ROSTER_SLOTS)
+    for i, (slot, st) in enumerate(ROSTER_SLOTS):
         slots_left_after = n - i - 1
         cap_here = remaining - _NHL_MIN * slots_left_after
-        bucket = pool.get(slot["slot_type"], [])
-        cands = [p for p in bucket if (p.get("cost") or _NHL_MIN) <= cap_here]
-        if not cands:
-            cands = [p for p in bucket if (p.get("cost") or _NHL_MIN) <= remaining] or bucket
-        if not cands:
-            continue
-        pick = random.choice(cands)
-        sb.table("fantasy_roster_slots").update({"player_id": pick["id"]}).eq("id", slot["id"]).execute()
-        remaining -= (pick.get("cost") or _NHL_MIN)
-    sb.table("fantasy_members").update({"cap_space": max(0, remaining)}).eq("id", member["id"]).execute()
+        bucket = [p for p in pools.get(st, []) if p["id"] not in taken]
+        cands = [p for p in bucket if (p.get("cost") or _NHL_MIN) <= cap_here] \
+            or [p for p in bucket if (p.get("cost") or _NHL_MIN) <= remaining] or bucket
+        pid = None
+        if cands:
+            pick = random.choice(cands)
+            pid = pick["id"]; taken.add(pid); remaining -= (pick.get("cost") or _NHL_MIN)
+        rows.append({"league_id": league_id, "member_id": member["id"], "slot": slot, "slot_type": st, "player_id": pid})
+    for slot, st in FARM_SLOTS:
+        rows.append({"league_id": league_id, "member_id": member["id"], "slot": slot, "slot_type": st, "player_id": None})
+    return rows, max(0, remaining)
 
 
 def _archive_season(sb, league: dict, members: list) -> None:
@@ -870,12 +873,14 @@ def _enter_offseason(sb, league: dict) -> None:
         except Exception:
             pass
 
-    # Recreate roster slots (12 active + farm) and seed a random starter roster.
+    # Recreate roster slots (12 active filled + 6 farm) in one batched insert per member,
+    # keeping players unique across the league and deducting each roster's cost.
+    pools = _starter_pools(sb)
+    taken: set = set()
     for m in members:
-        sb.table("fantasy_roster_slots").insert([{
-            "league_id": league_id, "member_id": m["id"], "slot": s, "slot_type": st,
-        } for s, st in (ROSTER_SLOTS + FARM_SLOTS)]).execute()
-        _random_starter_roster(sb, league, m)
+        rows, remaining = _starter_slot_rows(league_id, m, pools, taken)
+        sb.table("fantasy_roster_slots").insert(rows).execute()
+        sb.table("fantasy_members").update({"cap_space": remaining}).eq("id", m["id"]).execute()
 
     # Mint draft-pick assets: one per round per member (lottery sets the order next).
     sb.table("fantasy_draft_pick_assets").delete().eq("league_id", league_id).eq("season_year", season).execute()
@@ -1001,39 +1006,54 @@ def _member_cap(sb, member_id: str) -> int:
     return (rows[0].get("cap_space") if rows else 0) or 0
 
 
-def _assign_prospect(sb, league: dict, member_id: str, player_id: str, slot_row: dict, pick_number: int, cost: int) -> None:
+def _assign_prospect(sb, league: dict, member_id: str, player_id: str, slot_row: dict, pick_number: int, cost: int, current_cap: Optional[int] = None) -> None:
     sb.table("fantasy_roster_slots").update({"player_id": player_id}).eq("id", slot_row["id"]).execute()
     sb.table("fantasy_draft_picks").insert([{
         "league_id": league["id"], "pick_number": pick_number, "member_id": member_id,
         "player_id": player_id, "slot": slot_row["slot"], "slot_type": "FARM",
     }]).execute()
-    sb.table("fantasy_members").update({"cap_space": max(0, _member_cap(sb, member_id) - (cost or 0))}).eq("id", member_id).execute()
+    base = current_cap if current_cap is not None else _member_cap(sb, member_id)
+    sb.table("fantasy_members").update({"cap_space": max(0, base - (cost or 0))}).eq("id", member_id).execute()
 
 
-def _cpu_prospect_pick(sb, league: dict, member_id: str, pick_number: int) -> bool:
-    """A CPU (or auto-pick) takes the best-ranked prospect it can afford for an open farm slot."""
+def _cpu_prospect_pick(sb, league: dict, member_id: str, pick_number: int,
+                       pool: Optional[list] = None, taken: Optional[set] = None, caps: Optional[dict] = None) -> bool:
+    """A CPU (or auto-pick) takes the best-ranked prospect it can afford for an open farm
+    slot. `pool`/`taken`/`caps` let the snake-draft loop reuse one prospect query + cap
+    cache across many CPU picks (the autopick endpoint passes none → fetches fresh)."""
     slot = _first_open_farm(sb, member_id)
     if not slot:
         return False
-    pool = _offseason_eligible(sb, league)
-    if not pool:
+    if pool is None:
+        pool = _offseason_eligible(sb, league)
+    taken = taken if taken is not None else set()
+    avail = [p for p in pool if p["id"] not in taken]
+    if not avail:
         return False
-    cap = _member_cap(sb, member_id)
-    pick = next((p for p in pool if (p.get("cost") or 0) <= cap), None) or min(pool, key=lambda p: p.get("cost") or 0)
-    _assign_prospect(sb, league, member_id, pick["id"], slot, pick_number, pick.get("cost") or 0)
+    cap = caps.get(member_id) if caps is not None else _member_cap(sb, member_id)
+    choice = next((p for p in avail if (p.get("cost") or 0) <= cap), None) or min(avail, key=lambda p: p.get("cost") or 0)
+    cost = choice.get("cost") or 0
+    _assign_prospect(sb, league, member_id, choice["id"], slot, pick_number, cost, current_cap=cap)
+    taken.add(choice["id"])
+    if caps is not None:
+        caps[member_id] = max(0, cap - cost)
     return True
 
 
 def _offseason_advance(sb, league: dict) -> None:
     """Advance the snake prospect draft, auto-running CPU picks until a human is on the
-    clock or the draft completes (→ offseason_open)."""
+    clock or the draft completes (→ offseason_open). Fetches the prospect pool + caps
+    once and reuses them across the run of CPU picks."""
     league_id = league["id"]
-    members = sb.table("fantasy_members").select("id,user_id,draft_order,is_cpu").eq("league_id", league_id).execute().data
+    members = sb.table("fantasy_members").select("id,user_id,draft_order,is_cpu,cap_space").eq("league_id", league_id).execute().data
     order_ids = [m["id"] for m in sorted(members, key=lambda m: (m.get("draft_order") or 999))]
     by_id = {m["id"]: m for m in members}
     n = len(order_ids)
     total = n * OFFSEASON_ROUNDS
     pick = sb.table("fantasy_draft_state").select("current_pick_number").eq("league_id", league_id).execute().data[0]["current_pick_number"]
+    pool = _offseason_eligible(sb, league)
+    taken: set = set()
+    caps = {m["id"]: (m.get("cap_space") or 0) for m in members}
     while True:
         pick += 1
         if pick > total:
@@ -1046,7 +1066,7 @@ def _offseason_advance(sb, league: dict) -> None:
         picker_id = _snake_member(order_ids, n, pick)
         rnd = (pick - 1) // n + 1
         if by_id[picker_id].get("is_cpu"):
-            _cpu_prospect_pick(sb, league, picker_id, pick)
+            _cpu_prospect_pick(sb, league, picker_id, pick, pool=pool, taken=taken, caps=caps)
             sb.table("fantasy_draft_state").update({"current_pick_number": pick, "round": rnd, "updated_at": _now()}).eq("league_id", league_id).execute()
             continue
         secs = league.get("pick_clock_seconds") or DEFAULT_PICK_SECONDS
