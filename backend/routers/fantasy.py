@@ -342,8 +342,18 @@ class CreateLeagueRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=60)
     team_name: str = Field(..., min_length=1, max_length=40)
     league_type: str = Field("group", pattern="^(group|global)$")
+    mode: str = Field("group", pattern="^(group|global|solo)$")
+    cpu_count: int = Field(0, ge=0, le=11)        # CPU GMs to seed (solo mode)
     max_members: int = Field(8, ge=2, le=16)
     draft_pace: str = Field("standard", pattern="^(rapid|standard|slow)$")
+
+
+# Fun CPU franchise names for solo leagues.
+_CPU_TEAM_NAMES = [
+    "Tundra Wolves", "Granite Grizzlies", "Aurora Borealis", "Steel City Stags",
+    "Frostbite FC", "Glacier Kings", "Slapshot Syndicate", "Top Shelf Titans",
+    "Blue Line Bandits", "Rink Rats", "Iron Moose",
+]
 
 
 class JoinLeagueRequest(BaseModel):
@@ -379,16 +389,18 @@ def create_league(req: CreateLeagueRequest, authorization: Optional[str] = Heade
     uid = get_user_id_from_token(authorization)
     sb = _sb()
     invite = secrets.token_hex(3).upper()  # 6 hex chars
+    season = current_season_year()
     league = sb.table("fantasy_leagues").insert([{
         "name": req.name,
         "commissioner_id": uid,
         "league_type": req.league_type,
+        "mode": req.mode,
         "status": "open",
         "max_members": req.max_members,
         "unique_players": req.league_type == "group",
         "trade_deadline_enabled": req.league_type == "group",
         "invite_code": invite,
-        "season_year": current_season_year(),
+        "season_year": season,
         "draft_pace": req.draft_pace,
         "pick_clock_seconds": PACE_SECONDS[req.draft_pace],
     }]).data[0]
@@ -396,13 +408,20 @@ def create_league(req: CreateLeagueRequest, authorization: Optional[str] = Heade
     # Group/solo leagues are franchises: each manager gets a Cap Space bank (the full
     # NHL cap to start; it carries over season-to-season). The global league uses the
     # per-user Cap Space earned from picks instead.
-    start_cap = 0 if req.league_type == "global" else season_cap_max(current_season_year())
+    start_cap = 0 if req.league_type == "global" else season_cap_max(season)
     sb.table("fantasy_members").insert([{
         "league_id": league["id"],
         "user_id": uid,
         "team_name": req.team_name,
         "cap_space": start_cap,
     }]).execute()
+
+    # Solo mode: seed CPU-managed franchises so the lottery, draft, and trades have rivals.
+    if req.mode == "solo" and req.cpu_count > 0:
+        names = random.sample(_CPU_TEAM_NAMES, min(req.cpu_count, len(_CPU_TEAM_NAMES)))
+        sb.table("fantasy_members").insert([{
+            "league_id": league["id"], "team_name": nm, "is_cpu": True, "cap_space": start_cap,
+        } for nm in names]).execute()
 
     sb.table("fantasy_draft_state").insert([{
         "league_id": league["id"],
@@ -459,13 +478,13 @@ def league_detail(league_id: str, authorization: Optional[str] = Header(None)):
     if not found:
         raise HTTPException(status_code=404, detail="League not found")
     league = found[0]
-    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order").eq("league_id", league_id).execute().data
+    members = sb.table("fantasy_members").select("id,user_id,team_name,draft_order,is_cpu").eq("league_id", league_id).execute().data
     if not any(m["user_id"] == uid for m in members):
         raise HTTPException(status_code=403, detail="You are not a member of this league")
     draft = sb.table("fantasy_draft_state").select("*").eq("league_id", league_id).execute().data
 
-    # Attach usernames for display.
-    user_ids = [m["user_id"] for m in members]
+    # Attach usernames for display (CPU members have no user_id).
+    user_ids = [m["user_id"] for m in members if m["user_id"]]
     names = {}
     if user_ids:
         profs = sb.table("profiles").select("id,username").in_("id", user_ids).execute().data
@@ -479,9 +498,11 @@ def league_detail(league_id: str, authorization: Optional[str] = Header(None)):
             "team_name": m["team_name"],
             "draft_order": m.get("draft_order"),
             "username": names.get(m["user_id"]),
+            "is_cpu": bool(m.get("is_cpu")),
             "is_me": m["user_id"] == uid,
         } for m in members],
         "draft": draft[0] if draft else None,
+        "lottery": league.get("lottery"),
     }
 
 
@@ -855,6 +876,66 @@ def start_offseason(league_id: str, authorization: Optional[str] = Header(None))
         raise HTTPException(status_code=400, detail="The global league has no off-season draft")
     _enter_offseason(sb, league)
     return _league_summary(sb, _require_league(sb, league_id), uid)
+
+
+def _run_lottery(sb, league: dict) -> dict:
+    """Weighted draft lottery: a worse prior-season finish earns better odds (NHL-style);
+    a fresh league draws with equal odds. Assigns each member's draft_order, stores the
+    odds + a suspense reveal sequence on the league, and advances to offseason_draft."""
+    league_id = league["id"]
+    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league_id).execute().data
+    if not members:
+        raise HTTPException(status_code=400, detail="League has no managers")
+    uids = [m["user_id"] for m in members if m["user_id"]]
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", uids).execute().data} if uids else {}
+
+    # Weight by the most recent archived final_rank (worst finish = most weight); new = equal.
+    archive: dict = {}
+    for a in sb.table("fantasy_team_archive").select("member_id,final_rank,season_year").eq("league_id", league_id).execute().data:
+        cur = archive.get(a["member_id"])
+        if not cur or (a.get("season_year") or 0) >= (cur.get("season_year") or 0):
+            archive[a["member_id"]] = a
+    weights = {m["id"]: ((archive.get(m["id"]) or {}).get("final_rank") or 1) for m in members}
+    total0 = sum(weights.values()) or 1
+
+    # Weighted draw without replacement → pick order (index 0 = 1st overall).
+    pool, w, order = members[:], dict(weights), []
+    while pool:
+        tot = sum(w[m["id"]] for m in pool) or 1
+        r = random.uniform(0, tot)
+        acc = 0.0
+        chosen = pool[-1]
+        for m in pool:
+            acc += w[m["id"]]
+            if r <= acc:
+                chosen = m
+                break
+        order.append(chosen)
+        pool.remove(chosen)
+
+    odds = {m["id"]: round(weights[m["id"]] / total0 * 100, 1) for m in members}
+    rows = []
+    for i, m in enumerate(order):
+        pick = i + 1
+        sb.table("fantasy_members").update({"draft_order": pick}).eq("id", m["id"]).execute()
+        rows.append({"pick": pick, "member_id": m["id"], "team_name": m["team_name"],
+                     "username": names.get(m["user_id"]), "odds": odds[m["id"]]})
+    payload = {"order": rows, "reveal": list(reversed(rows)), "ran_at": _now()}   # reveal from last pick → #1
+    sb.table("fantasy_leagues").update({"lottery": payload, "season_phase": "offseason_draft"}).eq("id", league_id).execute()
+    return payload
+
+
+@router.post("/fantasy/leagues/{league_id}/lottery/run")
+def run_lottery(league_id: str, authorization: Optional[str] = Header(None)):
+    """Commissioner: run the weighted draft lottery and return the reveal sequence."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can run the lottery")
+    if league.get("season_phase") != "offseason_lottery":
+        raise HTTPException(status_code=400, detail="The lottery isn't open right now")
+    return _run_lottery(sb, league)
 
 
 # ---------------------------------------------------------------------------
