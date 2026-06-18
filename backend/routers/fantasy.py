@@ -154,6 +154,24 @@ def _user_cap_space(sb, uid: str) -> int:
     return (rows[0].get("cap_space") if rows else 0) or 0
 
 
+# The maximum Cap Space = the real NHL salary-cap upper limit for the season, which
+# rises each year (NHL/NHLPA announced schedule). Mirrors the season_caps table the
+# grading function clamps against (migration 017).
+NHL_SALARY_CAP = {2021: 81_500_000, 2022: 82_500_000, 2023: 83_500_000,
+                  2024: 88_000_000, 2025: 95_500_000, 2026: 104_000_000, 2027: 113_500_000}
+
+def season_cap_max(season: int) -> int:
+    if season in NHL_SALARY_CAP:
+        return NHL_SALARY_CAP[season]
+    yrs = sorted(NHL_SALARY_CAP)
+    if season <= yrs[0]:
+        return NHL_SALARY_CAP[yrs[0]]
+    cap = NHL_SALARY_CAP[yrs[-1]]                       # estimate beyond the announced years (~8%/yr)
+    for _ in range(season - yrs[-1]):
+        cap = int(round(cap * 1.08 / 500_000) * 500_000)
+    return cap
+
+
 @router.post("/fantasy/sync-players")
 def sync_players():
     """Fetch all 32 NHL team rosters + season production and upsert the player pool with costs."""
@@ -1088,7 +1106,8 @@ def global_league(authorization: Optional[str] = Header(None)):
                         key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
         roster_cost = sum((pmap[s["player_id"]].get("cost") or 0) for s in slots if s["player_id"] and s["player_id"] in pmap)
     return {"league": _league_summary(sb, league, uid), "joined": me is not None, "my_roster": roster,
-            "cap_space": _user_cap_space(sb, uid), "roster_cost": roster_cost}
+            "cap_space": _user_cap_space(sb, uid), "roster_cost": roster_cost,
+            "cap_max": season_cap_max(season)}
 
 
 @router.post("/fantasy/global/join")

@@ -115,6 +115,12 @@ struct GlobalLeagueView: View {
                             .frame(width: max(2, geo.size.width * frac))
                     }
                 }.frame(height: 6)
+                if d.maxCap > 0 {
+                    Text("League salary cap \(d.maxCap.asCapMoney) — rises each season")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }

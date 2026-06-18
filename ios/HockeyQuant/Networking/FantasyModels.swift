@@ -160,12 +160,14 @@ struct GlobalResponse: Codable {
     let league: FantasyLeagueSummary
     let joined: Bool
     let myRoster: [RosterSlot]
-    let capSpace: Int?           // your salary-cap budget (earned from picks)
+    let capSpace: Int?           // your salary-cap budget (earned from picks, clamped at the NHL cap)
     let rosterCost: Int?         // total cost of your current roster
+    let capMax: Int?             // the season's NHL salary-cap ceiling
 
     var cap: Int { capSpace ?? 0 }
     var spent: Int { rosterCost ?? 0 }
     var remaining: Int { max(0, cap - spent) }
+    var maxCap: Int { capMax ?? 0 }
 }
 
 struct GlobalLeaderboardRow: Codable, Identifiable, Hashable {
