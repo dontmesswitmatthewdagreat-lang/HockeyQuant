@@ -11,6 +11,8 @@ final class FranchiseStore {
 
     private(set) var summary: FranchiseSummary?
     private(set) var collection: [PlayerCard] = []
+    private(set) var shop: [PlayerCard] = []
+    private(set) var coins: Int = 0
     var error: String?
 
     init(auth: AuthStore) { self.auth = auth }
@@ -23,12 +25,23 @@ final class FranchiseStore {
     }
 
     func load() async {
-        do { summary = try await api.franchise(token: token()) }
+        do { let s = try await api.franchise(token: token()); summary = s; coins = s.coins }
         catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
     }
 
     func loadCollection() async {
         do { collection = try await api.franchiseCollection(token: token()) }
         catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func loadShop() async {
+        do { let r = try await api.franchiseShop(token: token()); shop = r.cards; coins = r.coins }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    /// Buy a shop card; returns true on success and updates the Coin balance.
+    func buy(_ playerId: String) async -> Bool {
+        do { coins = try await api.franchiseBuy(playerId: playerId, token: token()); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
     }
 }

@@ -33,7 +33,10 @@ struct FranchiseView: View {
     private func content(_ store: FranchiseStore, _ s: FranchiseSummary) -> some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
-                walletCard(s)
+                walletCard(store, s)
+                NavigationLink { ShopView(store: store) } label: {
+                    modeRow("Card Shop", icon: "cart.fill", subtitle: "Today's featured cards — buy with Coins")
+                }.buttonStyle(.plain)
                 NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
                     .buttonStyle(.plain)
                 comingSoonCard
@@ -43,7 +46,7 @@ struct FranchiseView: View {
         .refreshable { await store.load() }
     }
 
-    private func walletCard(_ s: FranchiseSummary) -> some View {
+    private func walletCard(_ store: FranchiseStore, _ s: FranchiseSummary) -> some View {
         Card {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -53,8 +56,26 @@ struct FranchiseView: View {
                 Spacer()
                 HStack(spacing: 5) {
                     Image(systemName: "bitcoinsign.circle.fill").font(.system(size: 20)).foregroundStyle(Color(hex: 0xFFD23F))
-                    Text(s.coins.asCoins).font(.system(size: 24, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
+                    Text(store.coins.asCoins).font(.system(size: 24, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
                 }
+            }
+        }
+    }
+
+    private func modeRow(_ title: String, icon: String, subtitle: String) -> some View {
+        Card {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(Theme.Palette.accent.opacity(0.14)).frame(width: 42, height: 42)
+                    Image(systemName: icon).font(.system(size: 18)).foregroundStyle(Theme.Palette.accent)
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title).font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
+                    Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
         }
     }
@@ -95,7 +116,6 @@ struct FranchiseView: View {
         Card {
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                featureRow("cart.fill", "Daily rotating card shop")
                 featureRow("person.3.sequence.fill", "Dream-team lineup")
                 featureRow("flame.fill", "Nightly challenge vs an NHL team")
                 featureRow("arrow.left.arrow.right", "Trade cards with other players")

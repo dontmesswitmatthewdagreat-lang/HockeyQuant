@@ -23,6 +23,14 @@ struct PlayerCard: Codable, Identifiable, Hashable {
 
 struct CollectionResponse: Codable { let cards: [PlayerCard] }
 
+struct ShopResponse: Codable {
+    let cards: [PlayerCard]
+    let coins: Int
+    let rotationDate: String
+}
+
+struct BuyResponse: Codable { let coins: Int; let bought: String }
+
 struct ChallengeSummary: Codable, Hashable {
     let opponentTeam: String
     let won: Bool?
