@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Routes a league to the right screen based on status: lobby (open) → draft
+/// Routes a private league to the right screen based on status: lobby (open) → draft
 /// room (drafting) → season view (active/playoffs/complete).
 struct FantasyLeagueView: View {
     let store: FantasyStore
@@ -10,8 +10,6 @@ struct FantasyLeagueView: View {
     @State private var loading = true
     @State private var error: String?
     @State private var starting = false
-    @State private var showLottery = false
-    @State private var showTrade = false
 
     var body: some View {
         ZStack {
@@ -22,15 +20,6 @@ struct FantasyLeagueView: View {
         .navigationTitle(detail?.league.name ?? "League")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }
-        .navigationDestination(isPresented: $showLottery) {
-            LotteryView(store: store, leagueId: leagueId, onDone: { showLottery = false })
-        }
-        // Whenever we return from the lottery (any path), reload so the new phase routes
-        // straight to the prospect draft instead of showing a stale lottery hub.
-        .onChange(of: showLottery) { _, shown in if !shown { Task { await load() } } }
-        .sheet(isPresented: $showTrade) {
-            OffseasonTradeView(store: store, leagueId: leagueId, onTraded: { Task { await load() } })
-        }
     }
 
     private func load() async {
@@ -45,131 +34,13 @@ struct FantasyLeagueView: View {
         if loading && detail == nil {
             ProgressView().tint(Theme.Palette.accent)
         } else if let detail {
-            switch detail.league.phase {
-            case "offseason_lottery":
-                offseasonHub(detail)
-            case "offseason_draft":
-                DraftRoomView(store: store, leagueId: leagueId)   // cap-gated prospect draft
-            case "offseason_open":
-                offseasonOpenHub(detail)    // trades + start season (stage 5/6)
-            default:
-                switch detail.league.status {
-                case "drafting": DraftRoomView(store: store, leagueId: leagueId)
-                case "open":     lobby(detail)
-                default:         FantasySeasonView(store: store, leagueId: leagueId)
-                }
+            switch detail.league.status {
+            case "drafting": DraftRoomView(store: store, leagueId: leagueId)
+            case "open":     lobby(detail)
+            default:         FantasySeasonView(store: store, leagueId: leagueId)
             }
         } else if let error {
             ErrorStateView(message: error) { Task { await load() } }
-        }
-    }
-
-    // MARK: Off-season hubs
-
-    private func offseasonHub(_ detail: LeagueDetail) -> some View {
-        ScrollView {
-            VStack(spacing: Theme.Spacing.md) {
-                phaseBanner("The Off-Season", "Draft lottery", "Build your franchise: win the lottery, draft prospects, and trade before the season.")
-                capCard(detail.league)
-                membersCard(detail)
-                if detail.league.isCommissioner {
-                    PressableButton(action: { showLottery = true }) {
-                        HStack { Image(systemName: "die.face.5.fill"); Text("Run the draft lottery").font(Theme.Font.headline()) }
-                            .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
-                            .background(Theme.Palette.accent).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                    }
-                } else {
-                    Text("Waiting for the commissioner to run the lottery…")
-                        .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-                }
-            }.padding(Theme.Spacing.md)
-        }.refreshable { await load() }
-    }
-
-    private func offseasonDraftHub(_ detail: LeagueDetail) -> some View {
-        ScrollView {
-            VStack(spacing: Theme.Spacing.md) {
-                phaseBanner("The Off-Season", "Prospect draft", "The lottery is set — the prospect draft is next.")
-                if let lot = detail.lottery {
-                    Card {
-                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                            Text("DRAFT ORDER").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                            ForEach(lot.order) { p in
-                                HStack {
-                                    Text("\(p.pick).").font(.system(size: 13, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent).frame(width: 26, alignment: .trailing)
-                                    Text(p.teamName).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
-                                    Spacer()
-                                }
-                            }
-                        }
-                    }
-                }
-                capCard(detail.league)
-            }.padding(Theme.Spacing.md)
-        }.refreshable { await load() }
-    }
-
-    private func offseasonOpenHub(_ detail: LeagueDetail) -> some View {
-        ScrollView {
-            VStack(spacing: Theme.Spacing.md) {
-                phaseBanner("The Off-Season", "Open market", "Trade with rival GMs to build your team, then start the regular season.")
-                capCard(detail.league)
-                PressableButton(action: { showTrade = true }) {
-                    HStack { Image(systemName: "arrow.left.arrow.right"); Text("Open the trade market").font(Theme.Font.headline()) }
-                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
-                        .background(Theme.Palette.accent).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                }
-                membersCard(detail)
-                if detail.league.isCommissioner {
-                    PressableButton(action: { startSeason() }) {
-                        HStack {
-                            if starting { ProgressView().tint(.white) }
-                            Image(systemName: "flag.checkered"); Text("Start the regular season").font(Theme.Font.headline())
-                        }
-                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
-                        .background(Theme.Palette.positive).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                    }.disabled(starting)
-                    Text("Your active NHL lineup plays weekly head-to-head once the season begins.")
-                        .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            }.padding(Theme.Spacing.md)
-        }.refreshable { await load() }
-    }
-
-    private func startSeason() {
-        starting = true
-        Task {
-            do { _ = try await store.startSeason(leagueId); await load() }
-            catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
-            starting = false
-        }
-    }
-
-    private func phaseBanner(_ title: String, _ phase: String, _ blurb: String) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack {
-                    Text(title).font(.system(size: 20, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
-                    Spacer()
-                    Text(phase.uppercased()).font(.system(size: 10, weight: .heavy, design: .rounded)).foregroundStyle(.white)
-                        .padding(.horizontal, 8).padding(.vertical, 3).background(Theme.Palette.accent).clipShape(Capsule())
-                }
-                Text(blurb).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-            }
-        }
-    }
-
-    private func capCard(_ league: FantasyLeagueSummary) -> some View {
-        Card {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("CAP SPACE").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                    Text("Your franchise bank — spend it drafting prospects + trades").font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
-                }
-                Spacer()
-                Text((league.myCapSpace ?? 0).asCapMoney).font(.system(size: 20, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.accent)
-            }
         }
     }
 
@@ -225,16 +96,13 @@ struct FantasyLeagueView: View {
                         Image(systemName: "person.circle.fill").font(.system(size: 22)).foregroundStyle(Theme.Palette.accent.opacity(0.7))
                         VStack(alignment: .leading, spacing: 1) {
                             Text(m.teamName).font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
-                            Text(m.isCpu == true ? "CPU manager" : "@\(m.username ?? "manager")")
-                                .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                            Text("@\(m.username ?? "manager")").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
                         }
                         Spacer()
                         if detail.league.isCommissioner && m.isMe {
                             tag("COMMISSIONER")
                         } else if m.isMe {
                             tag("YOU")
-                        } else if m.isCpu == true {
-                            tag("CPU")
                         }
                     }
                 }
@@ -263,30 +131,30 @@ struct FantasyLeagueView: View {
     @ViewBuilder
     private func startSection(_ detail: LeagueDetail) -> some View {
         if detail.league.isCommissioner {
-            PressableButton(action: { startOffseason() }) {
+            PressableButton(action: { start() }) {
                 HStack {
                     if starting { ProgressView().tint(.white) }
-                    Text("Enter the off-season").font(Theme.Font.headline())
+                    Text(detail.members.count < 2 ? "Need 2+ managers" : "Start draft")
+                        .font(Theme.Font.headline())
                 }
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
-                .background(Theme.Palette.accent)
+                .background(detail.members.count >= 2 ? Theme.Palette.accent : Theme.Palette.accent.opacity(0.4))
                 .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
             }
-            .disabled(starting)
+            .disabled(detail.members.count < 2 || starting)
         } else {
-            Text("Waiting for the commissioner to start the off-season…")
+            Text("Waiting for the commissioner to start the draft…")
                 .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
         }
     }
 
-    private func startOffseason() {
+    private func start() {
         starting = true
         Task {
-            do { _ = try await store.startOffseason(leagueId); await load() }
+            do { _ = try await store.startDraft(leagueId); await load() }
             catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
             starting = false
         }
     }
 }
-

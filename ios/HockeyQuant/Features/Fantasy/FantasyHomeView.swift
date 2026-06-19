@@ -15,7 +15,7 @@ struct FantasyHomeView: View {
             }
         }
         .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
-        .navigationTitle("Fantasy")
+        .navigationTitle("Private Leagues")
         .navigationBarTitleDisplayMode(.large)
         .task {
             if store == nil { store = FantasyStore(auth: auth) }
@@ -34,20 +34,18 @@ private struct FantasyHomeContent: View {
             VStack(spacing: Theme.Spacing.md) {
                 actions
 
-                NavigationLink { GlobalLeagueView(store: store) } label: { globalRow }
-                    .buttonStyle(.plain)
-
-                if store.loadingLeagues && store.leagues.isEmpty {
+                let privateLeagues = store.leagues.filter(\.isGroup)
+                if store.loadingLeagues && privateLeagues.isEmpty {
                     ForEach(0..<2, id: \.self) { _ in LoadingShimmer(height: 84) }
-                } else if store.leagues.isEmpty {
+                } else if privateLeagues.isEmpty {
                     EmptyStateView(
-                        systemImage: "trophy.fill",
-                        title: "No leagues yet",
+                        systemImage: "person.3.fill",
+                        title: "No private leagues yet",
                         message: "Create a private league with friends, or join one with an invite code."
                     )
                     .padding(.top, Theme.Spacing.xl)
                 } else {
-                    ForEach(Array(store.leagues.enumerated()), id: \.element.id) { index, league in
+                    ForEach(Array(privateLeagues.enumerated()), id: \.element.id) { index, league in
                         NavigationLink {
                             FantasyLeagueView(store: store, leagueId: league.id)
                         } label: {
@@ -77,24 +75,6 @@ private struct FantasyHomeContent: View {
             }
             PressableButton(action: { showingJoin = true }) {
                 label("Join", icon: "person.badge.plus", filled: false)
-            }
-        }
-    }
-
-    private var globalRow: some View {
-        Card {
-            HStack(spacing: Theme.Spacing.sm) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
-                        .fill(Theme.Palette.accent.opacity(0.14)).frame(width: 46, height: 46)
-                    Image(systemName: "globe").font(.system(size: 20)).foregroundStyle(Theme.Palette.accent)
-                }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Global League").font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
-                    Text("Open to everyone · pick anyone · cumulative leaderboard").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
             }
         }
     }
@@ -161,47 +141,32 @@ private struct CreateLeagueSheet: View {
 
     @State private var name = ""
     @State private var teamName = ""
-    @State private var mode = "solo"
-    @State private var cpuCount = 5
     @State private var maxMembers = 8
     @State private var draftPace: DraftPace = .standard
     @State private var saving = false
 
-    private var leagueType: String { mode == "global" ? "global" : "group" }
-
     var body: some View {
         NavigationStack {
             Form {
-                Section("League") {
+                Section("Private league") {
                     TextField("League name", text: $name)
-                    Picker("Mode", selection: $mode) {
-                        Text("Solo (vs CPU)").tag("solo")
-                        Text("Private group").tag("group")
-                        Text("Global (open)").tag("global")
-                    }
-                    if mode == "solo" {
-                        Stepper("CPU rivals: \(cpuCount)", value: $cpuCount, in: 1...11)
-                    } else if mode == "group" {
-                        Stepper("Max managers: \(maxMembers)", value: $maxMembers, in: 2...16)
-                    }
+                    Stepper("Max managers: \(maxMembers)", value: $maxMembers, in: 2...16)
                 }
-                if mode != "global" {
-                    Section("Draft format") {
-                        Picker("Pace", selection: $draftPace) {
-                            ForEach(DraftPace.allCases) { p in
-                                Label(p.title, systemImage: p.icon).tag(p)
-                            }
+                Section("Draft format") {
+                    Picker("Pace", selection: $draftPace) {
+                        ForEach(DraftPace.allCases) { p in
+                            Label(p.title, systemImage: p.icon).tag(p)
                         }
-                        Text(draftPace.blurb)
-                            .font(Theme.Font.caption())
-                            .foregroundStyle(Theme.Palette.textSecondary)
                     }
+                    Text(draftPace.blurb)
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textSecondary)
                 }
                 Section("Your team") {
                     TextField("Team name", text: $teamName)
                 }
                 Section {
-                    Text(modeBlurb)
+                    Text("Invite friends with the league code, draft your rosters, and play weekly head-to-head.")
                         .font(Theme.Font.caption())
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
@@ -218,19 +183,10 @@ private struct CreateLeagueSheet: View {
         }
     }
 
-    private var modeBlurb: String {
-        switch mode {
-        case "solo": return "Play the full off-season solo: a draft lottery, a prospect draft, and trades against \(cpuCount) CPU-run franchises, then the regular season."
-        case "global": return "The global league lets every manager draft anyone — duplicate players are allowed across teams."
-        default: return "Private leagues run the off-season franchise cycle with your friends: lottery, prospect draft, and trades."
-        }
-    }
-
     private func create() {
         saving = true
         Task {
-            let created = await store.create(name: name, teamName: teamName, leagueType: leagueType,
-                                             mode: mode, cpuCount: mode == "solo" ? cpuCount : 0,
+            let created = await store.create(name: name, teamName: teamName, leagueType: "group",
                                              maxMembers: maxMembers, draftPace: draftPace.rawValue)
             saving = false
             if created != nil { dismiss() }

@@ -7,6 +7,7 @@ struct PlayView: View {
     @Environment(GamificationStore.self) private var game
 
     @State private var model = PlayViewModel()
+    @State private var fantasyStore: FantasyStore?
     @State private var showingDatePicker = false
 
     // Celebration state
@@ -63,6 +64,7 @@ struct PlayView: View {
         .onChange(of: game.pendingAchievements.count) { _, _ in processCelebrations() }
         .task(id: auth.isSignedIn) {
             guard auth.isSignedIn else { return }
+            if fantasyStore == nil { fantasyStore = FantasyStore(auth: auth) }
             await game.loadStats()
             await game.loadSeason()
             await game.loadAchievements()
@@ -137,13 +139,24 @@ struct PlayView: View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
                 AdaptiveBlobTitle(text: "Play")
-                PlayHeaderCard(stats: game.stats ?? .empty)
+                // Ranked core: the Global League — Cups, arena, Cap Space (tap to manage your team).
+                NavigationLink { globalDestination } label: {
+                    PlayHeaderCard(stats: game.stats ?? .empty)
+                }
+                .buttonStyle(.plain)
                 NavigationLink { SeasonView() } label: {
                     SeasonBanner(stats: game.seasonStats)
                 }
                 .buttonStyle(.plain)
-                NavigationLink { FantasyHomeView() } label: { fantasyBanner }
-                    .buttonStyle(.plain)
+                // The two other modes.
+                NavigationLink { FantasyHomeView() } label: {
+                    modeBanner("Private Leagues", icon: "person.3.fill", subtitle: "Fantasy hockey with your friends")
+                }
+                .buttonStyle(.plain)
+                NavigationLink { FranchiseView() } label: {
+                    modeBanner("My Franchise", icon: "rectangle.stack.fill", subtitle: "Collect player cards & build your dream team")
+                }
+                .buttonStyle(.plain)
                 achievementsStrip
                 dateBar
                 gamesSection
@@ -162,17 +175,26 @@ struct PlayView: View {
         .sheet(isPresented: $showingDatePicker) { datePickerSheet }
     }
 
-    private var fantasyBanner: some View {
+    @ViewBuilder
+    private var globalDestination: some View {
+        if let fantasyStore {
+            GlobalLeagueView(store: fantasyStore)
+        } else {
+            ProgressView().tint(Theme.Palette.accent)
+        }
+    }
+
+    private func modeBanner(_ title: String, icon: String, subtitle: String) -> some View {
         Card {
             HStack(spacing: Theme.Spacing.sm) {
                 ZStack {
                     RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
                         .fill(Theme.Palette.accent.opacity(0.14)).frame(width: 46, height: 46)
-                    Image(systemName: "trophy.fill").font(.system(size: 20)).foregroundStyle(Theme.Palette.accent)
+                    Image(systemName: icon).font(.system(size: 20)).foregroundStyle(Theme.Palette.accent)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Fantasy League").font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
-                    Text("Draft a team, score real weekly goals, win your league").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
+                    Text(title).font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
+                    Text(subtitle).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
                 }
                 Spacer()
                 Image(systemName: "chevron.right").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.Palette.textPrimary)
