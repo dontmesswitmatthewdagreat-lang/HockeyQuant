@@ -1435,6 +1435,91 @@ def list_trades(league_id: str, authorization: Optional[str] = Header(None)):
     } for t in trades]}
 
 
+# --- Off-season trade market (players + prospects + Cap Space; CPU auto-accepts fair) --
+
+class OffseasonTradeRequest(BaseModel):
+    to_member_id: str
+    my_player_id: str
+    their_player_id: str
+    my_cap: int = Field(0, ge=0)        # Cap Space added to sweeten my side
+
+
+def _execute_offseason_trade(sb, league_id, my_mid, their_mid, my_slot_id, their_slot_id,
+                             my_pid, their_pid, my_cap, a_cost, b_cost, my_cap_now, their_cap_now) -> None:
+    """Swap the two players and settle Cap Space. Each bank moves by the roster-cost
+    delta (a player leaving frees its cost) plus the sweetener transfer."""
+    sb.table("fantasy_roster_slots").update({"player_id": their_pid}).eq("id", my_slot_id).execute()
+    sb.table("fantasy_roster_slots").update({"player_id": my_pid}).eq("id", their_slot_id).execute()
+    sb.table("fantasy_members").update({"cap_space": max(0, my_cap_now + (a_cost - b_cost) - my_cap)}).eq("id", my_mid).execute()
+    sb.table("fantasy_members").update({"cap_space": max(0, their_cap_now + (b_cost - a_cost) + my_cap)}).eq("id", their_mid).execute()
+    sb.table("fantasy_trades").insert([{
+        "league_id": league_id, "proposer_member": my_mid, "receiver_member": their_mid,
+        "proposer_player_id": my_pid, "receiver_player_id": their_pid,
+        "proposer_cap": my_cap, "status": "accepted", "resolved_at": _now(),
+    }]).execute()
+
+
+@router.post("/fantasy/leagues/{league_id}/offseason/trade")
+def offseason_trade(league_id: str, req: OffseasonTradeRequest, authorization: Optional[str] = Header(None)):
+    """Propose an off-season trade: one of your players (+ optional Cap Space) for a
+    same-position player on another team. A CPU GM accepts immediately if the deal is
+    fair (the value it receives ≥ what it gives, within a small tolerance)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league.get("season_phase") != "offseason_open":
+        raise HTTPException(status_code=400, detail="The trade market is open during the off-season")
+    me = _member_for_user(sb, league_id, uid)
+    if not me:
+        raise HTTPException(status_code=403, detail="You are not in this league")
+    if req.to_member_id == me["id"]:
+        raise HTTPException(status_code=400, detail="Pick another team to trade with")
+
+    mine = sb.table("fantasy_roster_slots").select("id,slot_type").eq("member_id", me["id"]).eq("player_id", req.my_player_id).execute().data
+    theirs = sb.table("fantasy_roster_slots").select("id,slot_type").eq("member_id", req.to_member_id).eq("player_id", req.their_player_id).execute().data
+    if not mine or not theirs:
+        raise HTTPException(status_code=400, detail="Both players must be on the respective rosters")
+    if mine[0]["slot_type"] != theirs[0]["slot_type"]:
+        raise HTTPException(status_code=400, detail="Trade players of the same position")
+
+    my_cap_now = _member_cap(sb, me["id"])
+    if req.my_cap > my_cap_now:
+        raise HTTPException(status_code=400, detail="You don't have that much Cap Space")
+
+    pm = {}
+    for p in sb.table("fantasy_players").select("id,cost").in_("id", [req.my_player_id, req.their_player_id]).execute().data:
+        pm[p["id"]] = p
+    a_cost = (pm.get(req.my_player_id) or {}).get("cost") or 0       # my player going out
+    b_cost = (pm.get(req.their_player_id) or {}).get("cost") or 0    # their player coming in
+    if my_cap_now + (a_cost - b_cost) - req.my_cap < 0:
+        raise HTTPException(status_code=400, detail="Over the cap — add less Cap Space or target a cheaper player")
+
+    recv = sb.table("fantasy_members").select("id,is_cpu,cap_space,team_name").eq("id", req.to_member_id).execute().data
+    if not recv:
+        raise HTTPException(status_code=404, detail="That team isn't in this league")
+    recv = recv[0]
+
+    if recv.get("is_cpu"):
+        their_cap_now = recv.get("cap_space") or 0
+        # CPU accepts a fair-or-better offer: value received (my player + sweetener) ≥
+        # value given (their player), within 5%, and it stays under the cap.
+        fair = (a_cost + req.my_cap) >= b_cost * 0.95 and (their_cap_now + (b_cost - a_cost) + req.my_cap) >= 0
+        if not fair:
+            return {"status": "rejected",
+                    "detail": f"{recv['team_name']} turned that down. Add Cap Space or offer more value."}
+        _execute_offseason_trade(sb, league_id, me["id"], recv["id"], mine[0]["id"], theirs[0]["id"],
+                                 req.my_player_id, req.their_player_id, req.my_cap,
+                                 a_cost, b_cost, my_cap_now, their_cap_now)
+        return {"status": "accepted", "detail": f"{recv['team_name']} accepted the trade."}
+
+    trade = sb.table("fantasy_trades").insert([{
+        "league_id": league_id, "proposer_member": me["id"], "receiver_member": recv["id"],
+        "proposer_player_id": req.my_player_id, "receiver_player_id": req.their_player_id,
+        "proposer_cap": req.my_cap, "slot_type": mine[0]["slot_type"], "status": "pending",
+    }]).data[0]
+    return {"status": "pending", "trade_id": trade["id"], "detail": "Offer sent — waiting on the other manager."}
+
+
 # ---------------------------------------------------------------------------
 # G5b: Playoffs
 # ---------------------------------------------------------------------------
@@ -1817,24 +1902,26 @@ def all_rosters(league_id: str, authorization: Optional[str] = Header(None)):
     uid = get_user_id_from_token(authorization)
     sb = _sb()
     _require_league(sb, league_id)
-    members = sb.table("fantasy_members").select("id,user_id,team_name").eq("league_id", league_id).execute().data
+    members = sb.table("fantasy_members").select("id,user_id,team_name,is_cpu,cap_space").eq("league_id", league_id).execute().data
     if not any(m["user_id"] == uid for m in members):
         raise HTTPException(status_code=403, detail="You are not in this league")
-    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", [m["user_id"] for m in members]).execute().data}
+    uids = [m["user_id"] for m in members if m["user_id"]]
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", uids).execute().data} if uids else {}
     slots = sb.table("fantasy_roster_slots").select("member_id,slot,slot_type,player_id").eq("league_id", league_id).execute().data
     pids = [s["player_id"] for s in slots if s["player_id"]]
     pmap = {}
     if pids:
-        for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater").in_("id", list(set(pids))).execute().data:
+        for p in sb.table("fantasy_players").select("id,full_name,team,roster_pos,sweater,cost,is_prospect,prospect_ranking").in_("id", list(set(pids))).execute().data:
             pmap[p["id"]] = p
-    order = [s for s, _ in ROSTER_SLOTS]
+    order = [s for s, _ in (ROSTER_SLOTS + FARM_SLOTS)]
     out = []
     for m in members:
         ms = [s for s in slots if s["member_id"] == m["id"]]
         roster = sorted([{"slot": s["slot"], "slot_type": s["slot_type"], "player": pmap.get(s["player_id"]) if s["player_id"] else None} for s in ms],
                         key=lambda r: order.index(r["slot"]) if r["slot"] in order else 99)
         out.append({"id": m["id"], "team_name": m["team_name"], "username": names.get(m["user_id"]),
-                    "is_me": m["user_id"] == uid, "roster": roster})
+                    "is_cpu": bool(m.get("is_cpu")), "is_me": m["user_id"] == uid,
+                    "cap_space": m.get("cap_space") or 0, "roster": roster})
     return {"rosters": out}
 
 
