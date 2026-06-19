@@ -2,41 +2,105 @@ import SwiftUI
 
 /// My Franchise — a personal card-collection mode (one per account). Buy player cards
 /// from a rotating shop with Coins, build a dream-team lineup, and play nightly
-/// challenges vs a real NHL team. Scaffold for now; built out across the next stages.
+/// challenges vs a real NHL team. Built out across stages; shop/lineup/challenge land next.
 struct FranchiseView: View {
     @Environment(AuthStore.self) private var auth
+    @State private var store: FranchiseStore?
+    @State private var loading = true
 
     var body: some View {
         ZStack {
             Theme.backgroundView(stops: Theme.Palette.backgroundStopsPrimary).ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    Card {
-                        VStack(spacing: Theme.Spacing.sm) {
-                            Image(systemName: "rectangle.stack.fill.badge.plus")
-                                .font(.system(size: 44)).foregroundStyle(Theme.Palette.accent)
-                            Text("My Franchise").font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
-                            Text("Collect player cards, buy from the daily shop with Coins, build your dream team, and challenge a real NHL team each night.")
-                                .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-                                .multilineTextAlignment(.center)
-                        }.frame(maxWidth: .infinity)
-                    }
-                    Card {
-                        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                            Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                            featureRow("creditcard.fill", "Player cards by rarity")
-                            featureRow("cart.fill", "Daily rotating shop")
-                            featureRow("person.3.sequence.fill", "Dream-team lineup")
-                            featureRow("flame.fill", "Nightly challenge vs an NHL team")
-                            featureRow("arrow.left.arrow.right", "Trade cards with other players")
-                        }
-                    }
-                }
-                .padding(Theme.Spacing.md)
+            if let store, let s = store.summary {
+                content(store, s)
+            } else if loading {
+                ProgressView().tint(Theme.Palette.accent)
+            } else {
+                EmptyStateView(systemImage: "rectangle.stack.fill",
+                               title: "Couldn't load your franchise",
+                               message: "Pull to refresh and try again.")
             }
         }
         .navigationTitle("My Franchise")
         .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if store == nil { store = FranchiseStore(auth: auth) }
+            await store?.load()
+            loading = false
+        }
+    }
+
+    private func content(_ store: FranchiseStore, _ s: FranchiseSummary) -> some View {
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                walletCard(s)
+                NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
+                    .buttonStyle(.plain)
+                comingSoonCard
+            }
+            .padding(Theme.Spacing.md)
+        }
+        .refreshable { await store.load() }
+    }
+
+    private func walletCard(_ s: FranchiseSummary) -> some View {
+        Card {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("COINS").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                    Text("+\(s.dailyReward.asCoins) daily login bonus").font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
+                }
+                Spacer()
+                HStack(spacing: 5) {
+                    Image(systemName: "bitcoinsign.circle.fill").font(.system(size: 20)).foregroundStyle(Color(hex: 0xFFD23F))
+                    Text(s.coins.asCoins).font(.system(size: 24, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
+                }
+            }
+        }
+    }
+
+    private func collectionCard(_ s: FranchiseSummary) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack {
+                    Text("COLLECTION").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                    Spacer()
+                    Text("\(s.collectionCount) cards").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
+                    Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Palette.textTertiary)
+                }
+                HStack(spacing: Theme.Spacing.xs) {
+                    ForEach(CardRarity.order.reversed(), id: \.self) { r in
+                        let n = s.byRarity[r] ?? 0
+                        if n > 0 { rarityChip(r, n) }
+                    }
+                    if s.collectionCount == 0 {
+                        Text("No cards yet — buy some from the shop.").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func rarityChip(_ rarity: String, _ count: Int) -> some View {
+        let color = CardRarity.color(rarity)
+        return HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 7, height: 7)
+            Text("\(count)").font(.system(size: 11, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
+        }
+        .padding(.horizontal, 7).padding(.vertical, 3)
+        .background(color.opacity(0.14)).clipShape(Capsule())
+    }
+
+    private var comingSoonCard: some View {
+        Card {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                featureRow("cart.fill", "Daily rotating card shop")
+                featureRow("person.3.sequence.fill", "Dream-team lineup")
+                featureRow("flame.fill", "Nightly challenge vs an NHL team")
+                featureRow("arrow.left.arrow.right", "Trade cards with other players")
+            }
+        }
     }
 
     private func featureRow(_ icon: String, _ text: String) -> some View {

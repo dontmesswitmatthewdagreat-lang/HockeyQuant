@@ -633,6 +633,19 @@ extension APIClient {
         return try Self.decode(CupMatchupResponse.self, from: data)
     }
 
+    // MARK: My Franchise (card collection)
+
+    func franchise(token: String) async throws -> FranchiseSummary {
+        let data = try await perform("GET", apiURL("franchise"), token: token, body: Optional<Int>.none)
+        return try Self.decode(FranchiseSummary.self, from: data)
+    }
+
+    func franchiseCollection(token: String) async throws -> [PlayerCard] {
+        let url = apiURL("franchise").appendingPathComponent("collection")
+        let data = try await perform("GET", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(CollectionResponse.self, from: data).cards
+    }
+
     /// `GET /api/news/latest` — the league morning digest + the team's recent digests.
     func newsLatest(team: String?) async throws -> [NewsDigest] {
         var comps = URLComponents(
