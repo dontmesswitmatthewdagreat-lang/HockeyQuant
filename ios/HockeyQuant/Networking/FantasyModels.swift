@@ -115,6 +115,7 @@ struct DraftMember: Codable, Identifiable, Hashable {
     let username: String?
     let isCpu: Bool?
     let isMe: Bool
+    let capSpace: Int?
     let roster: [RosterSlot]
 }
 
@@ -292,6 +293,18 @@ struct ProposeTradeBody: Encodable {
 struct RespondTradeBody: Encodable { let accept: Bool }
 
 struct SetSlotBody: Encodable { let slot: String; let playerId: String }
+
+struct OffseasonTradeBody: Encodable {
+    let toMemberId: String
+    let myPlayerId: String
+    let theirPlayerId: String
+    let myCap: Int
+}
+
+struct TradeResult: Codable, Hashable {
+    let status: String          // accepted | rejected | pending
+    let detail: String?
+}
 
 struct DeviceTokenBody: Encodable { let token: String; let platform: String }
 

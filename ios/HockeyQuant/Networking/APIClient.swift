@@ -582,6 +582,14 @@ extension APIClient {
         _ = try await perform("POST", url, token: token, body: ProposeTradeBody(toMemberId: toMemberId, myPlayerId: myPlayerId, theirPlayerId: theirPlayerId))
     }
 
+    /// `POST /api/fantasy/leagues/{id}/offseason/trade` — propose an off-season trade
+    /// (player + optional Cap Space for a same-position player); CPU accepts if fair.
+    func offseasonTrade(_ id: String, toMemberId: String, myPlayerId: String, theirPlayerId: String, myCap: Int, token: String) async throws -> TradeResult {
+        let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("offseason").appendingPathComponent("trade")
+        let data = try await perform("POST", url, token: token, body: OffseasonTradeBody(toMemberId: toMemberId, myPlayerId: myPlayerId, theirPlayerId: theirPlayerId, myCap: myCap))
+        return try Self.decode(TradeResult.self, from: data)
+    }
+
     func respondTrade(_ id: String, tradeId: String, accept: Bool, token: String) async throws {
         let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("trades").appendingPathComponent(tradeId).appendingPathComponent("respond")
         _ = try await perform("POST", url, token: token, body: RespondTradeBody(accept: accept))

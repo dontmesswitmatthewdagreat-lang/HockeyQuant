@@ -75,6 +75,10 @@ final class FantasyStore {
         try await api.runLottery(id, token: token())
     }
 
+    func offseasonTrade(_ id: String, toMemberId: String, myPlayerId: String, theirPlayerId: String, myCap: Int) async throws -> TradeResult {
+        try await api.offseasonTrade(id, toMemberId: toMemberId, myPlayerId: myPlayerId, theirPlayerId: theirPlayerId, myCap: myCap, token: token())
+    }
+
     func draftState(_ id: String) async throws -> DraftResponse {
         try await api.draftState(id, token: token())
     }

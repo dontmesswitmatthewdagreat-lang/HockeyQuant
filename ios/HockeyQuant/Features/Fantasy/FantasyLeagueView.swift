@@ -11,6 +11,7 @@ struct FantasyLeagueView: View {
     @State private var error: String?
     @State private var starting = false
     @State private var showLottery = false
+    @State private var showTrade = false
 
     var body: some View {
         ZStack {
@@ -27,6 +28,9 @@ struct FantasyLeagueView: View {
         // Whenever we return from the lottery (any path), reload so the new phase routes
         // straight to the prospect draft instead of showing a stale lottery hub.
         .onChange(of: showLottery) { _, shown in if !shown { Task { await load() } } }
+        .sheet(isPresented: $showTrade) {
+            OffseasonTradeView(store: store, leagueId: leagueId, onTraded: { Task { await load() } })
+        }
     }
 
     private func load() async {
@@ -108,8 +112,13 @@ struct FantasyLeagueView: View {
     private func offseasonOpenHub(_ detail: LeagueDetail) -> some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
-                phaseBanner("The Off-Season", "Open market", "Trade players and picks, then start the regular season.")
+                phaseBanner("The Off-Season", "Open market", "Trade with rival GMs to build your team, then start the regular season.")
                 capCard(detail.league)
+                PressableButton(action: { showTrade = true }) {
+                    HStack { Image(systemName: "arrow.left.arrow.right"); Text("Open the trade market").font(Theme.Font.headline()) }
+                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
+                        .background(Theme.Palette.accent).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                }
                 membersCard(detail)
             }.padding(Theme.Spacing.md)
         }.refreshable { await load() }
