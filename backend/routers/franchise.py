@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Header
+from pydantic import BaseModel
 
 from services.supabase_client import get_supabase
 from routers.fantasy import get_user_id_from_token, current_season_year, ROSTER_SLOTS
@@ -150,3 +151,83 @@ def get_collection(authorization: Optional[str] = Header(None)):
         out.append(d)
     out.sort(key=lambda x: (-RARITY_ORDER.index(x["rarity"]), -(x["cost"] or 0)))
     return {"cards": out}
+
+
+# --- Rotating shop ---------------------------------------------------------
+# A daily-rotating set of featured cards (same for everyone, cached per date). The
+# composition leans common but always features a high-rarity headliner or two.
+SHOP_PLAN = ["legend", "epic", "rare", "uncommon", "common", "common"]
+
+
+def _generate_shop(sb) -> list:
+    players = sb.table("fantasy_players").select("id,cost").eq("active", "true").eq("is_prospect", "false").limit(2000).execute().data
+    buckets: dict = {r: [] for r in RARITY_ORDER}
+    for p in players:
+        buckets[_rarity(p.get("cost"))].append(p["id"])
+    items, used = [], set()
+    for want in SHOP_PLAN:
+        rarity, pool = want, [pid for pid in buckets.get(want, []) if pid not in used]
+        if not pool:                                   # fall back to the next tier down with stock
+            for alt in reversed(RARITY_ORDER):
+                alt_pool = [pid for pid in buckets.get(alt, []) if pid not in used]
+                if alt_pool:
+                    rarity, pool = alt, alt_pool
+                    break
+        if not pool:
+            continue
+        pid = random.choice(pool); used.add(pid)
+        items.append({"player_id": pid, "rarity": rarity, "price": RARITY_PRICE[rarity]})
+    return items
+
+
+def _ensure_shop(sb, day: str) -> list:
+    rows = sb.table("shop_rotation").select("items").eq("rotation_date", day).execute().data
+    if rows:
+        return rows[0]["items"] or []
+    items = _generate_shop(sb)
+    sb.table("shop_rotation").upsert([{"rotation_date": day, "items": items}], on_conflict="rotation_date").execute()
+    return items
+
+
+@router.get("/franchise/shop")
+def get_shop(authorization: Optional[str] = Header(None)):
+    """Today's rotating featured cards + your Coin balance."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    fr = _ensure_franchise(sb, uid)
+    items = _ensure_shop(sb, _today())
+    pmap = {p["id"]: p for p in sb.table("fantasy_players").select(_card_player_fields())
+            .in_("id", [it["player_id"] for it in items]).execute().data}
+    cards = []
+    for it in items:
+        p = pmap.get(it["player_id"])
+        if not p:
+            continue
+        d = _player_card(p)
+        d["rarity"], d["price"] = it["rarity"], it["price"]
+        cards.append(d)
+    return {"cards": cards, "coins": fr.get("coins") or 0, "rotation_date": _today()}
+
+
+class BuyRequest(BaseModel):
+    player_id: str
+
+
+@router.post("/franchise/shop/buy")
+def buy_card(req: BuyRequest, authorization: Optional[str] = Header(None)):
+    """Buy a card from today's shop with Coins (duplicates allowed)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    items = _ensure_shop(sb, _today())
+    it = next((x for x in items if x["player_id"] == req.player_id), None)
+    if not it:
+        raise HTTPException(status_code=400, detail="That card isn't in today's shop")
+    fr = _ensure_franchise(sb, uid)
+    coins, price = fr.get("coins") or 0, it["price"]
+    if coins < price:
+        raise HTTPException(status_code=400, detail=f"Not enough Coins — that card costs {price}, you have {coins}.")
+    sb.table("franchises").update({"coins": coins - price}).eq("user_id", uid).execute()
+    sb.table("franchise_cards").insert([{
+        "user_id": uid, "player_id": req.player_id, "rarity": it["rarity"], "acquired_via": "shop",
+    }]).execute()
+    return {"coins": coins - price, "bought": req.player_id}
