@@ -1088,6 +1088,24 @@ def _start_prospect_draft(sb, league: dict) -> None:
     _offseason_advance(sb, league)
 
 
+@router.post("/fantasy/leagues/{league_id}/start-season")
+def start_season(league_id: str, authorization: Optional[str] = Header(None)):
+    """Commissioner: close the off-season market and start the regular season — generate
+    the weekly head-to-head schedule and flip the league to active. Your active NHL
+    lineup then plays weekly matchups (scored from real stats once games begin)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    league = _require_league(sb, league_id)
+    if league["commissioner_id"] != uid:
+        raise HTTPException(status_code=403, detail="Only the commissioner can start the season")
+    if league.get("season_phase") != "offseason_open":
+        raise HTTPException(status_code=400, detail="Finish the off-season (lottery + draft) first")
+    sb.table("fantasy_matchups").delete().eq("league_id", league_id).execute()
+    _generate_schedule(sb, league_id)
+    sb.table("fantasy_leagues").update({"status": "active", "season_phase": "regular"}).eq("id", league_id).execute()
+    return _league_summary(sb, _require_league(sb, league_id), uid)
+
+
 # ---------------------------------------------------------------------------
 # In-season: schedule, scoring, standings
 # ---------------------------------------------------------------------------
