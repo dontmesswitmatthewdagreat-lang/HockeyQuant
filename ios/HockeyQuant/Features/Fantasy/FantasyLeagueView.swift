@@ -120,8 +120,30 @@ struct FantasyLeagueView: View {
                         .background(Theme.Palette.accent).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
                 }
                 membersCard(detail)
+                if detail.league.isCommissioner {
+                    PressableButton(action: { startSeason() }) {
+                        HStack {
+                            if starting { ProgressView().tint(.white) }
+                            Image(systemName: "flag.checkered"); Text("Start the regular season").font(Theme.Font.headline())
+                        }
+                        .foregroundStyle(.white).frame(maxWidth: .infinity).padding(.vertical, Theme.Spacing.sm)
+                        .background(Theme.Palette.positive).clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+                    }.disabled(starting)
+                    Text("Your active NHL lineup plays weekly head-to-head once the season begins.")
+                        .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                }
             }.padding(Theme.Spacing.md)
         }.refreshable { await load() }
+    }
+
+    private func startSeason() {
+        starting = true
+        Task {
+            do { _ = try await store.startSeason(leagueId); await load() }
+            catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+            starting = false
+        }
     }
 
     private func phaseBanner(_ title: String, _ phase: String, _ blurb: String) -> some View {

@@ -79,6 +79,10 @@ final class FantasyStore {
         try await api.offseasonTrade(id, toMemberId: toMemberId, myPlayerId: myPlayerId, theirPlayerId: theirPlayerId, myCap: myCap, token: token())
     }
 
+    func startSeason(_ id: String) async throws -> FantasyLeagueSummary {
+        try await api.startSeason(id, token: token())
+    }
+
     func draftState(_ id: String) async throws -> DraftResponse {
         try await api.draftState(id, token: token())
     }

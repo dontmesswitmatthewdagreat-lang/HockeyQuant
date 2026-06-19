@@ -510,6 +510,14 @@ extension APIClient {
         return try Self.decode(LotteryResult.self, from: data)
     }
 
+    /// `POST /api/fantasy/leagues/{id}/start-season` (commissioner) — close the off-season
+    /// market and start the regular season (generates the weekly schedule).
+    func startSeason(_ id: String, token: String) async throws -> FantasyLeagueSummary {
+        let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("start-season")
+        let data = try await perform("POST", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(FantasyLeagueSummary.self, from: data)
+    }
+
     /// `GET /api/fantasy/leagues/{id}/draft` — live draft state + board.
     func draftState(_ id: String, token: String) async throws -> DraftResponse {
         let url = fantasyURL("leagues").appendingPathComponent(id).appendingPathComponent("draft")

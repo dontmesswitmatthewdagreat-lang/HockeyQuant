@@ -1,0 +1,23 @@
+# HockeyQuant — Franchise season rollover
+# Once the NHL season turns over (current_season_year advances each fall), this rolls
+# every franchise (group/solo) league that finished a prior season into the new
+# off-season: archive the old season, carry Cap Space forward (+ a completion bonus),
+# reset rosters, and re-seed. The endpoint is idempotent (leagues already on the
+# current season are skipped), so running weekly is safe.
+
+name: Season Rollover
+
+on:
+  schedule:
+    - cron: '0 15 * * 0'   # 15:00 UTC Sundays (~10–11 AM ET)
+  workflow_dispatch:
+
+jobs:
+  season-rollover:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Roll finished franchise leagues into the new off-season
+        run: curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/fantasy/season/rollover"

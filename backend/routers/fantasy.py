@@ -43,6 +43,7 @@ SLOTS_PER_TEAM = len(ROSTER_SLOTS)
 FARM_SLOTS = [("PR1", "FARM"), ("PR2", "FARM"), ("PR3", "FARM"),
               ("PR4", "FARM"), ("PR5", "FARM"), ("PR6", "FARM")]
 OFFSEASON_ROUNDS = len(FARM_SLOTS)
+SEASON_END_BONUS = 5_000_000   # Cap Space bonus for finishing a season (paid at rollover)
 
 REG_SEASON_WEEKS = 24          # fantasy regular-season length
 GOALIE_BONUS = 1.20            # better weekly GSAX
@@ -852,18 +853,19 @@ def _archive_season(sb, league: dict, members: list) -> None:
             pass   # archive is best-effort; never block the reset
 
 
-def _enter_offseason(sb, league: dict) -> None:
+def _enter_offseason(sb, league: dict, archive: bool = True) -> None:
     """Reset a group/solo league into the off-season build phase: archive the prior
     season (if any), clear rosters/matchups, keep each manager's Cap Space, seed a
     random affordable NHL starter roster, recreate roster slots (12 active + farm), and
-    mint this season's draft-pick assets. Leaves the league in `offseason_lottery`."""
+    mint this season's draft-pick assets. Leaves the league in `offseason_lottery`.
+    `archive=False` skips the archive (the season rollover archives separately first)."""
     league_id = league["id"]
     season = league["season_year"]
     members = sb.table("fantasy_members").select("id,user_id,team_name,cap_space").eq("league_id", league_id).execute().data
     if not members:
         raise HTTPException(status_code=400, detail="League has no managers")
 
-    if league.get("status") in ("active", "playoffs", "complete"):
+    if archive and league.get("status") in ("active", "playoffs", "complete"):
         _archive_season(sb, league, members)
 
     # Clear rosters, picks, schedule (Cap Space on fantasy_members is preserved).
@@ -1106,6 +1108,34 @@ def start_season(league_id: str, authorization: Optional[str] = Header(None)):
     return _league_summary(sb, _require_league(sb, league_id), uid)
 
 
+@router.post("/fantasy/season/rollover")
+def season_rollover():
+    """Cron (at season's end): roll every franchise (group/solo) league that finished a
+    prior season into the new off-season — archive the old season, carry Cap Space
+    forward (+ a completion bonus), reset rosters, and re-seed. Idempotent: a league
+    already at the current season_year is skipped."""
+    sb = _sb()
+    season = current_season_year()
+    rolled = []
+    leagues = sb.table("fantasy_leagues").select("*").execute().data
+    for L in leagues:
+        if L.get("league_type") == "global":
+            continue
+        if (L.get("season_year") or 0) >= season or L.get("status") not in ("active", "playoffs", "complete"):
+            continue
+        members = sb.table("fantasy_members").select("id,team_name,cap_space").eq("league_id", L["id"]).execute().data
+        if not members:
+            continue
+        _archive_season(sb, L, members)                  # archive under the OLD season
+        for m in members:                                # season-completion bonus
+            sb.table("fantasy_members").update({"cap_space": (m.get("cap_space") or 0) + SEASON_END_BONUS}).eq("id", m["id"]).execute()
+        L["season_year"] = season
+        sb.table("fantasy_leagues").update({"season_year": season}).eq("id", L["id"]).execute()
+        _enter_offseason(sb, L, archive=False)           # re-seed under the NEW season
+        rolled.append(L.get("name"))
+    return {"rolled": len(rolled), "leagues": rolled, "season": season}
+
+
 # ---------------------------------------------------------------------------
 # In-season: schedule, scoring, standings
 # ---------------------------------------------------------------------------
@@ -1280,9 +1310,8 @@ def season(league_id: str, authorization: Optional[str] = Header(None)):
     if not me:
         raise HTTPException(status_code=403, detail="You are not a member of this league")
 
-    names = {}
-    profs = sb.table("profiles").select("id,username").in_("id", [m["user_id"] for m in members]).execute().data
-    names = {p["id"]: p.get("username") for p in profs}
+    uids = [m["user_id"] for m in members if m["user_id"]]      # CPU members have no user_id
+    names = {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", uids).execute().data} if uids else {}
     team_of = {m["id"]: m["team_name"] for m in members}
 
     results = sb.table("fantasy_weekly_results").select("*").eq("league_id", league_id).eq("graded", True).execute().data
