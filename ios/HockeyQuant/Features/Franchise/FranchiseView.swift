@@ -44,6 +44,9 @@ struct FranchiseView: View {
                 NavigationLink { ChallengeView(store: store) } label: {
                     modeRow("Nightly Challenge", icon: "flame.fill", subtitle: challengeSubtitle(s))
                 }.buttonStyle(.plain)
+                NavigationLink { RookieDraftView(store: store) } label: {
+                    modeRow("Rookie Draft", icon: "star.circle.fill", subtitle: "Draft this season's rookie class")
+                }.buttonStyle(.plain)
                 NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
                     .buttonStyle(.plain)
                 comingSoonCard

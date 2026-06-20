@@ -21,7 +21,8 @@ struct CardView: View {
             }
             Text(card.fullName).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
                 .lineLimit(1).minimumScaleFactor(0.65)
-            Text("\(card.rosterPos) · \(card.team)").font(.system(size: 9)).foregroundStyle(Theme.Palette.textTertiary).lineLimit(1)
+            Text((card.prospectRanking.map { "#\($0) · " } ?? "") + "\(card.rosterPos) · \(card.team)")
+                .font(.system(size: 9)).foregroundStyle(Theme.Palette.textTertiary).lineLimit(1)
             Text(CardRarity.label(card.rarity).uppercased())
                 .font(.system(size: 8, weight: .heavy, design: .rounded)).foregroundStyle(.white)
                 .padding(.horizontal, 6).padding(.vertical, 2).background(color).clipShape(Capsule())

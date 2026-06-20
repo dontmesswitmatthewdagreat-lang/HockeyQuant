@@ -17,6 +17,7 @@ struct PlayerCard: Codable, Identifiable, Hashable {
     let price: Int              // Coin price (shop)
     let cardId: String?         // owned-card id (nil for shop/catalog entries)
     let acquiredVia: String?
+    let prospectRanking: Int?   // rookie-board rank (rookie draft only)
 
     var id: String { cardId ?? playerId }
 }
@@ -53,6 +54,13 @@ struct ChallengeDetail: Codable, Hashable {
 
 struct ChallengeResponse: Codable { let challenge: ChallengeDetail?; let today: String }
 struct ChallengeOptions: Codable { let date: String; let teams: [String] }
+
+struct RookieDraftResponse: Codable {
+    let picksRemaining: Int
+    let picksTotal: Int
+    let seasonYear: Int
+    let board: [PlayerCard]
+}
 
 struct FranchiseSummary: Codable {
     let coins: Int
