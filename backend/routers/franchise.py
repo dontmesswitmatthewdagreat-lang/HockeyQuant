@@ -231,3 +231,64 @@ def buy_card(req: BuyRequest, authorization: Optional[str] = Header(None)):
         "user_id": uid, "player_id": req.player_id, "rarity": it["rarity"], "acquired_via": "shop",
     }]).execute()
     return {"coins": coins - price, "bought": req.player_id}
+
+
+# --- Dream-team lineup -----------------------------------------------------
+
+def _slot_type(slot: str) -> Optional[str]:
+    return next((st for s, st in ROSTER_SLOTS if s == slot), None)
+
+
+@router.get("/franchise/lineup")
+def get_lineup(authorization: Optional[str] = Header(None)):
+    """The 12-slot dream team (each slot's assigned card, or empty) + the team rating."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    _ensure_franchise(sb, uid)
+    assigned = {r["slot"]: r["card_id"] for r in
+                sb.table("franchise_lineup").select("slot,card_id").eq("user_id", uid).execute().data}
+    card_ids = [c for c in assigned.values() if c]
+    cardmap: dict = {}
+    if card_ids:
+        cards = sb.table("franchise_cards").select("id,player_id,rarity").eq("user_id", uid).in_("id", card_ids).execute().data
+        pmap = {p["id"]: p for p in sb.table("fantasy_players").select(_card_player_fields())
+                .in_("id", [c["player_id"] for c in cards]).execute().data}
+        for c in cards:
+            p = pmap.get(c["player_id"])
+            if p:
+                d = _player_card(p); d["card_id"], d["rarity"] = c["id"], c["rarity"]
+                cardmap[c["id"]] = d
+    lineup, rating = [], 0
+    for slot, st in ROSTER_SLOTS:
+        card = cardmap.get(assigned.get(slot)) if assigned.get(slot) else None
+        if card:
+            rating += card["cost"] or 0
+        lineup.append({"slot": slot, "slot_type": st, "card": card})
+    return {"lineup": lineup, "rating": rating}
+
+
+class LineupRequest(BaseModel):
+    slot: str
+    card_id: Optional[str] = None        # null clears the slot
+
+
+@router.post("/franchise/lineup")
+def set_lineup(req: LineupRequest, authorization: Optional[str] = Header(None)):
+    """Assign an owned card to a lineup slot (its position must match), or clear it."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    st = _slot_type(req.slot)
+    if not st:
+        raise HTTPException(status_code=400, detail="Invalid slot")
+    if req.card_id:
+        owned = sb.table("franchise_cards").select("id,player_id").eq("id", req.card_id).eq("user_id", uid).execute().data
+        if not owned:
+            raise HTTPException(status_code=400, detail="You don't own that card")
+        pos = sb.table("fantasy_players").select("roster_pos").eq("id", owned[0]["player_id"]).execute().data
+        if not pos or pos[0]["roster_pos"] != st:
+            raise HTTPException(status_code=400, detail=f"That card isn't a {st}")
+        # A card can only sit in one slot — pull it from any other slot first.
+        sb.table("franchise_lineup").update({"card_id": None}).eq("user_id", uid).eq("card_id", req.card_id).execute()
+    sb.table("franchise_lineup").upsert([{"user_id": uid, "slot": req.slot, "card_id": req.card_id}],
+                                        on_conflict="user_id,slot").execute()
+    return {"ok": True}
