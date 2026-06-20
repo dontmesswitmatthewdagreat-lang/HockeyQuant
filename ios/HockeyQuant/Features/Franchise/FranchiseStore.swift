@@ -12,6 +12,8 @@ final class FranchiseStore {
     private(set) var summary: FranchiseSummary?
     private(set) var collection: [PlayerCard] = []
     private(set) var shop: [PlayerCard] = []
+    private(set) var lineup: [LineupSlot] = []
+    private(set) var lineupRating: Int = 0
     private(set) var coins: Int = 0
     var error: String?
 
@@ -43,5 +45,15 @@ final class FranchiseStore {
     func buy(_ playerId: String) async -> Bool {
         do { coins = try await api.franchiseBuy(playerId: playerId, token: token()); return true }
         catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func loadLineup() async {
+        do { let r = try await api.franchiseLineup(token: token()); lineup = r.lineup; lineupRating = r.rating }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func setLineupSlot(_ slot: String, cardId: String?) async {
+        do { try await api.franchiseSetLineup(slot: slot, cardId: cardId, token: token()); await loadLineup() }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
     }
 }

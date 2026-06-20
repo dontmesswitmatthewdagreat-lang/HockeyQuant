@@ -31,6 +31,15 @@ struct ShopResponse: Codable {
 
 struct BuyResponse: Codable { let coins: Int; let bought: String }
 
+struct LineupSlot: Codable, Identifiable, Hashable {
+    let slot: String
+    let slotType: String
+    let card: PlayerCard?
+    var id: String { slot }
+}
+
+struct LineupResponse: Codable { let lineup: [LineupSlot]; let rating: Int }
+
 struct ChallengeSummary: Codable, Hashable {
     let opponentTeam: String
     let won: Bool?

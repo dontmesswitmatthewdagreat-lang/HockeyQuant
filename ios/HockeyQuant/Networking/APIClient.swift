@@ -659,6 +659,18 @@ extension APIClient {
         return try Self.decode(BuyResponse.self, from: data).coins
     }
 
+    func franchiseLineup(token: String) async throws -> LineupResponse {
+        let url = apiURL("franchise").appendingPathComponent("lineup")
+        let data = try await perform("GET", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(LineupResponse.self, from: data)
+    }
+
+    func franchiseSetLineup(slot: String, cardId: String?, token: String) async throws {
+        let url = apiURL("franchise").appendingPathComponent("lineup")
+        struct Body: Encodable { let slot: String; let cardId: String? }
+        _ = try await perform("POST", url, token: token, body: Body(slot: slot, cardId: cardId))
+    }
+
     /// `GET /api/news/latest` — the league morning digest + the team's recent digests.
     func newsLatest(team: String?) async throws -> [NewsDigest] {
         var comps = URLComponents(

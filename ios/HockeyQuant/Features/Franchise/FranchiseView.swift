@@ -37,6 +37,9 @@ struct FranchiseView: View {
                 NavigationLink { ShopView(store: store) } label: {
                     modeRow("Card Shop", icon: "cart.fill", subtitle: "Today's featured cards — buy with Coins")
                 }.buttonStyle(.plain)
+                NavigationLink { LineupView(store: store) } label: {
+                    modeRow("Dream Team", icon: "person.3.sequence.fill", subtitle: "\(s.lineupFilled)/\(s.lineupSlots) slots set — build your lineup")
+                }.buttonStyle(.plain)
                 NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
                     .buttonStyle(.plain)
                 comingSoonCard
@@ -116,7 +119,6 @@ struct FranchiseView: View {
         Card {
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                featureRow("person.3.sequence.fill", "Dream-team lineup")
                 featureRow("flame.fill", "Nightly challenge vs an NHL team")
                 featureRow("arrow.left.arrow.right", "Trade cards with other players")
             }
