@@ -39,6 +39,7 @@ RARITY_ORDER = ["common", "uncommon", "rare", "epic", "legend"]
 RARITY_PRICE = {"common": 200, "uncommon": 600, "rare": 1500, "epic": 4000, "legend": 12000}
 STARTING_COINS = 5000
 DAILY_REWARD = 500
+CARD_BUY_XP = 10              # account XP per card collected
 CHALLENGE_WIN_COINS = 750
 
 
@@ -82,6 +83,26 @@ def _grant_starter_pack(sb, uid: str) -> None:
                          "acquired_via": "starter"})
     if rows:
         sb.table("franchise_cards").insert(rows).execute()
+
+
+def _add_account_xp(sb, uid: str, amount: int) -> None:
+    """Credit account-wide XP (user_stats.total_xp) — the GM-tier track, fed by the
+    franchise. Update if the row exists, else best-effort insert."""
+    if not amount:
+        return
+    rows = sb.table("user_stats").select("total_xp").eq("user_id", uid).execute().data
+    if rows:
+        sb.table("user_stats").update({"total_xp": (rows[0].get("total_xp") or 0) + amount}).eq("user_id", uid).execute()
+    else:
+        try:
+            sb.table("user_stats").insert([{"user_id": uid, "total_xp": amount}]).execute()
+        except Exception:
+            pass
+
+
+def _account_xp(sb, uid: str) -> int:
+    rows = sb.table("user_stats").select("total_xp").eq("user_id", uid).execute().data
+    return (rows[0].get("total_xp") if rows else 0) or 0
 
 
 def _ensure_franchise(sb, uid: str) -> dict:
@@ -129,6 +150,7 @@ def get_franchise(authorization: Optional[str] = Header(None)):
         "lineup_slots": len(ROSTER_SLOTS),
         "today_challenge": today[0] if today else None,
         "daily_reward": DAILY_REWARD,
+        "account_xp": _account_xp(sb, uid),
     }
 
 
@@ -234,6 +256,7 @@ def buy_card(req: BuyRequest, authorization: Optional[str] = Header(None)):
     sb.table("franchise_cards").insert([{
         "user_id": uid, "player_id": req.player_id, "rarity": it["rarity"], "acquired_via": "shop",
     }]).execute()
+    _add_account_xp(sb, uid, CARD_BUY_XP)        # collecting cards builds your account
     return {"coins": coins - price, "bought": req.player_id}
 
 
@@ -405,6 +428,7 @@ def score_franchise_challenges(sb, game_date: str) -> dict:
         fr = sb.table("franchises").select("coins").eq("user_id", ch["user_id"]).execute().data
         if fr:
             sb.table("franchises").update({"coins": (fr[0]["coins"] or 0) + coins}).eq("user_id", ch["user_id"]).execute()
+        _add_account_xp(sb, ch["user_id"], xp)       # challenge XP feeds the account GM tier
         n += 1
     return {"scored": n, "date": game_date}
 
