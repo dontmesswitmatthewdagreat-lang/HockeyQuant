@@ -11,7 +11,7 @@ from typing import Optional
 
 import requests
 from fastapi import APIRouter, HTTPException, Header
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from services.supabase_client import get_supabase
 from services.results_fetcher import fetch_game_results
@@ -31,6 +31,21 @@ def _sb():
 
 def _today() -> str:
     return datetime.now(timezone.utc).date().isoformat()
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _clear_card_from_lineup(sb, uid: str, card_id: str) -> None:
+    sb.table("franchise_lineup").update({"card_id": None}).eq("user_id", uid).eq("card_id", card_id).execute()
+
+
+def _usernames(sb, uids: list) -> dict:
+    uids = [u for u in set(uids) if u]
+    if not uids:
+        return {}
+    return {p["id"]: p.get("username") for p in sb.table("profiles").select("id,username").in_("id", uids).execute().data}
 
 
 # --- Card rarity + economy -------------------------------------------------
@@ -574,6 +589,274 @@ def rookie_pick(req: RookiePickRequest, authorization: Optional[str] = Header(No
     _add_account_xp(sb, uid, ROOKIE_PICK_XP)
     remaining = len(sb.table("rookie_picks").select("id").eq("user_id", uid).eq("season_year", season).eq("used", "false").execute().data)
     return {"drafted": req.player_id, "picks_remaining": remaining}
+
+
+# --- Card marketplace (list / browse / buy) --------------------------------
+
+class ListRequest(BaseModel):
+    card_id: str
+    price: int = Field(..., ge=1)
+
+
+@router.post("/franchise/market/list")
+def market_list(req: ListRequest, authorization: Optional[str] = Header(None)):
+    """List one of your cards on the marketplace for a Coin price."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    owned = sb.table("franchise_cards").select("id,player_id,rarity").eq("id", req.card_id).eq("user_id", uid).execute().data
+    if not owned:
+        raise HTTPException(status_code=400, detail="You don't own that card")
+    if sb.table("card_listings").select("id").eq("card_id", req.card_id).eq("status", "open").limit(1).execute().data:
+        raise HTTPException(status_code=400, detail="That card is already listed")
+    c = owned[0]
+    sb.table("card_listings").insert([{
+        "seller_id": uid, "card_id": req.card_id, "player_id": c["player_id"],
+        "rarity": c["rarity"], "price": req.price, "status": "open",
+    }]).execute()
+    return {"listed": req.card_id, "price": req.price}
+
+
+def _listing_cards(sb, listings: list, seller_names: dict) -> list:
+    pmap = {p["id"]: p for p in sb.table("fantasy_players").select(_card_player_fields())
+            .in_("id", [l["player_id"] for l in listings]).execute().data} if listings else {}
+    out = []
+    for l in listings:
+        p = pmap.get(l["player_id"])
+        if not p:
+            continue
+        d = _player_card(p)
+        d["rarity"], d["price"], d["card_id"] = l["rarity"], l["price"], l.get("card_id")
+        d["listing_id"], d["seller"], d["status"] = l["id"], seller_names.get(l.get("seller_id")), l.get("status")
+        out.append(d)
+    return out
+
+
+@router.get("/franchise/market")
+def market_browse(authorization: Optional[str] = Header(None)):
+    """Open listings from other managers (you can't buy your own) + your Coin balance."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    fr = _ensure_franchise(sb, uid)
+    listings = sb.table("card_listings").select("id,seller_id,player_id,rarity,price,status,card_id") \
+        .eq("status", "open").order("created_at", desc=True).limit(120).execute().data
+    others = [l for l in listings if l["seller_id"] != uid]
+    names = _usernames(sb, [l["seller_id"] for l in others])
+    return {"listings": _listing_cards(sb, others, names), "coins": fr.get("coins") or 0}
+
+
+@router.get("/franchise/market/mine")
+def market_mine(authorization: Optional[str] = Header(None)):
+    """Your own listings (open + recently resolved)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    listings = sb.table("card_listings").select("id,seller_id,player_id,rarity,price,status,card_id") \
+        .eq("seller_id", uid).order("created_at", desc=True).limit(50).execute().data
+    return {"listings": _listing_cards(sb, listings, {})}
+
+
+class ListingActionRequest(BaseModel):
+    listing_id: str
+
+
+@router.post("/franchise/market/buy")
+def market_buy(req: ListingActionRequest, authorization: Optional[str] = Header(None)):
+    """Buy a listed card with Coins (transfers the card + Coins, closes the listing)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("card_listings").select("*").eq("id", req.listing_id).execute().data
+    if not rows or rows[0]["status"] != "open":
+        raise HTTPException(status_code=400, detail="That listing isn't available")
+    L = rows[0]
+    if L["seller_id"] == uid:
+        raise HTTPException(status_code=400, detail="You can't buy your own listing")
+    fr = _ensure_franchise(sb, uid)
+    coins = fr.get("coins") or 0
+    if coins < L["price"]:
+        raise HTTPException(status_code=400, detail=f"Not enough Coins — that card costs {L['price']}, you have {coins}.")
+    if not sb.table("franchise_cards").select("id").eq("id", L["card_id"]).eq("user_id", L["seller_id"]).execute().data:
+        sb.table("card_listings").update({"status": "cancelled", "resolved_at": _now()}).eq("id", L["id"]).execute()
+        raise HTTPException(status_code=400, detail="That card is no longer available")
+    # Transfer the card + Coins, clear it from the seller's lineup, close the listing.
+    sb.table("franchise_cards").update({"user_id": uid, "acquired_via": "trade"}).eq("id", L["card_id"]).execute()
+    _clear_card_from_lineup(sb, L["seller_id"], L["card_id"])
+    sb.table("franchises").update({"coins": coins - L["price"]}).eq("user_id", uid).execute()
+    srows = sb.table("franchises").select("coins").eq("user_id", L["seller_id"]).execute().data
+    if srows:
+        sb.table("franchises").update({"coins": (srows[0]["coins"] or 0) + L["price"]}).eq("user_id", L["seller_id"]).execute()
+    sb.table("card_listings").update({"status": "sold", "buyer_id": uid, "resolved_at": _now()}).eq("id", L["id"]).execute()
+    return {"bought": L["card_id"], "coins": coins - L["price"]}
+
+
+@router.post("/franchise/market/cancel")
+def market_cancel(req: ListingActionRequest, authorization: Optional[str] = Header(None)):
+    """Delist one of your open listings."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("card_listings").select("seller_id,status").eq("id", req.listing_id).execute().data
+    if not rows or rows[0]["seller_id"] != uid:
+        raise HTTPException(status_code=403, detail="That isn't your listing")
+    if rows[0]["status"] != "open":
+        raise HTTPException(status_code=400, detail="That listing is already resolved")
+    sb.table("card_listings").update({"status": "cancelled", "resolved_at": _now()}).eq("id", req.listing_id).execute()
+    return {"cancelled": req.listing_id}
+
+
+# --- Direct card-for-card offers (propose / inbox / accept) ----------------
+
+TRADE_XP = 5
+
+
+def _cards_by_id(sb, card_ids: list) -> dict:
+    """Map franchise_card id -> PlayerCard dict (with current rarity), for offer views."""
+    ids = [c for c in card_ids if c]
+    if not ids:
+        return {}
+    fc = sb.table("franchise_cards").select("id,player_id,rarity").in_("id", ids).execute().data
+    pmap = {p["id"]: p for p in sb.table("fantasy_players").select(_card_player_fields())
+            .in_("id", [c["player_id"] for c in fc]).execute().data} if fc else {}
+    out = {}
+    for c in fc:
+        p = pmap.get(c["player_id"])
+        if not p:
+            continue
+        d = _player_card(p)
+        d["rarity"], d["card_id"] = c["rarity"], c["id"]
+        out[c["id"]] = d
+    return out
+
+
+def _offer_views(sb, offers: list) -> list:
+    """Serialize offers with both cards' details + usernames."""
+    if not offers:
+        return []
+    cards = _cards_by_id(sb, [o["from_card_id"] for o in offers] + [o["to_card_id"] for o in offers])
+    names = _usernames(sb, [o["from_user"] for o in offers] + [o["to_user"] for o in offers])
+    out = []
+    for o in offers:
+        out.append({
+            "offer_id": o["id"],
+            "from_card": cards.get(o["from_card_id"]),
+            "to_card": cards.get(o["to_card_id"]),
+            "from_coins": o.get("from_coins") or 0,
+            "to_coins": o.get("to_coins") or 0,
+            "from_user": names.get(o["from_user"]),
+            "to_user": names.get(o["to_user"]),
+            "status": o.get("status"),
+        })
+    return out
+
+
+def _void_card_trades(sb, card_ids: list, except_offer: Optional[str] = None) -> None:
+    """After a card changes hands, void competing pending offers + cancel open listings on it."""
+    ids = [c for c in card_ids if c]
+    if not ids:
+        return
+    sb.table("card_listings").update({"status": "cancelled", "resolved_at": _now()}) \
+        .in_("card_id", ids).eq("status", "open").execute()
+    for field in ("from_card_id", "to_card_id"):
+        rows = sb.table("card_offers").select("id").in_(field, ids).eq("status", "pending").execute().data
+        for r in rows:
+            if r["id"] != except_offer:
+                sb.table("card_offers").update({"status": "void", "resolved_at": _now()}).eq("id", r["id"]).execute()
+
+
+class OfferRequest(BaseModel):
+    to_card_id: str                       # the card you want (someone else's)
+    from_card_id: str                     # your card you're giving
+    from_coins: int = Field(0, ge=0)      # Coins you add to sweeten the deal
+
+
+@router.post("/franchise/offers")
+def offer_propose(req: OfferRequest, authorization: Optional[str] = Header(None)):
+    """Propose a card-for-card trade (optionally adding Coins) to the owner of a card."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    mine = sb.table("franchise_cards").select("id").eq("id", req.from_card_id).eq("user_id", uid).execute().data
+    if not mine:
+        raise HTTPException(status_code=400, detail="You don't own the card you're offering")
+    theirs = sb.table("franchise_cards").select("user_id").eq("id", req.to_card_id).execute().data
+    if not theirs:
+        raise HTTPException(status_code=400, detail="That card no longer exists")
+    to_user = theirs[0]["user_id"]
+    if to_user == uid:
+        raise HTTPException(status_code=400, detail="That's already your card")
+    fr = _ensure_franchise(sb, uid)
+    if (fr.get("coins") or 0) < req.from_coins:
+        raise HTTPException(status_code=400, detail="You don't have that many Coins to offer")
+    sb.table("card_offers").insert([{
+        "from_user": uid, "to_user": to_user, "from_card_id": req.from_card_id,
+        "to_card_id": req.to_card_id, "from_coins": req.from_coins, "to_coins": 0, "status": "pending",
+    }]).execute()
+    return {"proposed": req.to_card_id}
+
+
+@router.get("/franchise/offers")
+def offers_list(authorization: Optional[str] = Header(None)):
+    """Your pending offers — incoming (decide) and outgoing (waiting) — plus your Coin balance."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    fr = _ensure_franchise(sb, uid)
+    incoming = sb.table("card_offers").select("*").eq("to_user", uid).eq("status", "pending") \
+        .order("created_at", desc=True).limit(50).execute().data
+    outgoing = sb.table("card_offers").select("*").eq("from_user", uid).eq("status", "pending") \
+        .order("created_at", desc=True).limit(50).execute().data
+    return {"incoming": _offer_views(sb, incoming), "outgoing": _offer_views(sb, outgoing), "coins": fr.get("coins") or 0}
+
+
+class OfferActionRequest(BaseModel):
+    offer_id: str
+
+
+@router.post("/franchise/offers/accept")
+def offer_accept(req: OfferActionRequest, authorization: Optional[str] = Header(None)):
+    """Accept an incoming offer: swap the two cards (+ any Coins) and void competing trades."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("card_offers").select("*").eq("id", req.offer_id).execute().data
+    if not rows or rows[0]["status"] != "pending":
+        raise HTTPException(status_code=400, detail="That offer isn't available")
+    o = rows[0]
+    if o["to_user"] != uid:
+        raise HTTPException(status_code=403, detail="That offer isn't addressed to you")
+    # Both cards must still be owned by the right people.
+    if not sb.table("franchise_cards").select("id").eq("id", o["from_card_id"]).eq("user_id", o["from_user"]).execute().data \
+       or not sb.table("franchise_cards").select("id").eq("id", o["to_card_id"]).eq("user_id", uid).execute().data:
+        sb.table("card_offers").update({"status": "void", "resolved_at": _now()}).eq("id", o["id"]).execute()
+        raise HTTPException(status_code=400, detail="One of the cards is no longer available")
+    from_coins = o.get("from_coins") or 0
+    fr_from = sb.table("franchises").select("coins").eq("user_id", o["from_user"]).execute().data
+    if from_coins and (not fr_from or (fr_from[0]["coins"] or 0) < from_coins):
+        raise HTTPException(status_code=400, detail="The other manager can no longer cover the Coins offered")
+    # Swap cards, clear them from both lineups.
+    sb.table("franchise_cards").update({"user_id": o["to_user"], "acquired_via": "trade"}).eq("id", o["from_card_id"]).execute()
+    sb.table("franchise_cards").update({"user_id": o["from_user"], "acquired_via": "trade"}).eq("id", o["to_card_id"]).execute()
+    _clear_card_from_lineup(sb, o["from_user"], o["from_card_id"])
+    _clear_card_from_lineup(sb, uid, o["to_card_id"])
+    # Move Coins (proposer pays the sweetener to the recipient).
+    if from_coins:
+        sb.table("franchises").update({"coins": (fr_from[0]["coins"] or 0) - from_coins}).eq("user_id", o["from_user"]).execute()
+        fr_to = sb.table("franchises").select("coins").eq("user_id", uid).execute().data
+        sb.table("franchises").update({"coins": (fr_to[0]["coins"] or 0) + from_coins}).eq("user_id", uid).execute()
+    sb.table("card_offers").update({"status": "accepted", "resolved_at": _now()}).eq("id", o["id"]).execute()
+    _void_card_trades(sb, [o["from_card_id"], o["to_card_id"]], except_offer=o["id"])
+    _add_account_xp(sb, uid, TRADE_XP)
+    _add_account_xp(sb, o["from_user"], TRADE_XP)
+    return {"accepted": o["id"]}
+
+
+@router.post("/franchise/offers/decline")
+def offer_decline(req: OfferActionRequest, authorization: Optional[str] = Header(None)):
+    """Decline an incoming offer (recipient) or cancel an outgoing one (proposer)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("card_offers").select("from_user,to_user,status").eq("id", req.offer_id).execute().data
+    if not rows or uid not in (rows[0]["from_user"], rows[0]["to_user"]):
+        raise HTTPException(status_code=403, detail="That isn't your offer")
+    if rows[0]["status"] != "pending":
+        raise HTTPException(status_code=400, detail="That offer is already resolved")
+    new_status = "cancelled" if rows[0]["from_user"] == uid else "declined"
+    sb.table("card_offers").update({"status": new_status, "resolved_at": _now()}).eq("id", req.offer_id).execute()
+    return {new_status: req.offer_id}
 
 
 @router.post("/franchise/challenge/score")

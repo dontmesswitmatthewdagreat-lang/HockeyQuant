@@ -18,8 +18,11 @@ struct PlayerCard: Codable, Identifiable, Hashable {
     let cardId: String?         // owned-card id (nil for shop/catalog entries)
     let acquiredVia: String?
     let prospectRanking: Int?   // rookie-board rank (rookie draft only)
+    let listingId: String?      // marketplace listing id
+    let seller: String?         // seller username (marketplace)
+    let status: String?         // listing status (mine: open|sold|cancelled)
 
-    var id: String { cardId ?? playerId }
+    var id: String { listingId ?? cardId ?? playerId }
 }
 
 struct CollectionResponse: Codable { let cards: [PlayerCard] }
@@ -61,6 +64,24 @@ struct RookieDraftResponse: Codable {
     let seasonYear: Int
     let board: [PlayerCard]
 }
+
+struct MarketResponse: Codable { let listings: [PlayerCard]; let coins: Int }
+struct MyListingsResponse: Codable { let listings: [PlayerCard] }
+
+/// A direct card-for-card trade offer. `fromCard` (+ `fromCoins`) is given for `toCard`.
+struct TradeOffer: Codable, Identifiable, Hashable {
+    let offerId: String
+    let fromCard: PlayerCard?
+    let toCard: PlayerCard?
+    let fromCoins: Int
+    let toCoins: Int
+    let fromUser: String?
+    let toUser: String?
+    let status: String?
+    var id: String { offerId }
+}
+
+struct OffersResponse: Codable { let incoming: [TradeOffer]; let outgoing: [TradeOffer]; let coins: Int }
 
 struct FranchiseSummary: Codable {
     let coins: Int

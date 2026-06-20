@@ -47,9 +47,11 @@ struct FranchiseView: View {
                 NavigationLink { RookieDraftView(store: store) } label: {
                     modeRow("Rookie Draft", icon: "star.circle.fill", subtitle: "Draft this season's rookie class")
                 }.buttonStyle(.plain)
+                NavigationLink { MarketView(store: store) } label: {
+                    modeRow("Marketplace", icon: "cart.fill.badge.plus", subtitle: "Buy & sell cards with other managers")
+                }.buttonStyle(.plain)
                 NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
                     .buttonStyle(.plain)
-                comingSoonCard
             }
             .padding(Theme.Spacing.md)
         }
@@ -160,19 +162,4 @@ struct FranchiseView: View {
         return "Take your dream team vs a real NHL team"
     }
 
-    private var comingSoonCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                featureRow("arrow.left.arrow.right", "Trade cards with other players")
-            }
-        }
-    }
-
-    private func featureRow(_ icon: String, _ text: String) -> some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            Image(systemName: icon).font(.system(size: 14)).foregroundStyle(Theme.Palette.accent).frame(width: 22)
-            Text(text).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
-        }
-    }
 }

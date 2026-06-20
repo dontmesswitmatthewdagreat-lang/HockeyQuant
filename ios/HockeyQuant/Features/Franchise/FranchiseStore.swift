@@ -21,6 +21,10 @@ final class FranchiseStore {
     private(set) var rookieBoard: [PlayerCard] = []
     private(set) var rookiePicksRemaining = 0
     private(set) var rookieSeason = 0
+    private(set) var market: [PlayerCard] = []
+    private(set) var myListings: [PlayerCard] = []
+    private(set) var incomingOffers: [TradeOffer] = []
+    private(set) var outgoingOffers: [TradeOffer] = []
     var error: String?
 
     init(auth: AuthStore) { self.auth = auth }
@@ -84,6 +88,51 @@ final class FranchiseStore {
 
     func draftRookie(_ playerId: String) async -> Bool {
         do { try await api.franchiseRookiePick(playerId: playerId, token: token()); await loadRookieDraft(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func loadMarket() async {
+        do {
+            let r = try await api.franchiseMarket(token: token()); market = r.listings; coins = r.coins
+            myListings = try await api.franchiseMarketMine(token: token())
+            collection = try await api.franchiseCollection(token: token())
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func listCard(_ cardId: String, price: Int) async -> Bool {
+        do { try await api.franchiseMarketList(cardId: cardId, price: price, token: token()); await loadMarket(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func buyListing(_ listingId: String) async -> Bool {
+        do { try await api.franchiseMarketBuy(listingId: listingId, token: token()); await loadMarket(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func cancelListing(_ listingId: String) async -> Bool {
+        do { try await api.franchiseMarketCancel(listingId: listingId, token: token()); await loadMarket(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func loadOffers() async {
+        do {
+            let r = try await api.franchiseOffers(token: token())
+            incomingOffers = r.incoming; outgoingOffers = r.outgoing; coins = r.coins
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func proposeOffer(toCardId: String, fromCardId: String, coins: Int) async -> Bool {
+        do { try await api.franchiseProposeOffer(toCardId: toCardId, fromCardId: fromCardId, fromCoins: coins, token: token()); await loadOffers(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func acceptOffer(_ offerId: String) async -> Bool {
+        do { try await api.franchiseAcceptOffer(offerId: offerId, token: token()); await loadOffers(); await loadCollection(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
+    }
+
+    func declineOffer(_ offerId: String) async -> Bool {
+        do { try await api.franchiseDeclineOffer(offerId: offerId, token: token()); await loadOffers(); return true }
         catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
     }
 }

@@ -701,6 +701,60 @@ extension APIClient {
         _ = try await perform("POST", url, token: token, body: Body(playerId: playerId))
     }
 
+    private func marketURL(_ p: String) -> URL { apiURL("franchise").appendingPathComponent("market").appendingPathComponent(p) }
+
+    func franchiseMarket(token: String) async throws -> MarketResponse {
+        let data = try await perform("GET", apiURL("franchise").appendingPathComponent("market"), token: token, body: Optional<Int>.none)
+        return try Self.decode(MarketResponse.self, from: data)
+    }
+
+    func franchiseMarketMine(token: String) async throws -> [PlayerCard] {
+        let data = try await perform("GET", marketURL("mine"), token: token, body: Optional<Int>.none)
+        return try Self.decode(MyListingsResponse.self, from: data).listings
+    }
+
+    func franchiseMarketList(cardId: String, price: Int, token: String) async throws {
+        struct Body: Encodable { let cardId: String; let price: Int }
+        _ = try await perform("POST", marketURL("list"), token: token, body: Body(cardId: cardId, price: price))
+    }
+
+    func franchiseMarketBuy(listingId: String, token: String) async throws {
+        struct Body: Encodable { let listingId: String }
+        _ = try await perform("POST", marketURL("buy"), token: token, body: Body(listingId: listingId))
+    }
+
+    func franchiseMarketCancel(listingId: String, token: String) async throws {
+        struct Body: Encodable { let listingId: String }
+        _ = try await perform("POST", marketURL("cancel"), token: token, body: Body(listingId: listingId))
+    }
+
+    // MARK: Direct trade offers
+
+    private func offersURL(_ p: String = "") -> URL {
+        let base = apiURL("franchise").appendingPathComponent("offers")
+        return p.isEmpty ? base : base.appendingPathComponent(p)
+    }
+
+    func franchiseOffers(token: String) async throws -> OffersResponse {
+        let data = try await perform("GET", offersURL(), token: token, body: Optional<Int>.none)
+        return try Self.decode(OffersResponse.self, from: data)
+    }
+
+    func franchiseProposeOffer(toCardId: String, fromCardId: String, fromCoins: Int, token: String) async throws {
+        struct Body: Encodable { let toCardId: String; let fromCardId: String; let fromCoins: Int }
+        _ = try await perform("POST", offersURL(), token: token, body: Body(toCardId: toCardId, fromCardId: fromCardId, fromCoins: fromCoins))
+    }
+
+    func franchiseAcceptOffer(offerId: String, token: String) async throws {
+        struct Body: Encodable { let offerId: String }
+        _ = try await perform("POST", offersURL("accept"), token: token, body: Body(offerId: offerId))
+    }
+
+    func franchiseDeclineOffer(offerId: String, token: String) async throws {
+        struct Body: Encodable { let offerId: String }
+        _ = try await perform("POST", offersURL("decline"), token: token, body: Body(offerId: offerId))
+    }
+
     /// `GET /api/news/latest` — the league morning digest + the team's recent digests.
     func newsLatest(team: String?) async throws -> [NewsDigest] {
         var comps = URLComponents(
