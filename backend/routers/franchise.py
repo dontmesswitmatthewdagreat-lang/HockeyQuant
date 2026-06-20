@@ -105,6 +105,33 @@ def _account_xp(sb, uid: str) -> int:
     return (rows[0].get("total_xp") if rows else 0) or 0
 
 
+def _check_franchise_badges(sb, uid: str) -> None:
+    """Award any newly-earned card-collection badges (idempotent)."""
+    earned = {r["achievement_id"] for r in sb.table("user_achievements").select("achievement_id").eq("user_id", uid).execute().data}
+    want = set()
+    cards = sb.table("franchise_cards").select("rarity,acquired_via").eq("user_id", uid).execute().data
+    if len(cards) >= 30:
+        want.add("fr_collector")
+    if any(c.get("rarity") == "legend" for c in cards):
+        want.add("fr_legend")
+    if any(c.get("acquired_via") == "rookie" for c in cards):
+        want.add("fr_scout")
+    lineup = sb.table("franchise_lineup").select("card_id").eq("user_id", uid).execute().data
+    if sum(1 for s in lineup if s.get("card_id")) >= len(ROSTER_SLOTS):
+        want.add("fr_dream_team")
+    chs = sb.table("franchise_challenges").select("won").eq("user_id", uid).execute().data
+    if chs:
+        want.add("fr_challenger")
+    if any(c.get("won") for c in chs):
+        want.add("fr_upset")
+    new = want - earned
+    if new:
+        try:
+            sb.table("user_achievements").insert([{"user_id": uid, "achievement_id": b} for b in new]).execute()
+        except Exception:
+            pass
+
+
 def _ensure_franchise(sb, uid: str) -> dict:
     """Get-or-create the user's franchise; grant the starter pack + a daily Coin reward."""
     rows = sb.table("franchises").select("*").eq("user_id", uid).execute().data
@@ -129,6 +156,7 @@ def get_franchise(authorization: Optional[str] = Header(None)):
     uid = get_user_id_from_token(authorization)
     sb = _sb()
     fr = _ensure_franchise(sb, uid)
+    _check_franchise_badges(sb, uid)
 
     cards = sb.table("franchise_cards").select("rarity").eq("user_id", uid).execute().data
     by_rarity = {r: 0 for r in RARITY_ORDER}
@@ -429,6 +457,7 @@ def score_franchise_challenges(sb, game_date: str) -> dict:
         if fr:
             sb.table("franchises").update({"coins": (fr[0]["coins"] or 0) + coins}).eq("user_id", ch["user_id"]).execute()
         _add_account_xp(sb, ch["user_id"], xp)       # challenge XP feeds the account GM tier
+        _check_franchise_badges(sb, ch["user_id"])   # may unlock Challenger / Upset Special
         n += 1
     return {"scored": n, "date": game_date}
 
