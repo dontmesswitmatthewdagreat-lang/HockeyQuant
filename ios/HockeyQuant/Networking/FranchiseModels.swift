@@ -40,13 +40,19 @@ struct LineupSlot: Codable, Identifiable, Hashable {
 
 struct LineupResponse: Codable { let lineup: [LineupSlot]; let rating: Int }
 
-struct ChallengeSummary: Codable, Hashable {
+struct ChallengeDetail: Codable, Hashable {
+    let gameDate: String?
     let opponentTeam: String
-    let won: Bool?
-    let graded: Bool
     let myScore: Double?
     let oppScore: Double?
+    let won: Bool?
+    let coinsAwarded: Int?
+    let xpAwarded: Int?
+    let graded: Bool
 }
+
+struct ChallengeResponse: Codable { let challenge: ChallengeDetail?; let today: String }
+struct ChallengeOptions: Codable { let date: String; let teams: [String] }
 
 struct FranchiseSummary: Codable {
     let coins: Int
@@ -55,7 +61,7 @@ struct FranchiseSummary: Codable {
     let byRarity: [String: Int]
     let lineupFilled: Int
     let lineupSlots: Int
-    let todayChallenge: ChallengeSummary?
+    let todayChallenge: ChallengeDetail?
     let dailyReward: Int
 }
 

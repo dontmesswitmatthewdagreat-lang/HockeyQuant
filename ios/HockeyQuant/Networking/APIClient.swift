@@ -671,6 +671,24 @@ extension APIClient {
         _ = try await perform("POST", url, token: token, body: Body(slot: slot, cardId: cardId))
     }
 
+    func franchiseChallenge(token: String) async throws -> ChallengeResponse {
+        let url = apiURL("franchise").appendingPathComponent("challenge")
+        let data = try await perform("GET", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(ChallengeResponse.self, from: data)
+    }
+
+    func franchiseChallengeOptions(token: String) async throws -> ChallengeOptions {
+        let url = apiURL("franchise").appendingPathComponent("challenge").appendingPathComponent("options")
+        let data = try await perform("GET", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(ChallengeOptions.self, from: data)
+    }
+
+    func franchiseLockChallenge(opponentTeam: String, token: String) async throws {
+        let url = apiURL("franchise").appendingPathComponent("challenge")
+        struct Body: Encodable { let opponentTeam: String }
+        _ = try await perform("POST", url, token: token, body: Body(opponentTeam: opponentTeam))
+    }
+
     /// `GET /api/news/latest` — the league morning digest + the team's recent digests.
     func newsLatest(team: String?) async throws -> [NewsDigest] {
         var comps = URLComponents(

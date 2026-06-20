@@ -40,6 +40,9 @@ struct FranchiseView: View {
                 NavigationLink { LineupView(store: store) } label: {
                     modeRow("Dream Team", icon: "person.3.sequence.fill", subtitle: "\(s.lineupFilled)/\(s.lineupSlots) slots set — build your lineup")
                 }.buttonStyle(.plain)
+                NavigationLink { ChallengeView(store: store) } label: {
+                    modeRow("Nightly Challenge", icon: "flame.fill", subtitle: challengeSubtitle(s))
+                }.buttonStyle(.plain)
                 NavigationLink { CollectionView(store: store) } label: { collectionCard(s) }
                     .buttonStyle(.plain)
                 comingSoonCard
@@ -115,11 +118,18 @@ struct FranchiseView: View {
         .background(color.opacity(0.14)).clipShape(Capsule())
     }
 
+    private func challengeSubtitle(_ s: FranchiseSummary) -> String {
+        if let c = s.todayChallenge {
+            if c.graded { return (c.won ?? false) ? "Last night: you won!" : "Last night: tough loss" }
+            return "Locked in vs \(c.opponentTeam) tonight"
+        }
+        return "Take your dream team vs a real NHL team"
+    }
+
     private var comingSoonCard: some View {
         Card {
             VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
                 Text("COMING SOON").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
-                featureRow("flame.fill", "Nightly challenge vs an NHL team")
                 featureRow("arrow.left.arrow.right", "Trade cards with other players")
             }
         }

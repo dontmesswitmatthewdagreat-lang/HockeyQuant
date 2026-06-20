@@ -15,6 +15,9 @@ final class FranchiseStore {
     private(set) var lineup: [LineupSlot] = []
     private(set) var lineupRating: Int = 0
     private(set) var coins: Int = 0
+    private(set) var challenge: ChallengeDetail?
+    private(set) var challengeTeams: [String] = []
+    private(set) var today: String = ""
     var error: String?
 
     init(auth: AuthStore) { self.auth = auth }
@@ -55,5 +58,17 @@ final class FranchiseStore {
     func setLineupSlot(_ slot: String, cardId: String?) async {
         do { try await api.franchiseSetLineup(slot: slot, cardId: cardId, token: token()); await loadLineup() }
         catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func loadChallenge() async {
+        do {
+            let r = try await api.franchiseChallenge(token: token()); challenge = r.challenge; today = r.today
+            let o = try await api.franchiseChallengeOptions(token: token()); challengeTeams = o.teams
+        } catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription }
+    }
+
+    func lockChallenge(_ team: String) async -> Bool {
+        do { try await api.franchiseLockChallenge(opponentTeam: team, token: token()); await loadChallenge(); return true }
+        catch { self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription; return false }
     }
 }
