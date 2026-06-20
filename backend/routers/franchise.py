@@ -6,14 +6,18 @@ franchise per account. Card rarity/value is derived from `fantasy_players.cost`.
 """
 
 import random
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 
+import requests
 from fastapi import APIRouter, HTTPException, Header
 from pydantic import BaseModel
 
 from services.supabase_client import get_supabase
+from services.results_fetcher import fetch_game_results
 from routers.fantasy import get_user_id_from_token, current_season_year, ROSTER_SLOTS
+
+NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
 
 router = APIRouter()
 
@@ -292,3 +296,171 @@ def set_lineup(req: LineupRequest, authorization: Optional[str] = Header(None)):
     sb.table("franchise_lineup").upsert([{"user_id": uid, "slot": req.slot, "card_id": req.card_id}],
                                         on_conflict="user_id,slot").execute()
     return {"ok": True}
+
+
+# --- Nightly challenge -----------------------------------------------------
+# Pick a real NHL team playing that night; your dream-team skaters' real goals + a
+# goalie boost settle against the opponent team's real goals. Win → Coins (+ XP).
+GOALIE_BOOST = {"SO": 3, "W": 2, "T": 1, "L": 1}        # your starter goalie's result that night
+CHALLENGE_WIN_COINS = 750
+CHALLENGE_LOSS_COINS = 100
+CHALLENGE_WIN_XP = 60
+CHALLENGE_LOSS_XP = 15
+
+
+def _score_games(game_date: str) -> list:
+    """All games on a date (any state) from the NHL score endpoint."""
+    try:
+        data = requests.get(f"https://api-web.nhle.com/v1/score/{game_date}", headers=NHL_HEADERS, timeout=12).json()
+    except Exception:
+        return []
+    out = []
+    for g in data.get("games", []):
+        a, h = g.get("awayTeam", {}), g.get("homeTeam", {})
+        out.append({"game_id": str(g.get("id", "")), "state": g.get("gameState", ""),
+                    "away_team": a.get("abbrev", ""), "home_team": h.get("abbrev", ""),
+                    "away_final": a.get("score") or 0, "home_final": h.get("score") or 0})
+    return out
+
+
+def _lineup_snapshot(sb, uid: str) -> dict:
+    """The current lineup as NHL ids: {skaters: [nhl_id], goalie: nhl_id|None}."""
+    assigned = {r["slot"]: r["card_id"] for r in sb.table("franchise_lineup").select("slot,card_id").eq("user_id", uid).execute().data}
+    card_ids = [c for c in assigned.values() if c]
+    if not card_ids:
+        return {"skaters": [], "goalie": None}
+    cards = {c["id"]: c["player_id"] for c in sb.table("franchise_cards").select("id,player_id").eq("user_id", uid).in_("id", card_ids).execute().data}
+    pmap = {p["id"]: p for p in sb.table("fantasy_players").select("id,nhl_id,is_goalie").in_("id", list(cards.values())).execute().data}
+    skaters, goalie = [], None
+    for slot, cid in assigned.items():
+        if not cid:
+            continue
+        p = pmap.get(cards.get(cid))
+        if not p:
+            continue
+        if slot == "G_START":
+            goalie = p.get("nhl_id")
+        elif not p.get("is_goalie"):
+            skaters.append(p.get("nhl_id"))
+    return {"skaters": [s for s in skaters if s], "goalie": goalie}
+
+
+def _franchise_night_stats(game_date: str):
+    """For a date, from the boxscores: {nhl_id: goals} skaters, {abbrev: goals} team finals,
+    {nhl_id: result} for starting goalies (SO/W/L/T)."""
+    goals_by_id: dict = {}
+    team_goals: dict = {}
+    goalie_result: dict = {}
+    for g in fetch_game_results(game_date):       # FINAL/OFF games only
+        team_goals[g["away_team"]] = g["away_final"]
+        team_goals[g["home_team"]] = g["home_final"]
+        try:
+            box = requests.get(f"https://api-web.nhle.com/v1/gamecenter/{g['game_id']}/boxscore", headers=NHL_HEADERS, timeout=12).json()
+        except Exception:
+            continue
+        pbs = box.get("playerByGameStats", {})
+        for side, mine, theirs in (("awayTeam", g["away_final"], g["home_final"]),
+                                   ("homeTeam", g["home_final"], g["away_final"])):
+            stats = pbs.get(side, {})
+            for grp in ("forwards", "defense"):
+                for p in stats.get(grp, []):
+                    pid = p.get("playerId")
+                    if pid is not None:
+                        goals_by_id[pid] = goals_by_id.get(pid, 0) + (p.get("goals") or 0)
+            for gk in stats.get("goalies", []):
+                pid = gk.get("playerId")
+                if pid is None or not gk.get("starter"):
+                    continue
+                goalie_result[pid] = "SO" if theirs == 0 else ("W" if mine > theirs else ("L" if mine < theirs else "T"))
+    return goals_by_id, team_goals, goalie_result
+
+
+def _score_challenge_row(ch: dict, goals_by_id: dict, team_goals: dict, goalie_result: dict):
+    lu = ch.get("lineup") or {}
+    my = sum(goals_by_id.get(nid, 0) for nid in lu.get("skaters", []))
+    gid = lu.get("goalie")
+    if gid and gid in goalie_result:
+        my += GOALIE_BOOST.get(goalie_result[gid], 0)
+    opp = team_goals.get(ch["opponent_team"], 0)
+    return my, opp, my > opp
+
+
+def score_franchise_challenges(sb, game_date: str) -> dict:
+    """Cron/admin: settle every ungraded challenge for `game_date` from real boxscores."""
+    pending = sb.table("franchise_challenges").select("*").eq("game_date", game_date).eq("graded", "false").execute().data
+    if not pending:
+        return {"scored": 0, "date": game_date}
+    goals_by_id, team_goals, goalie_result = _franchise_night_stats(game_date)
+    if not team_goals:
+        return {"scored": 0, "date": game_date, "reason": "no final games yet"}
+    n = 0
+    for ch in pending:
+        my, opp, won = _score_challenge_row(ch, goals_by_id, team_goals, goalie_result)
+        coins = CHALLENGE_WIN_COINS if won else CHALLENGE_LOSS_COINS
+        xp = CHALLENGE_WIN_XP if won else CHALLENGE_LOSS_XP
+        sb.table("franchise_challenges").update({
+            "my_score": my, "opp_score": opp, "won": won,
+            "coins_awarded": coins, "xp_awarded": xp, "graded": True,
+        }).eq("id", ch["id"]).execute()
+        fr = sb.table("franchises").select("coins").eq("user_id", ch["user_id"]).execute().data
+        if fr:
+            sb.table("franchises").update({"coins": (fr[0]["coins"] or 0) + coins}).eq("user_id", ch["user_id"]).execute()
+        n += 1
+    return {"scored": n, "date": game_date}
+
+
+@router.get("/franchise/challenge/options")
+def challenge_options(date: Optional[str] = None, authorization: Optional[str] = Header(None)):
+    """NHL teams playing on a date (default tonight) — pick one to challenge."""
+    get_user_id_from_token(authorization)
+    day = date or _today()
+    games = _score_games(day)
+    teams = sorted({t for g in games for t in (g["away_team"], g["home_team"]) if t})
+    return {"date": day, "teams": teams, "games": games}
+
+
+class ChallengeRequest(BaseModel):
+    opponent_team: str
+    game_date: Optional[str] = None
+
+
+@router.post("/franchise/challenge")
+def lock_challenge(req: ChallengeRequest, authorization: Optional[str] = Header(None)):
+    """Lock tonight's challenge: snapshot your lineup vs a chosen NHL team."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    _ensure_franchise(sb, uid)
+    day = req.game_date or _today()
+    teams = {t for g in _score_games(day) for t in (g["away_team"], g["home_team"])}
+    if req.opponent_team not in teams:
+        raise HTTPException(status_code=400, detail="That team isn't playing that night")
+    snap = _lineup_snapshot(sb, uid)
+    if not snap["skaters"]:
+        raise HTTPException(status_code=400, detail="Set your dream-team lineup first")
+    sb.table("franchise_challenges").upsert([{
+        "user_id": uid, "game_date": day, "opponent_team": req.opponent_team,
+        "lineup": snap, "graded": False,
+    }], on_conflict="user_id,game_date").execute()
+    return {"locked": True, "opponent_team": req.opponent_team, "game_date": day}
+
+
+@router.get("/franchise/challenge")
+def get_challenge(authorization: Optional[str] = Header(None)):
+    """This manager's most recent challenge (tonight's if locked, else the last result)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    rows = sb.table("franchise_challenges").select("game_date,opponent_team,my_score,opp_score,won,coins_awarded,xp_awarded,graded") \
+        .eq("user_id", uid).order("game_date", desc=True).limit(1).execute().data
+    return {"challenge": rows[0] if rows else None, "today": _today()}
+
+
+@router.post("/franchise/challenge/score")
+def challenge_score(date: Optional[str] = None):
+    """Cron/admin: settle franchise challenges. With no date, settles yesterday + today
+    (NHL game nights span UTC midnight). Idempotent — graded challenges are skipped."""
+    sb = _sb()
+    if date:
+        return score_franchise_challenges(sb, date)
+    today = _today()
+    yest = (datetime.now(timezone.utc).date() - timedelta(days=1)).isoformat()
+    return {"yesterday": score_franchise_challenges(sb, yest), "today": score_franchise_challenges(sb, today)}

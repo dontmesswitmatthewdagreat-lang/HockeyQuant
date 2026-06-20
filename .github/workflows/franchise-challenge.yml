@@ -1,0 +1,29 @@
+# HockeyQuant — Nightly franchise challenge settlement
+# Each morning settles My Franchise nightly challenges from the night's real boxscores:
+# your dream-team skaters' goals + a goalie boost vs the opponent NHL team's goals → win
+# pays Coins (+ XP). With no date param the endpoint settles yesterday + today (NHL game
+# nights cross UTC midnight) and is idempotent (graded challenges are skipped).
+
+name: Franchise Challenge
+
+on:
+  schedule:
+    - cron: '0 10 * * *'   # 10:00 UTC daily (~5–6 AM ET, after games are final)
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Game date to settle (YYYY-MM-DD; blank = yesterday + today)'
+        required: false
+
+jobs:
+  franchise-challenge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Settle nightly challenges
+        run: |
+          URL="https://hockeyquant.onrender.com/api/franchise/challenge/score"
+          if [ -n "${{ github.event.inputs.date }}" ]; then URL="${URL}?date=${{ github.event.inputs.date }}"; fi
+          curl -s --max-time 180 -X POST "$URL"
