@@ -34,6 +34,7 @@ struct FranchiseView: View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
                 walletCard(store, s)
+                gmTierCard(s)
                 NavigationLink { ShopView(store: store) } label: {
                     modeRow("Card Shop", icon: "cart.fill", subtitle: "Today's featured cards — buy with Coins")
                 }.buttonStyle(.plain)
@@ -63,6 +64,36 @@ struct FranchiseView: View {
                 HStack(spacing: 5) {
                     Image(systemName: "bitcoinsign.circle.fill").font(.system(size: 20)).foregroundStyle(Color(hex: 0xFFD23F))
                     Text(store.coins.asCoins).font(.system(size: 24, weight: .heavy, design: .rounded)).foregroundStyle(Theme.Palette.textPrimary)
+                }
+            }
+        }
+    }
+
+    private func gmTierCard(_ s: FranchiseSummary) -> some View {
+        let xp = s.accountXp ?? 0
+        let tier = GMTier.current(forXp: xp)
+        let next = GMTier.next(forXp: xp)
+        let progress = GMTier.progress(forXp: xp)
+        return Card {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    Circle().fill(tier.color.opacity(0.18)).frame(width: 40, height: 40)
+                    Image(systemName: tier.icon).font(.system(size: 17)).foregroundStyle(tier.color)
+                }
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack {
+                        Text(tier.name).font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
+                        Spacer()
+                        Text("\(xp) XP").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.Palette.textPrimary)
+                    }
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Theme.Palette.background)
+                            Capsule().fill(tier.color).frame(width: geo.size.width * CGFloat(progress))
+                        }
+                    }.frame(height: 5)
+                    Text(next.map { "→ \($0.name) at \($0.threshold) XP · earn XP from cards + challenges" } ?? "Top GM tier reached")
+                        .font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
                 }
             }
         }

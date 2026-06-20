@@ -63,6 +63,7 @@ struct FranchiseSummary: Codable {
     let lineupSlots: Int
     let todayChallenge: ChallengeDetail?
     let dailyReward: Int
+    let accountXp: Int?
 }
 
 // MARK: - Rarity styling

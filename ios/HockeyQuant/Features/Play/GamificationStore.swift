@@ -69,8 +69,9 @@ final class GamificationStore {
         }
     }
 
-    /// Season-scoped progress for the GM meta-game (computed from graded picks
-    /// in the current season window).
+    /// GM-tier progress. The pick fields drive the season goals; the **XP that drives the
+    /// GM tier is account-wide** (`user_stats.total_xp`), fed by the franchise (card
+    /// collecting + nightly challenges).
     func loadSeason() async {
         let s = Season.current
         do {
@@ -82,7 +83,9 @@ final class GamificationStore {
                 .order("game_date", ascending: true)
                 .execute()
                 .value
-            seasonStats = SeasonStats(from: rows)
+            var computed = SeasonStats(from: rows)
+            computed.xp = stats?.totalXp ?? computed.xp     // GM tier = account XP, not season pick XP
+            seasonStats = computed
         } catch {
             Log.error("loadSeason failed", error)
         }
