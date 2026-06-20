@@ -478,6 +478,75 @@ def get_challenge(authorization: Optional[str] = Header(None)):
     return {"challenge": rows[0] if rows else None, "today": _today()}
 
 
+# --- Annual rookie-card draft ----------------------------------------------
+# Each season you earn rookie picks (a base + a performance bonus from challenge wins —
+# the "lottery"), then draft rookie cards from the real prospect class into your collection.
+BASE_ROOKIE_PICKS = 3
+ROOKIE_PICK_XP = 15
+
+
+def _ensure_rookie_picks(sb, uid: str, season: int) -> None:
+    """Allocate this season's rookie picks once: a base + a bonus for challenge wins."""
+    if sb.table("rookie_picks").select("id").eq("user_id", uid).eq("season_year", season).limit(1).execute().data:
+        return
+    wins = len(sb.table("franchise_challenges").select("id").eq("user_id", uid).eq("won", "true").execute().data)
+    total = BASE_ROOKIE_PICKS + min(3, wins // 2)
+    sb.table("rookie_picks").insert([{"user_id": uid, "season_year": season, "round": i + 1} for i in range(total)]).execute()
+
+
+@router.get("/franchise/rookie-draft")
+def rookie_draft(authorization: Optional[str] = Header(None)):
+    """Your remaining rookie picks + the available rookie board (best prospects first)."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    _ensure_franchise(sb, uid)
+    season = current_season_year()
+    _ensure_rookie_picks(sb, uid, season)
+    picks = sb.table("rookie_picks").select("used").eq("user_id", uid).eq("season_year", season).execute().data
+    remaining = len([p for p in picks if not p["used"]])
+    drafted = {c["player_id"] for c in sb.table("franchise_cards").select("player_id").eq("user_id", uid).eq("acquired_via", "rookie").execute().data}
+    pool = sb.table("fantasy_players").select(_card_player_fields() + ",prospect_ranking") \
+        .eq("is_prospect", "true").order("prospect_ranking").limit(80).execute().data
+    board = []
+    for p in pool:
+        if p["id"] in drafted:
+            continue
+        d = _player_card(p)
+        d["prospect_ranking"] = p.get("prospect_ranking")
+        board.append(d)
+        if len(board) >= 40:
+            break
+    return {"picks_remaining": remaining, "picks_total": len(picks), "season_year": season, "board": board}
+
+
+class RookiePickRequest(BaseModel):
+    player_id: str
+
+
+@router.post("/franchise/rookie-draft/pick")
+def rookie_pick(req: RookiePickRequest, authorization: Optional[str] = Header(None)):
+    """Spend a rookie pick to draft a rookie card into your collection."""
+    uid = get_user_id_from_token(authorization)
+    sb = _sb()
+    season = current_season_year()
+    _ensure_rookie_picks(sb, uid, season)
+    unused = sb.table("rookie_picks").select("id").eq("user_id", uid).eq("season_year", season).eq("used", "false").limit(1).execute().data
+    if not unused:
+        raise HTTPException(status_code=400, detail="No rookie picks left this season")
+    prow = sb.table("fantasy_players").select("id,cost,is_prospect").eq("id", req.player_id).execute().data
+    if not prow or not prow[0].get("is_prospect"):
+        raise HTTPException(status_code=400, detail="That isn't a draftable rookie")
+    if sb.table("franchise_cards").select("id").eq("user_id", uid).eq("player_id", req.player_id).eq("acquired_via", "rookie").execute().data:
+        raise HTTPException(status_code=400, detail="You already drafted that rookie")
+    sb.table("rookie_picks").update({"used": True}).eq("id", unused[0]["id"]).execute()
+    sb.table("franchise_cards").insert([{
+        "user_id": uid, "player_id": req.player_id, "rarity": _rarity(prow[0].get("cost")), "acquired_via": "rookie",
+    }]).execute()
+    _add_account_xp(sb, uid, ROOKIE_PICK_XP)
+    remaining = len(sb.table("rookie_picks").select("id").eq("user_id", uid).eq("season_year", season).eq("used", "false").execute().data)
+    return {"drafted": req.player_id, "picks_remaining": remaining}
+
+
 @router.post("/franchise/challenge/score")
 def challenge_score(date: Optional[str] = None):
     """Cron/admin: settle franchise challenges. With no date, settles yesterday + today
