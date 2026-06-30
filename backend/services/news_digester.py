@@ -37,9 +37,11 @@ def _kind_instruction(scope: str, kind: str) -> str:
         if kind == "evening":
             return ("Compile a nightcap roundup now that tonight's NHL games have wrapped: "
                     "tonight's results and standout performances first, then any breaking "
-                    "trades, signings, injuries, or storylines from today.")
+                    "trades, signings, injuries, prospect/draft developments, or storylines from today.")
         return ("Compile a morning roundup of the most notable news from around the NHL "
-                "over the last day — trades, signings, injuries, rumors, and storylines.")
+                "over the last day — trades, signings, injuries, rumors, storylines, and "
+                "prospect/draft news (the draft, picks, development camps, top prospects). "
+                "Give prospect and draft stories real coverage when they're in the items.")
     name = TEAM_FULL_NAMES.get(scope, scope)
     if kind == "pregame":
         return (f"Compile a pre-game digest for the {name}: the storylines, injuries, lineup "
@@ -75,7 +77,7 @@ def build_digest(items: List[Dict], scope: str, kind: str, max_items: int = 8) -
     try:
         raw = groq_chat(
             [{"role": "system", "content": SYSTEM}, {"role": "user", "content": user}],
-            model=MODEL, max_tokens=1400, temperature=0.4, response_json=True,
+            model=MODEL, max_tokens=2400, temperature=0.4, response_json=True,
         )
         data = json.loads(raw)
     except Exception:

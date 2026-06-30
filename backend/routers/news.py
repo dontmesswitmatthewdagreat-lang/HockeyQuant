@@ -94,7 +94,7 @@ def generate(date_str: str, kind: str):
             return {"skipped": "already generated"}
         if kind == "evening" and not _all_games_final(date_str):
             return {"skipped": "games still in progress"}
-        digest = build_digest(fetch_league_items(), "league", kind, max_items=8)
+        digest = build_digest(fetch_league_items(), "league", kind, max_items=14)
         if not digest:
             raise HTTPException(status_code=502, detail="Could not build digest")
         _store(sb, date_str, kind, "league", digest)
@@ -117,7 +117,7 @@ def generate(date_str: str, kind: str):
             in_window = now >= gutc + timedelta(hours=5)
         if not in_window or _exists(sb, date_str, kind, team):
             continue
-        digest = build_digest(fetch_team_items(team), team, kind, max_items=6)
+        digest = build_digest(fetch_team_items(team), team, kind, max_items=8)
         if not digest:
             continue
         _store(sb, date_str, kind, team, digest)

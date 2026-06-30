@@ -203,13 +203,18 @@ def _dedupe(items: List[Dict]) -> List[Dict]:
     return out
 
 
-def fetch_league_items(limit: int = 50) -> List[Dict]:
-    """League-wide news: RSS feeds + Google News 'NHL' + r/hockey hot."""
+def fetch_league_items(limit: int = 80) -> List[Dict]:
+    """League-wide news: RSS feeds + Google News (general + prospects/draft) + Reddit."""
     items: List[Dict] = []
     for source, url in LEAGUE_RSS:
         items += _rss_items(source, url)
     items += _google_news("NHL hockey", "Google News", None, limit=15)
+    # Dedicated prospect / draft coverage — there's a lot of it (draft + development
+    # camps) that the generic "NHL" query doesn't surface.
+    items += _google_news("NHL prospects", "Google News", None, limit=14)
+    items += _google_news("NHL draft", "Google News", None, limit=14)
     items += _reddit("hockey", None, limit=20)
+    items += _reddit("nhl_draft", None, limit=12)
     return _dedupe(items)[:limit]
 
 
