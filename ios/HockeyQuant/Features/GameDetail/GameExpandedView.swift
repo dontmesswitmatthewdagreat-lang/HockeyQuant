@@ -9,6 +9,8 @@ struct GameExpandedView: View {
     let dateString: String
     let onClose: () -> Void
 
+    @State private var containerWidth: CGFloat = 0
+
     private var pred: GamePrediction { game.prediction }
     private var away: TeamInfo { pred.away.info }
     private var home: TeamInfo { pred.home.info }
@@ -16,27 +18,32 @@ struct GameExpandedView: View {
     private var active: Bool { game.isLive || game.isFinal }
 
     var body: some View {
-        GeometryReader { geo in
-            ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    headerBar
-                    if pred.bettingLines != nil {
-                        sectionCard("Scoreline grid") { scorelineGrid }
-                    }
-                    sectionCard("Shot map") {
-                        ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
-                    }
-                    sectionCard("The Edge") { EdgeBreakdownView(game: pred) }
-                    bettingCard
-                    factorsCard
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                headerBar
+                if pred.bettingLines != nil {
+                    sectionCard("Scoreline grid") { scorelineGrid }
                 }
-                // The cards ignore proposal-based width (padding) in this context, so
-                // pin the column to an explicit width and center it.
-                .frame(width: max(0, geo.size.width - 2 * Theme.Spacing.md))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, Theme.Spacing.md)
+                sectionCard("Shot map") {
+                    ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
+                }
+                sectionCard("The Edge") { EdgeBreakdownView(game: pred) }
+                bettingCard
+                factorsCard
             }
-            .background(Theme.Palette.background)
+            // `.padding(.horizontal)` is dropped here, so cap the column with an
+            // explicit maxWidth from the measured container width (a hard cap the
+            // cards honour). ScrollView stays the root so it scrolls normally.
+            .frame(maxWidth: containerWidth > 0 ? containerWidth - 2 * Theme.Spacing.md : .infinity)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Theme.Spacing.md)
+        }
+        .background {
+            GeometryReader { geo in
+                Theme.Palette.background
+                    .onAppear { containerWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in containerWidth = w }
+            }
         }
         .overlay(alignment: .topTrailing) {
             closeButton.padding(.trailing, Theme.Spacing.md).padding(.top, Theme.Spacing.xs)
