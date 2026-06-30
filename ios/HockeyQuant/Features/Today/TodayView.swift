@@ -1,13 +1,27 @@
 import SwiftUI
 
-/// The Schedule screen: pick any date and browse that day's predictions as
-/// collapsible cards. Live data from the FastAPI backend.
+/// The Schedule screen: a horizontal day strip, a 2-column grid of matchup tiles
+/// (live games first), and a hero-expand into the full breakdown. Live data from
+/// the FastAPI backend.
 struct TodayView: View {
     @State private var model = TodayViewModel()
     @State private var showingDatePicker = false
+    @State private var expandedID: String?
+    @Namespace private var heroNS
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
+                           GridItem(.flexible(), spacing: Theme.Spacing.sm)]
 
     private var dateBinding: Binding<Date> {
         Binding(get: { model.selectedDate }, set: { model.selectedDate = $0 })
+    }
+
+    /// The currently-expanded game, looked up live from the loaded list so polling
+    /// keeps the open breakdown (score / grid / shot map) current.
+    private var expandedGame: ScheduleGame? {
+        guard let id = expandedID, case .loaded(let games) = model.state else { return nil }
+        return games.first { $0.id == id }
     }
 
     var body: some View {
@@ -18,6 +32,15 @@ struct TodayView: View {
                     header
                     content
                 }
+
+                if let game = expandedGame {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .transition(.opacity)
+                        .onTapGesture { collapse() }
+                    GameExpandedView(game: game, dateString: APIClient.apiDateString(model.selectedDate),
+                                     namespace: heroNS, onClose: collapse)
+                        .zIndex(2)
+                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingDatePicker) { datePickerSheet }
@@ -26,76 +49,54 @@ struct TodayView: View {
             model.warmUp()
             await model.load()
         }
+        .onDisappear { model.stopPolling() }
     }
 
-    // MARK: - Header (compact, custom — no large-title gap)
+    private func expand(_ id: String) {
+        Haptics.tap()
+        withAnimation(reduceMotion ? .none : .spring(response: 0.5, dampingFraction: 0.62)) {
+            expandedID = id
+        }
+    }
+
+    private func collapse() {
+        Haptics.tap()
+        withAnimation(reduceMotion ? .none : .spring(response: 0.42, dampingFraction: 0.82)) {
+            expandedID = nil
+        }
+    }
+
+    // MARK: - Header
 
     private var header: some View {
         VStack(spacing: Theme.Spacing.sm) {
-            HStack {
-                Text("Schedule")
-                    .font(Theme.Font.title())
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                Spacer()
-                AvatarButton()
-            }
-            dateRow
-        }
-        .padding(.horizontal, Theme.Spacing.md)
-        .padding(.top, Theme.Spacing.sm)
-        .padding(.bottom, Theme.Spacing.sm)
-    }
-
-    private var dateRow: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            scrubButton(systemName: "chevron.left") { model.step(days: -1) }
-                .accessibilityLabel("Previous day")
-
-            // Prominent, obviously-tappable date control → opens the calendar.
-            PressableButton(action: { showingDatePicker = true }) {
-                HStack(spacing: Theme.Spacing.xs) {
-                    Image(systemName: "calendar")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.accent)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(model.dateLabel)
-                            .font(Theme.Font.headline())
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                        Text(APIClient.apiDateString(model.selectedDate))
-                            .font(.system(size: 11))
-                            .foregroundStyle(Theme.Palette.textTertiary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .font(.system(size: 12, weight: .bold))
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Schedule")
+                        .font(Theme.Font.title())
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text(model.monthLabel)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(Theme.Palette.textTertiary)
                 }
-                .padding(.horizontal, Theme.Spacing.md)
-                .padding(.vertical, Theme.Spacing.xs)
-                .background(Theme.Palette.surface)
-                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
-                        .stroke(Theme.Palette.accent.opacity(0.4), lineWidth: 1)
-                )
+                Spacer()
+                PressableButton(action: { showingDatePicker = true }) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.accent)
+                        .frame(width: 38, height: 38)
+                        .background(Theme.Palette.surface)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 1))
+                }
+                .accessibilityLabel("Jump to a date")
+                AvatarButton()
             }
-            .accessibilityLabel("Choose date — opens a calendar")
-
-            scrubButton(systemName: "chevron.right") { model.step(days: 1) }
-                .accessibilityLabel("Next day")
+            .padding(.horizontal, Theme.Spacing.md)
+            DayStripView(model: model)
         }
-    }
-
-    private func scrubButton(systemName: String, action: @escaping () -> Void) -> some View {
-        PressableButton(action: action) {
-            Image(systemName: systemName)
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .frame(width: 40, height: 40)
-                .background(Theme.Palette.surface)
-                .clipShape(Circle())
-                .overlay(Circle().stroke(Theme.Palette.border, lineWidth: 1))
-        }
+        .padding(.top, Theme.Spacing.sm)
+        .padding(.bottom, Theme.Spacing.sm)
     }
 
     private var datePickerSheet: some View {
@@ -121,17 +122,20 @@ struct TodayView: View {
         switch model.state {
         case .loading:
             ScrollView {
-                VStack(spacing: Theme.Spacing.sm) {
-                    ForEach(0..<6, id: \.self) { _ in LoadingShimmer(height: 78) }
+                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
+                    ForEach(0..<6, id: \.self) { _ in LoadingShimmer(height: 132) }
                 }
                 .padding(Theme.Spacing.md)
             }
         case .loaded(let games):
             ScrollView {
-                LazyVStack(spacing: Theme.Spacing.sm) {
+                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
-                        GameCardView(game: game, dateString: APIClient.apiDateString(model.selectedDate))
-                            .staggeredEntrance(index: index)
+                        GameTileView(game: game, namespace: heroNS,
+                                     isExpanded: expandedID == game.id) {
+                            expand(game.id)
+                        }
+                        .staggeredEntrance(index: index)
                     }
                 }
                 .padding(Theme.Spacing.md)
@@ -141,13 +145,11 @@ struct TodayView: View {
             EmptyStateView(
                 systemImage: "calendar.badge.exclamationmark",
                 title: "No games \(model.dateLabel.lowercased())",
-                message: "Tap the date above to jump to a day with scheduled games."
+                message: "Tap a day above (the dots mark game days) to find scheduled games."
             )
             Spacer()
         case .error(let message):
-            ErrorStateView(message: message) {
-                Task { await model.load() }
-            }
+            ErrorStateView(message: message) { Task { await model.load() } }
             Spacer()
         }
     }

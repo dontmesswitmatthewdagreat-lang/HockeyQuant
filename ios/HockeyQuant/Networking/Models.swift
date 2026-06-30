@@ -444,10 +444,33 @@ struct GameScore: Decodable, Sendable, Identifiable {
 
     var id: String { "\(awayTeam ?? "?")@\(homeTeam ?? "?")" }
 
+    /// Normalized "AWAY@HOME" key for matching a score to a prediction.
+    var matchupKey: String { "\((awayTeam ?? "").uppercased())@\((homeTeam ?? "").uppercased())" }
+
     /// True when the game is in progress or finished (i.e. has a real score).
     var isActive: Bool {
         ["LIVE", "CRIT", "FINAL", "OFF"].contains(gameState.uppercased())
     }
     var isLive: Bool { ["LIVE", "CRIT"].contains(gameState.uppercased()) }
     var isFinal: Bool { ["FINAL", "OFF"].contains(gameState.uppercased()) }
+
+    /// Elapsed fraction of regulation (0 = pregame, 1 = end of regulation / final),
+    /// used to condition the live scoreline grid on time remaining.
+    var fractionElapsed: Double {
+        if isFinal { return 1 }
+        guard isLive, let p = period else { return 0 }
+        let perLen = 20.0
+        let base = Double(min(p, 3) - 1) * perLen          // completed regulation periods
+        if inIntermission == true { return min(1, (base + perLen) / 60) }
+        let remain = Self.parseClock(timeRemaining) ?? perLen
+        let elapsedInPeriod = max(0, perLen - remain)
+        return min(1, (base + elapsedInPeriod) / 60)
+    }
+
+    /// "MM:SS" → minutes (Double). Returns nil if unparseable.
+    private static func parseClock(_ s: String?) -> Double? {
+        guard let parts = s?.split(separator: ":"), parts.count == 2,
+              let m = Double(parts[0]), let sec = Double(parts[1]) else { return nil }
+        return m + sec / 60
+    }
 }

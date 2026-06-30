@@ -18,8 +18,11 @@ struct ModelPreviewView: View {
     @SwiftUI.State private var state: State = .loading
     @SwiftUI.State private var date = Date()
     @SwiftUI.State private var showingDatePicker = false
+    @Namespace private var previewNS
 
     private let api = APIClient()
+    private let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
+                           GridItem(.flexible(), spacing: Theme.Spacing.sm)]
 
     private var dateBinding: Binding<Date> {
         Binding(get: { date }, set: { date = $0 })
@@ -97,8 +100,8 @@ struct ModelPreviewView: View {
         switch state {
         case .loading:
             ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    ForEach(0..<3, id: \.self) { _ in LoadingShimmer(height: 170) }
+                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
+                    ForEach(0..<4, id: \.self) { _ in LoadingShimmer(height: 132) }
                 }
                 .padding(Theme.Spacing.md)
             }
@@ -112,9 +115,10 @@ struct ModelPreviewView: View {
             ErrorStateView(message: message) { Task { await load() } }
         case .loaded(let games):
             ScrollView {
-                LazyVStack(spacing: Theme.Spacing.md) {
+                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(games) { game in
-                        GameCardView(game: game)
+                        GameTileView(game: ScheduleGame(prediction: game, score: nil),
+                                     namespace: previewNS, isExpanded: false) {}
                     }
                 }
                 .padding(Theme.Spacing.md)

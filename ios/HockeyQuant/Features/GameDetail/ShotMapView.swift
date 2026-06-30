@@ -12,10 +12,16 @@ struct ShotMapView: View {
     @State private var loading = true
     @State private var mode = 0            // 0 = Dots, 1 = Heatmap
     @State private var period: Int? = nil  // nil = all
-    @State private var playing = false
-    @State private var visible = Int.max   // how many (chrono) shots shown
+    @State private var playing = false     // currently revealing shots in order
+    @State private var visible = 0         // how many (chrono) shots shown
+    @State private var revealedOnce = false  // the entrance reveal has finished at least once
+    @State private var autoPlayed = false  // auto-reveal has fired (once, on scroll-in)
+    @State private var inView = false      // the map has scrolled into the viewport
+    @State private var revealTask: Task<Void, Never>?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let timer = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
+    /// Seconds between shots — slow enough to follow each one.
+    private let shotInterval = 0.16
 
     var body: some View {
         VStack(spacing: Theme.Spacing.sm) {
@@ -27,11 +33,61 @@ struct ShotMapView: View {
                 unavailable
             }
         }
+        .background(
+            GeometryReader { geo in
+                Color.clear.onChange(of: geo.frame(in: .global).minY) { _, minY in
+                    let h = UIScreen.main.bounds.height
+                    let v = minY < h * 0.85 && (minY + geo.size.height) > h * 0.18
+                    if v != inView { inView = v }
+                }
+            }
+        )
+        .onChange(of: inView) { _, v in if v { maybeAutoPlay() } }
         .task {
             map = try? await APIClient(environment: .production).shotMap(date: date, away: away, home: home)
             loading = false
+            maybeAutoPlay()
         }
-        .onReceive(timer) { _ in tick() }
+        .onDisappear { revealTask?.cancel() }
+    }
+
+    /// Which shots are currently drawn — none until the map scrolls into view, then
+    /// they reveal one-by-one; all of them once finished (or immediately for heatmap
+    /// / Reduce Motion).
+    private func shownShots(_ shots: [ShotEvent]) -> [ShotEvent] {
+        if mode == 1 || reduceMotion { return shots }
+        if playing { return Array(shots.prefix(min(visible, shots.count))) }
+        if revealedOnce { return shots }
+        return []
+    }
+
+    /// Kick off the slow sequential reveal the first time the map is both loaded
+    /// and scrolled into view.
+    private func maybeAutoPlay() {
+        guard inView, !autoPlayed, !reduceMotion, !loading, mode == 0,
+              let map, map.available, !map.shots.isEmpty else { return }
+        autoPlayed = true
+        startReveal(filtered(map.shots))
+    }
+
+    /// Reveal shots one-by-one on a precise cadence (a cancellable Task, not a
+    /// re-created Timer publisher — which would cascade and dump them all at once).
+    private func startReveal(_ shots: [ShotEvent]) {
+        revealTask?.cancel()
+        let total = shots.count
+        guard total > 0 else { return }
+        visible = 0
+        revealedOnce = false
+        playing = true
+        revealTask = Task { @MainActor in
+            for i in 1...total {
+                try? await Task.sleep(for: .seconds(shotInterval))
+                if Task.isCancelled { return }
+                withAnimation(.spring(response: 0.32)) { visible = i }
+            }
+            playing = false
+            revealedOnce = true
+        }
     }
 
     private var unavailable: some View {
@@ -46,7 +102,7 @@ struct ShotMapView: View {
     @ViewBuilder
     private func content(_ map: GameShotMap) -> some View {
         let shots = filtered(map.shots)
-        let shown = playing ? Array(shots.prefix(min(visible, shots.count))) : shots
+        let shown = shownShots(shots)
 
         // Rink + shots
         GeometryReader { geo in
@@ -55,7 +111,7 @@ struct ShotMapView: View {
                 RinkCanvas().frame(width: size.width, height: size.height)
                 if mode == 0 {
                     ForEach(shown) { s in
-                        marker(s).position(RinkGeometry.point(s.x, s.y, in: size))
+                        ShotMarker(shot: s).position(RinkGeometry.point(s.x, s.y, in: size))
                     }
                 } else {
                     HeatCanvas(shots: shown).frame(width: size.width, height: size.height)
@@ -70,24 +126,6 @@ struct ShotMapView: View {
         legend(map)
     }
 
-    private func marker(_ s: ShotEvent) -> some View {
-        let color = TeamInfo.lookup(s.team).color
-        return Group {
-            if s.isGoal {
-                ZStack {
-                    Circle().fill(color).frame(width: 14, height: 14)
-                    Circle().stroke(.white, lineWidth: 2).frame(width: 14, height: 14)
-                    Image(systemName: "star.fill").font(.system(size: 6)).foregroundStyle(.white)
-                }
-                .shadow(color: color.opacity(0.6), radius: 3)
-            } else if s.isMiss {
-                Circle().stroke(color.opacity(0.7), lineWidth: 1.5).frame(width: 8, height: 8)
-            } else {
-                Circle().fill(color.opacity(0.9)).frame(width: 8, height: 8)
-            }
-        }
-        .transition(.scale.combined(with: .opacity))
-    }
 
     private func controls(_ map: GameShotMap) -> some View {
         HStack(spacing: Theme.Spacing.sm) {
@@ -129,7 +167,7 @@ struct ShotMapView: View {
 
     private func teamLegend(_ team: String, _ s: ShotTeamSummary?) -> some View {
         HStack(spacing: 5) {
-            Circle().fill(TeamInfo.lookup(team).color).frame(width: 9, height: 9)
+            Circle().fill(TeamInfo.lookup(team).primary).frame(width: 9, height: 9)
             Text(team).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
             if let s { Text("\(s.sog) SOG · \(s.goals)G").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary) }
         }
@@ -142,16 +180,57 @@ struct ShotMapView: View {
     }
 
     private func startReplay(_ map: GameShotMap) {
-        if playing { playing = false; return }
-        visible = 0
-        withAnimation { playing = true }
+        if playing {
+            revealTask?.cancel()
+            playing = false
+            revealedOnce = true
+            return
+        }
+        startReveal(filtered(map.shots))
+    }
+}
+
+/// A single shot dot that "blinks" into place — a flash of light at its own
+/// location (not scaling in from the rink centre), then the dot settles.
+private struct ShotMarker: View {
+    let shot: ShotEvent
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var lit = false
+
+    var body: some View {
+        // Use the team's true primary (LAK → black, not the legibility-swapped grey).
+        let color = TeamInfo.lookup(shot.team).primary
+        ZStack {
+            // The blink: a bright point that flares out and fades.
+            Circle()
+                .fill(RadialGradient(colors: [.white, color.opacity(0.7), .clear],
+                                     center: .center, startRadius: 0, endRadius: 16))
+                .frame(width: 30, height: 30)
+                .scaleEffect(lit ? 1 : 0.1)
+                .opacity(lit ? 0 : 1)
+            dot(color)
+                .scaleEffect(lit ? 1 : 0.5)
+                .opacity(lit ? 1 : 0)
+        }
+        .onAppear {
+            if reduceMotion { lit = true; return }
+            withAnimation(.easeOut(duration: 0.45)) { lit = true }
+        }
     }
 
-    private func tick() {
-        guard playing, let map else { return }
-        let total = filtered(map.shots).count
-        if visible >= total { playing = false; return }
-        withAnimation(.spring(response: 0.25)) { visible += 1 }
+    @ViewBuilder private func dot(_ color: Color) -> some View {
+        if shot.isGoal {
+            ZStack {
+                Circle().fill(color).frame(width: 14, height: 14)
+                Circle().stroke(.white, lineWidth: 2).frame(width: 14, height: 14)
+                Image(systemName: "star.fill").font(.system(size: 6)).foregroundStyle(.white)
+            }
+            .shadow(color: color.opacity(0.6), radius: 3)
+        } else if shot.isMiss {
+            Circle().stroke(color.opacity(0.7), lineWidth: 1.5).frame(width: 8, height: 8)
+        } else {
+            Circle().fill(color.opacity(0.9)).frame(width: 8, height: 8)
+        }
     }
 }
 
