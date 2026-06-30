@@ -7,11 +7,7 @@ import SwiftUI
 struct GameExpandedView: View {
     let game: ScheduleGame
     let dateString: String
-    var namespace: Namespace.ID
     let onClose: () -> Void
-
-    @State private var contentVisible = false
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var pred: GamePrediction { game.prediction }
     private var away: TeamInfo { pred.away.info }
@@ -20,48 +16,31 @@ struct GameExpandedView: View {
     private var active: Bool { game.isLive || game.isFinal }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: Theme.Spacing.md) {
-                headerBar
-                if pred.bettingLines != nil {
-                    sectionCard("Scoreline grid") { scorelineGrid }
+        GeometryReader { geo in
+            ScrollView {
+                VStack(spacing: Theme.Spacing.md) {
+                    headerBar
+                    if pred.bettingLines != nil {
+                        sectionCard("Scoreline grid") { scorelineGrid }
+                    }
+                    sectionCard("Shot map") {
+                        ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
+                    }
+                    sectionCard("The Edge") { EdgeBreakdownView(game: pred) }
+                    bettingCard
+                    factorsCard
                 }
-                sectionCard("Shot map") {
-                    ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
-                }
-                sectionCard("The Edge") { EdgeBreakdownView(game: pred) }
-                bettingCard
-                factorsCard
+                // The cards ignore proposal-based width (padding) in this context, so
+                // pin the column to an explicit width and center it.
+                .frame(width: max(0, geo.size.width - 2 * Theme.Spacing.md))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.Spacing.md)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, Theme.Spacing.md)
-            .padding(.top, topInset + 44)     // clear the status bar / notch + the close button
-            .padding(.bottom, 96)             // clear the tab bar
-            .opacity(contentVisible ? 1 : 0)
-            .offset(y: contentVisible ? 0 : 16)
+            .background(Theme.Palette.background)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                .fill(Theme.Palette.background)
-                .matchedGeometryEffect(id: pred.id, in: namespace, isSource: true)
-        )
         .overlay(alignment: .topTrailing) {
-            closeButton.padding(.trailing, Theme.Spacing.md).padding(.top, topInset)
+            closeButton.padding(.trailing, Theme.Spacing.md).padding(.top, Theme.Spacing.xs)
         }
-        .ignoresSafeArea()
-        .onAppear {
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.3).delay(0.12)) { contentVisible = true }
-        }
-    }
-
-    /// Real top safe-area inset — the parent overlay ignores the safe area, so we
-    /// re-introduce it manually to keep content/close button below the notch.
-    private var topInset: CGFloat {
-        (UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?.safeAreaInsets.top) ?? 47
     }
 
     private var closeButton: some View {

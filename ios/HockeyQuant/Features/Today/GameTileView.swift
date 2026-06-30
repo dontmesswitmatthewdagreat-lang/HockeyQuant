@@ -5,8 +5,6 @@ import SwiftUI
 /// split. Tapping triggers the hero-expand into the full breakdown.
 struct GameTileView: View {
     let game: ScheduleGame
-    var namespace: Namespace.ID
-    var isExpanded: Bool
     let onTap: () -> Void
 
     private var pred: GamePrediction { game.prediction }
@@ -25,7 +23,6 @@ struct GameTileView: View {
             .padding(Theme.Spacing.sm)
             .frame(maxWidth: .infinity)
             .background(tileBackground)
-            .opacity(isExpanded ? 0 : 1)   // hide the source tile while its hero is expanded
         }
         .buttonStyle(.plain)
     }
@@ -38,7 +35,6 @@ struct GameTileView: View {
                     .stroke(game.isLive ? Theme.Palette.live.opacity(0.6) : Theme.Palette.cardBorder,
                             lineWidth: game.isLive ? 2 : 1.5)
             )
-            .matchedGeometryEffect(id: pred.id, in: namespace, isSource: !isExpanded)
     }
 
     // MARK: - Rows

@@ -18,7 +18,6 @@ struct ModelPreviewView: View {
     @SwiftUI.State private var state: State = .loading
     @SwiftUI.State private var date = Date()
     @SwiftUI.State private var showingDatePicker = false
-    @Namespace private var previewNS
 
     private let api = APIClient()
     private let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
@@ -117,8 +116,7 @@ struct ModelPreviewView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(games) { game in
-                        GameTileView(game: ScheduleGame(prediction: game, score: nil),
-                                     namespace: previewNS, isExpanded: false) {}
+                        GameTileView(game: ScheduleGame(prediction: game, score: nil)) {}
                     }
                 }
                 .padding(Theme.Spacing.md)

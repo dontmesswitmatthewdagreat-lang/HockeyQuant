@@ -48,22 +48,35 @@ struct PoissonHeatmapView: View {
         return Poisson.matrix(awayMean: awayMean, homeMean: homeMean, maxGoals: maxGoals)
     }
 
-    private var maxProb: Double { matrix.flatMap { $0 }.max() ?? 1 }
-    private var argmax: (a: Int, h: Int, p: Double) {
-        var best = (a: 0, h: 0, p: 0.0)
-        for a in 0...maxGoals {
-            for h in 0...maxGoals where matrix[a][h] > best.p { best = (a, h, matrix[a][h]) }
-        }
-        return best
+    /// The matrix + its peak/max, computed ONCE per render and threaded into the
+    /// grid/cells (the old per-cell `matrix` access rebuilt the whole Poisson grid
+    /// dozens of times a frame — a real device-jank source).
+    struct Dist {
+        let m: [[Double]]
+        let maxProb: Double
+        let peak: (a: Int, h: Int, p: Double)
     }
-    /// The reveal always ripples out from the model's most-likely (peak) cell.
-    private var origin: (a: Int, h: Int) { (argmax.a, argmax.h) }
+
+    private var dist: Dist {
+        let m = matrix
+        var mp = 0.0
+        var best = (a: 0, h: 0, p: 0.0)
+        for a in 0..<m.count {
+            for h in 0..<m[a].count {
+                let v = m[a][h]
+                if v > mp { mp = v }
+                if v > best.p { best = (a, h, v) }
+            }
+        }
+        return Dist(m: m, maxProb: mp, peak: best)
+    }
 
     // MARK: - Body
 
     var body: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            header
+        let d = dist
+        return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            header(d)
             HStack {
                 Text("↓ \(homeAbbrev) goals")
                 Spacer()
@@ -72,7 +85,7 @@ struct PoissonHeatmapView: View {
             .font(.system(size: 10, weight: .medium))
             .foregroundStyle(Theme.Palette.textTertiary)
             .frame(maxWidth: 340)
-            grid
+            grid(d)
                 .frame(maxWidth: 340)
                 .animation(.easeInOut(duration: 0.5), value: liveAway)
                 .animation(.easeInOut(duration: 0.5), value: liveHome)
@@ -90,7 +103,7 @@ struct PoissonHeatmapView: View {
         }
     }
 
-    @ViewBuilder private var header: some View {
+    @ViewBuilder private func header(_ d: Dist) -> some View {
         if let act = actualCell {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 5) {
@@ -101,24 +114,24 @@ struct PoissonHeatmapView: View {
                         .contentTransition(.numericText())
                 }
                 .font(Theme.Font.caption())
-                Text("Model's most likely was \(awayAbbrev) \(argmax.a)–\(argmax.h) \(homeAbbrev)")
+                Text("Model's most likely was \(awayAbbrev) \(d.peak.a)–\(d.peak.h) \(homeAbbrev)")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.textTertiary)
             }
         } else {
             HStack(spacing: 5) {
                 Text("Most likely")
-                Text("\(awayAbbrev) \(argmax.a)–\(argmax.h) \(homeAbbrev)")
+                Text("\(awayAbbrev) \(d.peak.a)–\(d.peak.h) \(homeAbbrev)")
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .contentTransition(.numericText())
-                Text("· \(Int((argmax.p * 100).rounded()))%")
+                Text("· \(Int((d.peak.p * 100).rounded()))%")
             }
             .font(Theme.Font.caption())
             .foregroundStyle(Theme.Palette.textSecondary)
         }
     }
 
-    private var grid: some View {
+    private func grid(_ d: Dist) -> some View {
         // Away (the team listed first in the score) runs left→right across the top;
         // home runs top→bottom down the side.
         Grid(horizontalSpacing: 3, verticalSpacing: 3) {
@@ -129,7 +142,7 @@ struct PoissonHeatmapView: View {
             ForEach(0...maxGoals, id: \.self) { h in                          // rows = home goals
                 GridRow {
                     axisLabel("\(h)")
-                    ForEach(0...maxGoals, id: \.self) { a in cell(a: a, h: h) }
+                    ForEach(0...maxGoals, id: \.self) { a in cell(a: a, h: h, d: d) }
                 }
             }
         }
@@ -143,12 +156,13 @@ struct PoissonHeatmapView: View {
             .frame(height: 16)
     }
 
-    private func cell(a: Int, h: Int) -> some View {
-        let prob = matrix[a][h]
-        let intensity = maxProb > 0 ? prob / maxProb : 0
+    private func cell(a: Int, h: Int, d: Dist) -> some View {
+        let prob = d.m[a][h]
+        let intensity = d.maxProb > 0 ? prob / d.maxProb : 0
         let isActual = actualCell.map { $0.a == a && $0.h == h } ?? false
-        let isPeak = a == argmax.a && h == argmax.h
-        let dist = (Double((a - origin.a) * (a - origin.a) + (h - origin.h) * (h - origin.h))).squareRoot()
+        let isPeak = a == d.peak.a && h == d.peak.h
+        // Reveal ripples out from the model's most-likely (peak) cell.
+        let dist = (Double((a - d.peak.a) * (a - d.peak.a) + (h - d.peak.h) * (h - d.peak.h))).squareRoot()
         return RoundedRectangle(cornerRadius: 4, style: .continuous)
             .fill(tint.opacity(0.08 + 0.85 * intensity))           // gradient on every cell → peak is darkest
             .aspectRatio(1, contentMode: .fit)

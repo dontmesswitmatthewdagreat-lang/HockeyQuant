@@ -7,8 +7,6 @@ struct TodayView: View {
     @State private var model = TodayViewModel()
     @State private var showingDatePicker = false
     @State private var expandedID: String?
-    @Namespace private var heroNS
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
                            GridItem(.flexible(), spacing: Theme.Spacing.sm)]
@@ -32,18 +30,12 @@ struct TodayView: View {
                     header
                     content
                 }
-
-                if let game = expandedGame {
-                    Color.black.opacity(0.18).ignoresSafeArea()
-                        .transition(.opacity)
-                        .onTapGesture { collapse() }
-                    GameExpandedView(game: game, dateString: APIClient.apiDateString(model.selectedDate),
-                                     namespace: heroNS, onClose: collapse)
-                        .zIndex(2)
-                }
             }
             .toolbar(.hidden, for: .navigationBar)
             .sheet(isPresented: $showingDatePicker) { datePickerSheet }
+            // Present the breakdown as a full-screen cover — its own layout context
+            // with correct safe-area insets (no parent ignoresSafeArea interference).
+            .fullScreenCover(isPresented: coverPresented) { expandedCover }
         }
         .task {
             model.warmUp()
@@ -52,18 +44,23 @@ struct TodayView: View {
         .onDisappear { model.stopPolling() }
     }
 
-    private func expand(_ id: String) {
-        Haptics.tap()
-        withAnimation(reduceMotion ? .none : .spring(response: 0.5, dampingFraction: 0.62)) {
-            expandedID = id
+    private var coverPresented: Binding<Bool> {
+        Binding(get: { expandedID != nil }, set: { if !$0 { expandedID = nil } })
+    }
+
+    @ViewBuilder private var expandedCover: some View {
+        if let game = expandedGame {
+            GameExpandedView(game: game, dateString: APIClient.apiDateString(model.selectedDate)) {
+                expandedID = nil
+            }
+        } else {
+            Color.clear.onAppear { expandedID = nil }
         }
     }
 
-    private func collapse() {
+    private func expand(_ id: String) {
         Haptics.tap()
-        withAnimation(reduceMotion ? .none : .spring(response: 0.42, dampingFraction: 0.82)) {
-            expandedID = nil
-        }
+        expandedID = id
     }
 
     // MARK: - Header
@@ -131,11 +128,8 @@ struct TodayView: View {
             ScrollView {
                 LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
-                        GameTileView(game: game, namespace: heroNS,
-                                     isExpanded: expandedID == game.id) {
-                            expand(game.id)
-                        }
-                        .staggeredEntrance(index: index)
+                        GameTileView(game: game) { expand(game.id) }
+                            .staggeredEntrance(index: index)
                     }
                 }
                 .padding(Theme.Spacing.md)
