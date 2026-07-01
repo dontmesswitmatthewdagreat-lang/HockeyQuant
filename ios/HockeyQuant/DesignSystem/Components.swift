@@ -61,26 +61,30 @@ struct PressableButton<Label: View>: View {
     var action: () -> Void
     @ViewBuilder var label: () -> Label
 
-    @State private var pressed = false
-
     var body: some View {
-        label()
-            .scaleEffect(pressed ? 0.96 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: pressed)
+        // A real Button with a press-scaling style. The earlier hand-rolled
+        // `DragGesture(minimumDistance: 0)` captured every touch-drag that began on
+        // the button, which blocked the enclosing ScrollView from scrolling whenever
+        // a swipe started on a card. A ButtonStyle scales on press AND correctly
+        // yields the drag to the ScrollView.
+        Button {
+            Haptics.tap()
+            action()
+        } label: {
+            label()
+        }
+        .buttonStyle(PressableButtonStyle())
+        .accessibilityAddTraits(.isButton)
+    }
+}
+
+/// Scales the label down slightly while pressed, without intercepting scroll drags.
+private struct PressableButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: configuration.isPressed)
             .contentShape(Rectangle())
-            .onTapGesture {
-                Haptics.tap()
-                action()
-            }
-            .simultaneousGesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { _ in pressed = true }
-                    .onEnded { _ in pressed = false }
-            )
-            // Expose as a real button for VoiceOver + UI testing.
-            .accessibilityElement(children: .combine)
-            .accessibilityAddTraits(.isButton)
-            .accessibilityAction { action() }
     }
 }
 

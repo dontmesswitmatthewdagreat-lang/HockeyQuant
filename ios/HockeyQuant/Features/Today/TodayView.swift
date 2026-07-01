@@ -24,11 +24,20 @@ struct TodayView: View {
 
     var body: some View {
         NavigationStack {
+            // The background is a ZStack sibling (so the GeometryReader measures the
+            // *safe* area — ending at the tab-bar top). The header is pinned to its
+            // natural height with `.fixedSize` so the greedy grid ScrollView reliably
+            // takes the bounded remaining space and scrolls the last row clear of the
+            // tab bar (a plain VStack let it size to its content and clip that row).
             ZStack {
                 Theme.backgroundView().ignoresSafeArea()
-                VStack(spacing: 0) {
-                    header
-                    content
+                GeometryReader { geo in
+                    VStack(spacing: 0) {
+                        header
+                            .fixedSize(horizontal: false, vertical: true)
+                        content
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                 }
             }
             .toolbar(.hidden, for: .navigationBar)
@@ -114,18 +123,18 @@ struct TodayView: View {
 
     // MARK: - Content
 
-    @ViewBuilder
+    /// Always a ScrollView so the parent VStack reliably constrains it to the
+    /// safe-area height (ending at the tab-bar top) and the grid actually scrolls;
+    /// the per-state content lives inside it.
     private var content: some View {
-        switch model.state {
-        case .loading:
-            ScrollView {
+        ScrollView {
+            switch model.state {
+            case .loading:
                 LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(0..<6, id: \.self) { _ in LoadingShimmer(height: 132) }
                 }
                 .padding(Theme.Spacing.md)
-            }
-        case .loaded(let games):
-            ScrollView {
+            case .loaded(let games):
                 LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
                     ForEach(Array(games.enumerated()), id: \.element.id) { index, game in
                         GameTileView(game: game) { expand(game.id) }
@@ -133,18 +142,21 @@ struct TodayView: View {
                     }
                 }
                 .padding(Theme.Spacing.md)
+                // Extra bottom room so the final row scrolls comfortably clear of the
+                // tab bar on a full slate.
+                .padding(.bottom, 56)
+            case .empty:
+                EmptyStateView(
+                    systemImage: "calendar.badge.exclamationmark",
+                    title: "No games \(model.dateLabel.lowercased())",
+                    message: "Tap a day above (the dots mark game days) to find scheduled games."
+                )
+                .frame(maxWidth: .infinity, minHeight: 320)
+            case .error(let message):
+                ErrorStateView(message: message) { Task { await model.load() } }
+                    .frame(maxWidth: .infinity, minHeight: 320)
             }
-            .refreshable { await model.load() }
-        case .empty:
-            EmptyStateView(
-                systemImage: "calendar.badge.exclamationmark",
-                title: "No games \(model.dateLabel.lowercased())",
-                message: "Tap a day above (the dots mark game days) to find scheduled games."
-            )
-            Spacer()
-        case .error(let message):
-            ErrorStateView(message: message) { Task { await model.load() } }
-            Spacer()
         }
+        .refreshable { await model.load() }
     }
 }
