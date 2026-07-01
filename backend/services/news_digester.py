@@ -7,11 +7,11 @@ real url/source/published_at from the originals so links can't be hallucinated.
 import json
 from typing import List, Dict, Optional
 
-from services.llm import groq_chat
+from services.llm import groq_chat, DEFAULT_MODEL
 from services.news_sources import resolve_image
 from services.constants import TEAM_FULL_NAMES
 
-MODEL = "llama-3.3-70b-versatile"
+MODEL = DEFAULT_MODEL
 TAGS = ["Trade", "Injury", "Signing", "Rumor", "Recap", "Analysis", "Prospect", "Lineup", "Game", "Other"]
 
 SYSTEM = (

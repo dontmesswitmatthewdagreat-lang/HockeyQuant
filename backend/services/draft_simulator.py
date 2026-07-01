@@ -19,9 +19,9 @@ import requests
 from services.constants import ALL_TEAMS, TEAM_FULL_NAMES
 from services.data_loader import get_data_loader
 from services.news_sources import _google_news, UA
-from services.llm import groq_chat
+from services.llm import groq_chat, DEFAULT_MODEL
 
-_AI_MODEL = "llama-3.3-70b-versatile"
+_AI_MODEL = DEFAULT_MODEL
 
 NHL_HEADERS = {"User-Agent": "HockeyQuant/1.0"}
 

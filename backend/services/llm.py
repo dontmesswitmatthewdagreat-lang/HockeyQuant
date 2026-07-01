@@ -3,10 +3,15 @@
 import os
 from typing import List, Dict, Optional
 
+# The single source of truth for the Groq model used by the digester + draft sim.
+# (Groq retired `llama-3.3-70b-versatile`; GPT-OSS 120B is the recommended, more
+# capable successor. Switch here to move every caller at once.)
+DEFAULT_MODEL = "openai/gpt-oss-120b"
+
 
 def groq_chat(
     messages: List[Dict[str, str]],
-    model: str = "llama-3.3-70b-versatile",
+    model: str = DEFAULT_MODEL,
     max_tokens: int = 1200,
     temperature: float = 0.4,
     response_json: bool = False,
