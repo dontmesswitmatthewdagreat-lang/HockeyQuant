@@ -87,6 +87,8 @@ final class ThemeStore {
     /// primary color, with team colors in the accents.
     private func applyPalette(team: String?) {
         // White cards / neutral surfaces; team color lives in the background + accents.
+        // (The Play tab overrides itself to a dark dashboard locally; every other tab
+        // keeps this light, team-blob look.)
         Theme.Palette.surface = Theme.Palette.defaultSurface
         Theme.Palette.surfaceRaised = Theme.Palette.defaultSurfaceRaised
         Theme.Palette.border = Theme.Palette.defaultBorder
@@ -112,7 +114,6 @@ final class ThemeStore {
         Theme.Palette.accentAlt = legible(info.secondary)
         Theme.Palette.cardBorder = acc
         // Animated background "blobs": 5 team-tinted clouds float over white.
-        // More saturated than a flat wash, but white cards + dark text still read.
         Theme.Palette.backgroundStops = [
             mix(info.primary, .white, 0.36),
             mix(info.secondary, .white, 0.34),
@@ -120,7 +121,8 @@ final class ThemeStore {
             mix(info.secondary, .white, 0.48),
             mix(info.primary, .white, 0.44),
         ]
-        // Play tab: primary-only background wash (more saturated than News so it pops) …
+        // Play tab: primary-only background wash (unused now that Play is dark, but
+        // kept for parity) …
         Theme.Palette.backgroundStopsPrimary = [
             mix(info.primary, .white, 0.22),
             mix(info.primary, .white, 0.42),

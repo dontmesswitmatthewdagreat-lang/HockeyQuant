@@ -88,17 +88,27 @@ struct StatsView: View {
     // MARK: - Headline
 
     private func headlineCard(_ stats: AccuracyStats) -> some View {
-        Card {
-            VStack(spacing: Theme.Spacing.sm) {
-                Text("MONEYLINE ACCURACY")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.Palette.textTertiary)
-                Text("\(pct(stats.allTime?.pct ?? stats.accuracyPct))")
-                    .font(.system(size: 52, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Theme.Palette.accent)
-                Text("\(stats.allTime?.correct ?? stats.correctPicks) of \(stats.allTime?.total ?? stats.totalGames) correct")
-                    .font(Theme.Font.caption())
-                    .foregroundStyle(Theme.Palette.textSecondary)
+        let acc = stats.allTime?.pct ?? stats.accuracyPct
+        let correct = stats.allTime?.correct ?? stats.correctPicks
+        let total = stats.allTime?.total ?? stats.totalGames
+        return SectionCard("Moneyline accuracy", accessory: accuracyVerdict(acc)) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(alignment: .center) {
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(pct(acc))
+                            .font(.system(size: 48, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.accent)
+                        Text("\(correct) of \(total) correct")
+                            .font(Theme.Font.caption())
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                    Spacer()
+                    if cumulativeSpark.count > 1 {
+                        Sparkline(values: cumulativeSpark, tint: sparkTint)
+                            .frame(width: 128, height: 46)
+                    }
+                }
+                Divider().overlay(Theme.Palette.border)
                 HStack(spacing: Theme.Spacing.sm) {
                     miniStat("Last 30", stats.rolling30)
                     Divider().frame(height: 32).overlay(Theme.Palette.border)
@@ -106,9 +116,23 @@ struct StatsView: View {
                     Divider().frame(height: 32).overlay(Theme.Palette.border)
                     miniStat("All-time", stats.allTime)
                 }
-                .padding(.top, Theme.Spacing.xs)
             }
         }
+    }
+
+    /// Cumulative accuracy series for the hero sparkline + its up/down tint.
+    private var cumulativeSpark: [Double] { model.trend.map(\.cumulativeAccuracy) }
+    private var sparkTint: Color {
+        guard let f = cumulativeSpark.first, let l = cumulativeSpark.last else { return Theme.Palette.accent }
+        return l >= f ? Theme.Palette.positive : Theme.Palette.negative
+    }
+
+    private func accuracyVerdict(_ acc: Double) -> AnyView {
+        let d = acc - 50
+        if d >= 2 { return AnyView(StatusPill(text: "+\(Int(d.rounded())) vs even",
+                                              color: Theme.Palette.positive, solid: d >= 8)) }
+        if d <= -2 { return AnyView(StatusPill(text: "\(Int(d.rounded())) vs even", color: Theme.Palette.negative)) }
+        return AnyView(StatusPill(text: "Coin flip", color: Theme.Palette.textTertiary))
     }
 
     private func miniStat(_ label: String, _ window: WindowStats?) -> some View {
@@ -126,33 +150,26 @@ struct StatsView: View {
     // MARK: - Trend chart
 
     private var trendCard: some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                HStack {
-                    sectionHeader("Accuracy trend")
-                    Spacer()
-                    Picker("Window", selection: Binding(
-                        get: { model.window },
-                        set: { model.window = $0 }
-                    )) {
-                        ForEach([10, 20, 30, 50], id: \.self) { Text("\($0)").tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(width: 180)
-                }
-
-                if model.trend.count < 2 {
-                    Text("Not enough graded games yet to chart a trend.")
-                        .font(Theme.Font.caption())
-                        .foregroundStyle(Theme.Palette.textSecondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, Theme.Spacing.md)
-                } else {
-                    chart
-                    legend
-                }
+        SectionCard("Accuracy trend", accessory: AnyView(windowPicker)) {
+            if model.trend.count < 2 {
+                Text("Not enough graded games yet to chart a trend.")
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.vertical, Theme.Spacing.md)
+            } else {
+                chart
+                legend
             }
         }
+    }
+
+    private var windowPicker: some View {
+        Picker("Window", selection: Binding(get: { model.window }, set: { model.window = $0 })) {
+            ForEach([10, 20, 30, 50], id: \.self) { Text("\($0)").tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .frame(width: 148)
     }
 
     private var chart: some View {
@@ -230,9 +247,8 @@ struct StatsView: View {
     // MARK: - Confidence breakdown
 
     private func confidenceCard(_ stats: AccuracyStats) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                sectionHeader("By confidence")
+        SectionCard("By confidence") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                 confidenceRow("Strong", pctVal: stats.strongPct, correct: stats.strongCorrect, total: stats.strongTotal, color: Theme.Palette.strong)
                 confidenceRow("Moderate", pctVal: stats.moderatePct, correct: stats.moderateCorrect, total: stats.moderateTotal, color: Theme.Palette.moderate)
                 confidenceRow("Close", pctVal: stats.closePct, correct: stats.closeCorrect, total: stats.closeTotal, color: Theme.Palette.close)
@@ -248,58 +264,65 @@ struct StatsView: View {
                 Text("\(correct)/\(total)  ·  \(pct(pctVal))")
                     .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
             }
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Theme.Palette.background)
-                    Capsule().fill(color)
-                        .frame(width: geo.size.width * CGFloat(min(max(pctVal, 0), 100) / 100))
-                }
-            }
-            .frame(height: 6)
+            ProbBar(fraction: pctVal / 100, tint: color, height: 6)
         }
     }
 
     // MARK: - Bet types
 
     private func betTypeCard(_ stats: AccuracyStats) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                sectionHeader("By bet type")
-                HStack(spacing: Theme.Spacing.sm) {
-                    betTypePill("Moneyline", pctVal: stats.accuracyPct, total: stats.totalGames)
-                    Divider().frame(height: 40).overlay(Theme.Palette.border)
-                    betTypePill("Puck line", pctVal: stats.puckLinePct, total: stats.puckLineTotal)
-                    Divider().frame(height: 40).overlay(Theme.Palette.border)
-                    betTypePill("Over/Under", pctVal: stats.ouPct, total: stats.ouTotal)
-                }
+        SectionCard("By bet type") {
+            VStack(spacing: Theme.Spacing.md) {
+                betTypeRow("Moneyline", stats.accuracyPct, stats.totalGames)
+                betTypeRow("Puck line", stats.puckLinePct, stats.puckLineTotal)
+                betTypeRow("Over / Under", stats.ouPct, stats.ouTotal)
             }
         }
     }
 
-    private func betTypePill(_ label: String, pctVal: Double, total: Int) -> some View {
-        VStack(spacing: 2) {
-            Text(total > 0 ? pct(pctVal) : "—")
-                .font(Theme.Font.statNumber())
-                .foregroundStyle(Theme.Palette.textPrimary)
-            Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-            Text("\(total) bets").font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
+    /// The break‑even hit rate for a standard −110 bet.
+    private let breakEven = 52.4
+
+    private func betTypeRow(_ label: String, _ pctVal: Double, _ total: Int) -> some View {
+        let hasData = total > 0
+        let tint: Color = !hasData ? Theme.Palette.textTertiary
+            : (pctVal >= breakEven ? Theme.Palette.positive
+               : (pctVal >= 50 ? Theme.Palette.moderate : Theme.Palette.negative))
+        return VStack(spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
+                Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
+                Text("\(total) bets").font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
+                Spacer(minLength: 0)
+                Text(hasData ? pct(pctVal) : "—")
+                    .font(Theme.Font.statNumber()).foregroundStyle(Theme.Palette.textPrimary)
+                betVerdict(pctVal, total)
+            }
+            ProbBar(fraction: pctVal / 100, tint: tint, reference: breakEven / 100, height: 7)
         }
-        .frame(maxWidth: .infinity)
+    }
+
+    private func betVerdict(_ pctVal: Double, _ total: Int) -> some View {
+        if total == 0 { return AnyView(StatusPill(text: "No data", color: Theme.Palette.textTertiary)) }
+        if pctVal >= breakEven {
+            return AnyView(StatusPill(text: "Profitable", systemImage: "checkmark",
+                                      color: Theme.Palette.positive, solid: pctVal >= 55))
+        }
+        if pctVal >= 50 { return AnyView(StatusPill(text: "Break-even", color: Theme.Palette.moderate)) }
+        return AnyView(StatusPill(text: "Below", color: Theme.Palette.negative))
     }
 
     // MARK: - Parlay
 
     private func parlayCard(_ parlay: ParlayStats) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                sectionHeader("Daily parlay")
-                HStack(spacing: Theme.Spacing.sm) {
-                    StatPill(label: "Hit rate", value: pct(parlay.hitPct))
-                    Divider().frame(height: 32).overlay(Theme.Palette.border)
-                    StatPill(label: "Hits", value: "\(parlay.hitCount)/\(parlay.gradedParlays)")
-                    Divider().frame(height: 32).overlay(Theme.Palette.border)
-                    StatPill(label: "Avg legs", value: String(format: "%.1f", parlay.avgLegs))
-                }
+        let pill = AnyView(StatusPill(text: "\(pct(parlay.hitPct)) hit",
+                                      color: parlay.hitPct >= 50 ? Theme.Palette.positive : Theme.Palette.textSecondary))
+        return SectionCard("Daily parlay", accessory: pill) {
+            HStack(spacing: Theme.Spacing.sm) {
+                StatPill(label: "Hit rate", value: pct(parlay.hitPct))
+                Divider().frame(height: 32).overlay(Theme.Palette.border)
+                StatPill(label: "Hits", value: "\(parlay.hitCount)/\(parlay.gradedParlays)")
+                Divider().frame(height: 32).overlay(Theme.Palette.border)
+                StatPill(label: "Avg legs", value: String(format: "%.1f", parlay.avgLegs))
             }
         }
     }
@@ -307,9 +330,8 @@ struct StatsView: View {
     // MARK: - Recent results
 
     private var recentCard: some View {
-        Card {
+        SectionCard("Recent results") {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                sectionHeader("Recent results")
                 ForEach(model.recent.prefix(12)) { record in
                     recentRow(record)
                     if record.id != model.recent.prefix(12).last?.id {
@@ -355,12 +377,6 @@ struct StatsView: View {
     }
 
     // MARK: - Helpers
-
-    private func sectionHeader(_ text: String) -> some View {
-        Text(text.uppercased())
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Theme.Palette.textTertiary)
-    }
 
     private func pct(_ value: Double) -> String { "\(Int(value.rounded()))%" }
 }

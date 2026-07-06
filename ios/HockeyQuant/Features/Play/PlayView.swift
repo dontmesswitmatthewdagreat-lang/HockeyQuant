@@ -23,9 +23,10 @@ struct PlayView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                // Play tab: background blobs use the team's PRIMARY only; the
-                // SECONDARY drifts inside the cards (via `cardTeamBlobs` below).
-                Theme.backgroundView(stops: Theme.Palette.backgroundStopsPrimary).ignoresSafeArea()
+                // Play is the one dark "dashboard" tab; the rest of the app stays
+                // light with team blobs. Flat charcoal background + no in-card blobs;
+                // `.environment(\.colorScheme, .dark)` (below) flips the tokens dark.
+                Theme.Palette.background.ignoresSafeArea()
                 if auth.isInitializing {
                     ProgressView()
                 } else if !auth.isSignedIn {
@@ -34,8 +35,9 @@ struct PlayView: View {
                     signedInContent
                 }
             }
-            .environment(\.cardTeamBlobs, true)
+            .environment(\.cardTeamBlobs, false)
             .navigationBarTitleDisplayMode(.inline)   // custom adaptive "Play" lives in the content
+            .toolbarColorScheme(.dark, for: .navigationBar)   // dark nav chrome to match the dark tab
             .toolbar {
                 if auth.isSignedIn {
                     ToolbarItem(placement: .topBarTrailing) {
@@ -60,6 +62,7 @@ struct PlayView: View {
             }
             .overlay { ConfettiView(trigger: confettiTrigger).ignoresSafeArea() }
         }
+        .environment(\.colorScheme, .dark)   // Play stays dark; every other tab is light
         .onChange(of: game.pendingXpGain) { _, _ in processCelebrations() }
         .onChange(of: game.pendingAchievements.count) { _, _ in processCelebrations() }
         .task(id: auth.isSignedIn) {

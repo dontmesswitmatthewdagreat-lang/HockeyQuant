@@ -67,39 +67,60 @@ struct GMIdentityCard: View {
 
     var body: some View {
         Card {
-            HStack(spacing: Theme.Spacing.md) {
-                ZStack {
-                    Circle().fill(tier.color.opacity(0.18))
-                    Circle().stroke(tier.color.opacity(0.55), lineWidth: 1.5)
-                    Image(systemName: tier.icon).font(.system(size: 20)).foregroundStyle(tier.color)
-                }
-                .frame(width: 48, height: 48)
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                HStack(spacing: Theme.Spacing.md) {
+                    ZStack {
+                        Circle().fill(tier.color.opacity(0.18))
+                        Circle().stroke(tier.color.opacity(0.55), lineWidth: 2)
+                        Image(systemName: tier.icon).font(.system(size: 24)).foregroundStyle(tier.color)
+                    }
+                    .frame(width: 56, height: 56)
 
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack {
-                        Text(tier.name).font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
-                        Spacer()
-                        streakChip
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(tier.name).font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
+                        Text("General Manager").font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Theme.Palette.textTertiary)
                     }
-                    GeometryReader { geo in
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Theme.Palette.background)
-                            Capsule()
-                                .fill(LinearGradient(colors: [tier.color, tier.color.opacity(0.65)],
-                                                     startPoint: .leading, endPoint: .trailing))
-                                .frame(width: max(7, geo.size.width * progress))
-                        }
-                    }
-                    .frame(height: 7)
-                    Text(next.map { "\(season.xp)/\($0.threshold) XP → \($0.name)" } ?? "Max tier · \(season.xp) XP")
-                        .font(.system(size: 11, weight: .medium))
+                    Spacer(minLength: 0)
+                    streakChip
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.Palette.textPrimary)
                 }
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textPrimary)
+
+                // XP position on the tier ladder → the signature range gauge.
+                RangeGauge(fraction: next == nil ? 1 : progress,
+                           hiLabel: next.map { "\(season.xp) / \($0.threshold) XP → \($0.name)" }
+                                    ?? "Max tier · \(season.xp) XP",
+                           tint: tier.color, filled: true)
+
+                Divider().overlay(Theme.Palette.border)
+
+                // Season metric strip — a compact stats panel.
+                HStack(spacing: Theme.Spacing.sm) {
+                    metric("Record", "\(stats.picksCorrect)–\(max(0, stats.picksMade - stats.picksCorrect))")
+                    metricDivider
+                    metric("Accuracy", stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—")
+                    metricDivider
+                    metric("Beat AI", "\(stats.beatsModel)")
+                    metricDivider
+                    metric("Cups", "\(stats.stanleyCups)")
+                }
             }
         }
+    }
+
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(spacing: 1) {
+            Text(value).font(.system(size: 18, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary).contentTransition(.numericText())
+            Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var metricDivider: some View {
+        Divider().frame(height: 26).overlay(Theme.Palette.border)
     }
 
     private var streakChip: some View {
@@ -141,9 +162,12 @@ struct RankedModeTile: View {
                                 .foregroundStyle(Theme.Palette.textPrimary)
                             rankedPill
                         }
-                        Text(arena.name)
-                            .font(.system(size: 12, weight: .heavy, design: .rounded))
-                            .foregroundStyle(arena.color)
+                        HStack(spacing: Theme.Spacing.xs) {
+                            Text(arena.name)
+                                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                                .foregroundStyle(arena.color)
+                            accuracyVerdict
+                        }
                         Text("Climb the Cup ladder vs everyone")
                             .font(.system(size: 11)).foregroundStyle(Theme.Palette.textPrimary)
                     }
@@ -169,6 +193,16 @@ struct RankedModeTile: View {
         let target = Arena.progress(forCups: stats.stanleyCups)
         guard !reduceMotion else { ring = target; displayCups = stats.stanleyCups; return }
         withAnimation(.easeOut(duration: 0.9)) { ring = target; displayCups = stats.stanleyCups }
+    }
+
+    /// A short "how are your picks going" verdict on Global League accuracy.
+    private var accuracyVerdict: AnyView {
+        guard stats.picksMade > 0 else { return AnyView(StatusPill(text: "Unranked", color: Theme.Palette.textTertiary)) }
+        let acc = stats.accuracy
+        if acc >= 55 { return AnyView(StatusPill(text: "Sharp", systemImage: "flame.fill", color: Theme.Palette.positive, solid: true)) }
+        if acc >= 50 { return AnyView(StatusPill(text: "Solid", color: Theme.Palette.positive)) }
+        if acc >= 45 { return AnyView(StatusPill(text: "Steady", color: Theme.Palette.moderate)) }
+        return AnyView(StatusPill(text: "Cold", color: Theme.Palette.negative))
     }
 
     private var rankedPill: some View {

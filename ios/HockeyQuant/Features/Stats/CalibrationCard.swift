@@ -9,10 +9,8 @@ struct CalibrationCard: View {
     @State private var loading = true
 
     var body: some View {
-        Card {
+        SectionCard("Model calibration", accessory: headerBadge) {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                Text("Model calibration")
-                    .font(Theme.Font.headline()).foregroundStyle(Theme.Palette.textPrimary)
                 Text("When the model says X%, does it actually happen X% of the time?")
                     .font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
 
@@ -22,7 +20,7 @@ struct CalibrationCard: View {
                     chart(d)
                     HStack(spacing: 6) {
                         Image(systemName: verdictIcon(d)).foregroundStyle(verdictColor(d))
-                        Text("Within ±\(d.calibrationError, specifier: "%.1f")% of perfect — \(d.verdict)")
+                        Text("Within ±\(d.calibrationError, specifier: "%.1f")% of perfect")
                             .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
                         Spacer()
                         Text("\(d.games) games").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
@@ -38,6 +36,11 @@ struct CalibrationCard: View {
             data = try? await api.calibration()
             loading = false
         }
+    }
+
+    private var headerBadge: AnyView? {
+        guard let d = data, d.buckets.count >= 2 else { return nil }
+        return AnyView(StatusPill(text: d.verdict, color: verdictColor(d)))
     }
 
     private func chart(_ d: CalibrationResponse) -> some View {

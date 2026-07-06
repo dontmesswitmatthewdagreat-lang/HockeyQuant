@@ -131,7 +131,7 @@ struct ModelCard: View {
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                HStack {
+                HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(model.name)
                             .font(Theme.Font.headline())
@@ -144,29 +144,73 @@ struct ModelCard: View {
                         }
                     }
                     Spacer()
-                    accuracyBadge
+                    accuracyVerdict
                 }
-                WeightBar(weights: model.weights)
-                WeightLegend(weights: model.weights)
+                if let acc = model.accuracy, acc.totalPredictions > 0 {
+                    HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
+                        Text("\(Int(acc.accuracyPct.rounded()))%")
+                            .font(.system(size: 26, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.accent)
+                        Text("\(acc.correctPredictions)/\(acc.totalPredictions) graded")
+                            .font(Theme.Font.caption())
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                        Spacer(minLength: 0)
+                    }
+                    // Where this model's accuracy lands on a coin‑flip → elite track.
+                    RangeGauge(fraction: normAcc(acc.accuracyPct), loLabel: "40%", hiLabel: "65%",
+                               tint: Theme.Palette.textPrimary,
+                               gradient: [Theme.Palette.negative, Theme.Palette.moderate, Theme.Palette.positive])
+                } else {
+                    Text("No graded picks yet")
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                Divider().overlay(Theme.Palette.border)
+                Text("WEIGHTS")
+                    .font(.system(size: 10, weight: .heavy, design: .rounded)).tracking(0.6)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                VStack(spacing: 7) {
+                    ForEach(Array(model.weights.rows.enumerated()), id: \.offset) { i, row in
+                        weightRow(row.label, row.value, WeightBar.colors[i % WeightBar.colors.count])
+                    }
+                }
             }
         }
     }
 
+    private var maxWeight: Double { max(model.weights.rows.map(\.value).max() ?? 1, 1) }
+
+    private func weightRow(_ label: String, _ value: Double, _ color: Color) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            Text(label)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(width: 92, alignment: .leading)
+            ProbBar(fraction: value / maxWeight, tint: color, height: 7)
+            Text("\(Int(value))")
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .frame(width: 22, alignment: .trailing)
+        }
+    }
+
+    private func normAcc(_ pct: Double) -> Double { min(max((pct - 40) / 25, 0), 1) }
+
     @ViewBuilder
-    private var accuracyBadge: some View {
+    private var accuracyVerdict: some View {
         if let acc = model.accuracy, acc.totalPredictions > 0 {
-            VStack(alignment: .trailing, spacing: 0) {
-                Text("\(Int(acc.accuracyPct.rounded()))%")
-                    .font(Theme.Font.statNumber())
-                    .foregroundStyle(Theme.Palette.accent)
-                Text("\(acc.correctPredictions)/\(acc.totalPredictions)")
-                    .font(.system(size: 10))
-                    .foregroundStyle(Theme.Palette.textTertiary)
+            let p = acc.accuracyPct
+            if p >= 55 {
+                StatusPill(text: "Sharp", systemImage: "flame.fill", color: Theme.Palette.positive, solid: true)
+            } else if p >= 52.4 {
+                StatusPill(text: "Profitable", systemImage: "checkmark", color: Theme.Palette.positive)
+            } else if p >= 50 {
+                StatusPill(text: "Break-even", color: Theme.Palette.moderate)
+            } else {
+                StatusPill(text: "Below", color: Theme.Palette.negative)
             }
         } else {
-            Text("No picks yet")
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(Theme.Palette.textTertiary)
+            StatusPill(text: "Untested", color: Theme.Palette.textTertiary)
         }
     }
 }

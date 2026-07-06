@@ -22,12 +22,12 @@ struct GameExpandedView: View {
             VStack(spacing: Theme.Spacing.md) {
                 headerBar
                 if pred.bettingLines != nil {
-                    sectionCard("Scoreline grid") { scorelineGrid }
+                    SectionCard("Scoreline grid") { scorelineGrid }
                 }
-                sectionCard("Shot map") {
+                SectionCard("Shot map") {
                     ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
                 }
-                sectionCard("The Edge") { EdgeBreakdownView(game: pred) }
+                SectionCard("The Edge") { EdgeBreakdownView(game: pred) }
                 bettingCard
                 factorsCard
             }
@@ -182,33 +182,119 @@ struct GameExpandedView: View {
 
     @ViewBuilder private var bettingCard: some View {
         if let lines = pred.bettingLines {
-            sectionCard("Betting lines") {
-                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                    lineRow("Moneyline (reg.)", "\(away.abbrev) \(pct(lines.mlAwayProb)) · \(home.abbrev) \(pct(lines.mlHomeProb))")
-                    lineRow("Puck line (\(lines.puckLineSource))", "\(home.abbrev) \(signed(lines.puckLine)) · cover \(pct(lines.puckLineHomeCoverProb))")
-                    lineRow("Total (\(lines.overUnderSource))", "\(trim(lines.overUnder)) · O \(pct(lines.overProb)) / U \(pct(lines.underProb))")
+            SectionCard("Betting lines") {
+                VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                    moneylineBlock(lines)
+                    puckLineBlock(lines)
+                    totalBlock(lines)
                     Divider().overlay(Theme.Palette.border)
-                    lineRow("Best spread", "\(signed(lines.optimalSpread)) \(lines.optimalSpreadSide) · \(pct(lines.optimalSpreadProb))")
-                    lineRow("Best total", "\(lines.optimalTotalRec) \(trim(lines.optimalTotal)) · \(pct(lines.optimalTotalProb))")
+                    bestRow("Best spread", "\(signed(lines.optimalSpread)) \(lines.optimalSpreadSide)", lines.optimalSpreadProb)
+                    bestRow("Best total", "\(lines.optimalTotalRec) \(trim(lines.optimalTotal))", lines.optimalTotalProb)
                 }
             }
         }
     }
 
-    private func lineRow(_ label: String, _ value: String) -> some View {
-        HStack(alignment: .firstTextBaseline) {
+    /// A titled betting line: small header + optional verdict badge, then content.
+    private func lineBlock<C: View>(_ title: String, badge: AnyView? = nil,
+                                    @ViewBuilder content: () -> C) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: Theme.Spacing.xs) {
+                Text(title).font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.Palette.textTertiary)
+                Spacer(minLength: 0)
+                badge
+            }
+            content()
+        }
+    }
+
+    private func moneylineBlock(_ l: BettingLines) -> some View {
+        let aw = l.mlAwayProb ?? 0, hw = l.mlHomeProb ?? 0
+        let total = max(aw + hw, 1)
+        let badge: AnyView = abs(aw - hw) < 3
+            ? AnyView(StatusPill(text: "Coin flip", color: Theme.Palette.textTertiary))
+            : AnyView(StatusPill(text: "\(hw >= aw ? home.abbrev : away.abbrev) ML",
+                                 color: hw >= aw ? home.color : away.color))
+        return lineBlock("Moneyline · regulation", badge: badge) {
+            VStack(spacing: 6) {
+                SplitBar(leftFraction: aw / total, leftColor: away.color, rightColor: home.color)
+                HStack {
+                    Text("\(away.abbrev) \(pct(l.mlAwayProb))")
+                    Spacer()
+                    Text("\(pct(l.mlHomeProb)) \(home.abbrev)")
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            }
+        }
+    }
+
+    private func puckLineBlock(_ l: BettingLines) -> some View {
+        let cover = l.puckLineHomeCoverProb
+        let badge: AnyView = cover >= 55
+            ? AnyView(StatusPill(text: "Cover edge", systemImage: "checkmark", color: Theme.Palette.positive))
+            : (cover <= 45 ? AnyView(StatusPill(text: "No cover", color: Theme.Palette.negative))
+                           : AnyView(StatusPill(text: "Toss-up", color: Theme.Palette.textTertiary)))
+        return lineBlock("Puck line · \(l.puckLineSource)", badge: badge) {
+            HStack(spacing: Theme.Spacing.sm) {
+                Text("\(home.abbrev) \(signed(l.puckLine))")
+                    .font(Theme.Font.mono())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .frame(width: 82, alignment: .leading)
+                ProbBar(fraction: cover / 100, tint: home.color)
+                Text("cover \(pct(cover))")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .frame(width: 76, alignment: .trailing)
+            }
+        }
+    }
+
+    private func totalBlock(_ l: BettingLines) -> some View {
+        let ov = l.overProb, un = l.underProb
+        let total = max(ov + un, 1)
+        let badge: AnyView = abs(ov - un) < 4
+            ? AnyView(StatusPill(text: "Even", color: Theme.Palette.textTertiary))
+            : AnyView(StatusPill(text: ov > un ? "Over lean" : "Under lean",
+                                 systemImage: ov > un ? "arrow.up" : "arrow.down",
+                                 color: ov > un ? Theme.Palette.moderate : Theme.Palette.accentAlt))
+        return lineBlock("Total · \(l.overUnderSource)", badge: badge) {
+            VStack(spacing: 6) {
+                SplitBar(leftFraction: ov / total, leftColor: Theme.Palette.moderate, rightColor: Theme.Palette.accentAlt)
+                HStack {
+                    Text("O \(pct(ov)) · \(trim(l.overUnder))")
+                    Spacer()
+                    Text("\(pct(un)) U")
+                }
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textSecondary)
+            }
+        }
+    }
+
+    private func bestRow(_ label: String, _ value: String, _ prob: Double) -> some View {
+        HStack(spacing: Theme.Spacing.sm) {
             Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-            Spacer()
-            Text(value).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary).multilineTextAlignment(.trailing)
+                .frame(width: 90, alignment: .leading)
+            Text(value).font(Theme.Font.mono()).foregroundStyle(Theme.Palette.textPrimary)
+            Spacer(minLength: 0)
+            StatusPill(text: pct(prob), color: Theme.Palette.accent, solid: prob >= 58)
         }
     }
 
     // MARK: - Factors
 
     private var factorsCard: some View {
-        sectionCard("Quality-score factors") {
+        let a = pred.away, h = pred.home
+        let leaderHome = h.finalScore >= a.finalScore
+        let leader = AnyView(StatusPill(
+            text: "\(leaderHome ? home.abbrev : away.abbrev) +\(fmt(abs(a.finalScore - h.finalScore)))",
+            color: leaderHome ? home.color : away.color, solid: true))
+        return SectionCard("Quality score", accessory: leader) {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                factorColumns
+                scoreCompare(a, h)
+                Divider().overlay(Theme.Palette.border)
+                multiplierGrid(a, h)
                 Divider().overlay(Theme.Palette.border)
                 goalieRow(pred.away)
                 goalieRow(pred.home)
@@ -216,33 +302,64 @@ struct GameExpandedView: View {
         }
     }
 
-    private var factorColumns: some View {
-        VStack(spacing: Theme.Spacing.sm) {
-            HStack {
-                Text("").frame(maxWidth: .infinity, alignment: .leading)
-                Text(away.abbrev).frame(width: 76)
-                Text(home.abbrev).frame(width: 76)
-            }
-            .font(.system(size: 11, weight: .bold))
-            .foregroundStyle(Theme.Palette.textTertiary)
-            factorRow("Base score", away: fmt(pred.away.baseScore), home: fmt(pred.home.baseScore))
-            factorRow("Final score", away: fmt(pred.away.finalScore), home: fmt(pred.home.finalScore))
-            factorRow("Fatigue", away: mult(pred.away.fatigueMult), home: mult(pred.home.fatigueMult))
-            factorRow("Streak", away: mult(pred.away.streakMult), home: mult(pred.home.streakMult))
-            factorRow("Special teams", away: mult(pred.away.stMult), home: mult(pred.home.stMult))
-            factorRow("Injuries", away: mult(pred.away.injuryMult), home: mult(pred.home.injuryMult))
-            factorRow("Head-to-head", away: mult(pred.away.h2hMult), home: mult(pred.home.h2hMult))
+    // Base → Final headline, one column per team.
+    private func scoreCompare(_ a: TeamAnalysis, _ h: TeamAnalysis) -> some View {
+        HStack(alignment: .top) {
+            scoreColumn(away.abbrev, base: a.baseScore, final: a.finalScore, color: away.color, alignment: .leading)
+            Spacer(minLength: 0)
+            scoreColumn(home.abbrev, base: h.baseScore, final: h.finalScore, color: home.color, alignment: .trailing)
         }
     }
 
-    private func factorRow(_ label: String, away: String, home: String) -> some View {
-        HStack {
+    private func scoreColumn(_ abbrev: String, base: Double, final: Double,
+                             color: Color, alignment: HorizontalAlignment) -> some View {
+        VStack(alignment: alignment, spacing: 1) {
+            Text(abbrev).font(.system(size: 11, weight: .heavy, design: .rounded)).foregroundStyle(color)
+            Text(fmt(final)).font(.system(size: 26, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary)
+            Text("base \(fmt(base))").font(.system(size: 11)).foregroundStyle(Theme.Palette.textTertiary)
+        }
+    }
+
+    // Each score multiplier as a boost/drag gauge centered at ×1.00.
+    private func multiplierGrid(_ a: TeamAnalysis, _ h: TeamAnalysis) -> some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.xs) {
+                Text("MULTIPLIERS").frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                Text(away.abbrev).foregroundStyle(away.color).frame(width: 88, alignment: .leading)
+                Text(home.abbrev).foregroundStyle(home.color).frame(width: 88, alignment: .leading)
+            }
+            .font(.system(size: 10, weight: .heavy, design: .rounded))
+            multRow("Fatigue", a.fatigueMult, h.fatigueMult)
+            multRow("Streak", a.streakMult, h.streakMult)
+            multRow("Special teams", a.stMult, h.stMult)
+            multRow("Injuries", a.injuryMult, h.injuryMult)
+            multRow("Head-to-head", a.h2hMult, h.h2hMult)
+        }
+    }
+
+    private func multRow(_ label: String, _ av: Double, _ hv: Double) -> some View {
+        HStack(spacing: Theme.Spacing.xs) {
             Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(away).font(Theme.Font.mono()).frame(width: 76)
-            Text(home).font(Theme.Font.mono()).frame(width: 76)
+            gaugeCell(av)
+            gaugeCell(hv)
         }
-        .foregroundStyle(Theme.Palette.textPrimary)
+    }
+
+    private func gaugeCell(_ v: Double) -> some View {
+        // Color by the *displayed* (2‑decimal) value so a ×1.00 never reads red/green.
+        let shown = (v * 100).rounded()
+        let tone: Color = shown > 100 ? Theme.Palette.positive
+            : (shown < 100 ? Theme.Palette.negative : Theme.Palette.textSecondary)
+        return HStack(spacing: 5) {
+            MultiplierGauge(value: v).frame(width: 38)
+            Text(String(format: "×%.2f", v))
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                .foregroundStyle(tone)
+        }
+        .frame(width: 88, alignment: .leading)
     }
 
     private func goalieRow(_ team: TeamAnalysis) -> some View {
@@ -255,20 +372,6 @@ struct GameExpandedView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Section scaffold
-
-    private func sectionCard<Content: View>(_ title: String, @ViewBuilder content: @escaping () -> Content) -> some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                Text(title.uppercased())
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.Palette.textTertiary)
-                content()
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
     // MARK: - Formatting
 
     private func rounded(_ v: Double) -> String { String(Int(v.rounded())) }
@@ -276,6 +379,5 @@ struct GameExpandedView: View {
     private func signed(_ v: Double) -> String { (v > 0 ? "+" : "") + trim(v) }
     private func signedNum(_ v: Double) -> String { String(format: "%+.1f", v) }
     private func fmt(_ v: Double) -> String { String(format: "%.1f", v) }
-    private func mult(_ v: Double) -> String { String(format: "×%.3f", v) }
     private func pct(_ v: Double?) -> String { v.map { "\(Int($0.rounded()))%" } ?? "—" }
 }

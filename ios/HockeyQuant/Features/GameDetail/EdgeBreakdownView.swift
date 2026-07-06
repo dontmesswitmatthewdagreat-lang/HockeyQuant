@@ -19,13 +19,12 @@ struct EdgeBreakdownView: View {
                     Text(f.label)
                         .font(Theme.Font.caption())
                         .foregroundStyle(Theme.Palette.textSecondary)
-                        .frame(width: 108, alignment: .leading)
+                        .frame(width: 104, alignment: .leading)
                     DivergingBar(edge: appeared ? f.edge : 0,
-                                 awayColor: away.color, homeColor: home.color)
-                    Text(f.favored(away: away.abbrev, home: home.abbrev))
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .foregroundStyle(f.favoredColor(away: away.color, home: home.color))
-                        .frame(width: 42, alignment: .trailing)
+                                 leftColor: away.color, rightColor: home.color)
+                    StatusPill(text: f.favored(away: away.abbrev, home: home.abbrev),
+                               color: f.favoredColor(away: away.color, home: home.color))
+                        .frame(width: 52, alignment: .trailing)
                 }
             }
             verdictRow
@@ -36,11 +35,12 @@ struct EdgeBreakdownView: View {
     }
 
     private var header: some View {
-        HStack {
+        HStack(spacing: 6) {
             Text(away.abbrev).foregroundStyle(away.color)
-            Spacer()
-            Text("THE EDGE").foregroundStyle(Theme.Palette.textTertiary)
-            Spacer()
+            Text("◄ who leans which way ►")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.Palette.textTertiary)
+                .frame(maxWidth: .infinity)
             Text(home.abbrev).foregroundStyle(home.color)
         }
         .font(.system(size: 11, weight: .heavy, design: .rounded))
@@ -112,32 +112,5 @@ private struct EdgeFactor: Identifiable {
 
     func favoredColor(away: Color, home: Color) -> Color {
         abs(edge) < Self.threshold ? Theme.Palette.textTertiary : (edge > 0 ? home : away)
-    }
-}
-
-/// A center-anchored diverging bar: fills left (away) or right (home) by `edge` magnitude.
-private struct DivergingBar: View {
-    let edge: Double          // −1 … +1
-    let awayColor: Color
-    let homeColor: Color
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let half = w / 2
-            let mag = min(abs(edge), 1)
-            let fillW = half * mag
-            ZStack {
-                Capsule().fill(Theme.Palette.background)
-                Rectangle().fill(Theme.Palette.border).frame(width: 1)   // center tick
-                Capsule()
-                    .fill(edge >= 0 ? homeColor : awayColor)
-                    .frame(width: max(fillW, mag > 0.001 ? 4 : 0))
-                    .position(x: edge >= 0 ? half + fillW / 2 : half - fillW / 2,
-                              y: geo.size.height / 2)
-            }
-        }
-        .frame(height: 9)
-        .frame(maxWidth: .infinity)
     }
 }
