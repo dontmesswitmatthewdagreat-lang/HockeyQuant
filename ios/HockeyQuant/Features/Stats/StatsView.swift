@@ -1,10 +1,23 @@
 import SwiftUI
 import Charts
 
-/// Accuracy dashboard: headline hit rate, the rolling/cumulative trend chart,
-/// confidence + bet-type breakdowns, parlay stats, and recent results.
+/// Statistics as a summary-first dashboard: an accuracy hero (switchable between
+/// the official model and your custom models), the trend chart, a Teams browser
+/// (tap a crest → full team + player stats), and grouped drill-in rows for the
+/// deep dives (calibration, breakdown, parlay, recent results).
 struct StatsView: View {
+    @Environment(AuthStore.self) private var auth
     @State private var model = StatsViewModel()
+
+    // Model-accuracy selector: nil = the official HockeyQuant model.
+    @State private var userModels: [UserModel] = []
+    @State private var selectedModelId: String?
+    @State private var segment = 0   // 0 = Overview, 1 = Teams
+    private let api = APIClient()
+
+    private var selectedModel: UserModel? {
+        selectedModelId.flatMap { id in userModels.first { $0.id == id } }
+    }
 
     var body: some View {
         NavigationStack {
@@ -12,23 +25,14 @@ struct StatsView: View {
                 Theme.backgroundView().ignoresSafeArea()
                 content
             }
-            .navigationTitle("Statistics")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    NavigationLink {
-                        TeamsView()
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "person.3.fill")
-                            Text("Teams")
-                        }
-                        .font(Theme.Font.caption())
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) { AvatarButton() }
-            }
+            // The curved hero band carries the top controls (avatar).
+            .toolbar(.hidden, for: .navigationBar)
         }
         .task { await model.load() }
+        .task(id: auth.isSignedIn) {
+            guard auth.isSignedIn, let token = await auth.accessToken() else { return }
+            userModels = (try? await api.models(token: token)) ?? []
+        }
     }
 
     @ViewBuilder
@@ -45,79 +49,174 @@ struct StatsView: View {
             ErrorStateView(message: message) { Task { await model.load() } }
         case .loaded:
             ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    modelBadge
-                    if let stats = model.stats {
-                        headlineCard(stats)
-                        trendCard
-                        confidenceCard(stats)
-                        CalibrationCard()
-                        betTypeCard(stats)
+                VStack(spacing: Theme.Spacing.lg) {
+                    statsBand   // full-bleed curved header
+                    VStack(spacing: Theme.Spacing.lg) {
+                        BigSegment(selection: $segment, options: ["Overview", "Teams"])
+                        ZStack {
+                            if segment == 0 {
+                                overviewSegment.transition(.opacity)
+                            } else {
+                                teamsSection.transition(.opacity)
+                            }
+                        }
                     }
-                    if let parlay = model.parlay, parlay.gradedParlays > 0 {
-                        parlayCard(parlay)
-                    }
-                    if !model.recent.isEmpty {
-                        recentCard
-                    }
+                    .padding(.horizontal, Theme.Spacing.md)
                 }
-                .padding(Theme.Spacing.md)
+                .padding(.bottom, Theme.Spacing.md)
             }
             .refreshable { await model.load() }
         }
     }
 
-    // MARK: - Official model badge
+    // MARK: - Hero band (curved header)
 
-    private var modelBadge: some View {
-        HStack(spacing: Theme.Spacing.xs) {
-            Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.Palette.accent)
-            Text("Generated & tracked by the official HockeyQuant model")
-                .font(Theme.Font.caption())
-                .foregroundStyle(Theme.Palette.textSecondary)
-            Spacer()
+    private var statsBand: some View {
+        HeroBand(tint: Theme.Palette.accent) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack { Spacer(); AvatarButton() }
+                Text("Statistics")
+                    .font(.system(size: 30, weight: .heavy))
+                    .foregroundStyle(.white)
+                Text("Every pick tracked, graded & scored honestly")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+            }
         }
-        .padding(.horizontal, Theme.Spacing.sm)
-        .padding(.vertical, Theme.Spacing.xs)
-        .background(Theme.Palette.accent.opacity(0.10))
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
     }
 
-    // MARK: - Headline
+    private var overviewSegment: some View {
+        VStack(spacing: Theme.Spacing.lg) {
+            VStack(spacing: Theme.Spacing.md) {
+                if let stats = model.stats {
+                    heroCard(stats)
+                }
+                if selectedModel == nil {
+                    trendCard
+                }
+            }
+            deepDivesSection
+        }
+    }
 
-    private func headlineCard(_ stats: AccuracyStats) -> some View {
+    // MARK: - Hero (accuracy + model selector)
+
+    private func heroCard(_ stats: AccuracyStats) -> some View {
+        SectionCard("Moneyline accuracy", accessory: AnyView(modelMenu)) {
+            if let m = selectedModel {
+                customModelHero(m)
+            } else {
+                officialHero(stats)
+            }
+        }
+    }
+
+    /// Selector between the official model and the user's custom models.
+    @ViewBuilder private var modelMenu: some View {
+        if userModels.isEmpty {
+            StatusPill(text: "Official model", color: Theme.Palette.accent)
+        } else {
+            Menu {
+                Button {
+                    selectedModelId = nil
+                } label: {
+                    Label("Official model", systemImage: selectedModelId == nil ? "checkmark" : "seal")
+                }
+                ForEach(userModels) { m in
+                    Button {
+                        selectedModelId = m.id
+                    } label: {
+                        Label(m.name, systemImage: selectedModelId == m.id ? "checkmark" : "slider.horizontal.3")
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedModel?.name ?? "Official model").lineLimit(1)
+                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .heavy))
+                }
+                .font(.system(size: 11, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.accent)
+                .padding(.horizontal, 9).padding(.vertical, 4)
+                .background(Theme.Palette.accent.opacity(0.14))
+                .clipShape(Capsule())
+            }
+        }
+    }
+
+    private func officialHero(_ stats: AccuracyStats) -> some View {
         let acc = stats.allTime?.pct ?? stats.accuracyPct
         let correct = stats.allTime?.correct ?? stats.correctPicks
         let total = stats.allTime?.total ?? stats.totalGames
-        return SectionCard("Moneyline accuracy", accessory: accuracyVerdict(acc)) {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+        return VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(alignment: .center) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pct(acc))
+                        .font(.system(size: 48, weight: .heavy))
+                        .foregroundStyle(Theme.Palette.accent)
+                    Text("\(correct) of \(total) correct")
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                    accuracyVerdict(acc)
+                }
+                Spacer()
+                if cumulativeSpark.count > 1 {
+                    Sparkline(values: cumulativeSpark, tint: sparkTint)
+                        .frame(width: 128, height: 46)
+                }
+            }
+            Divider().overlay(Theme.Palette.border)
+            HStack(spacing: Theme.Spacing.sm) {
+                miniStat("Last 30", stats.rolling30?.pct)
+                Divider().frame(height: 32).overlay(Theme.Palette.border)
+                miniStat("Season", stats.currentSeason?.pct)
+                Divider().frame(height: 32).overlay(Theme.Palette.border)
+                miniStat("All-time", stats.allTime?.pct)
+            }
+        }
+    }
+
+    private func customModelHero(_ m: UserModel) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            if let acc = m.accuracy, acc.totalPredictions > 0 {
                 HStack(alignment: .center) {
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(pct(acc))
-                            .font(.system(size: 48, weight: .heavy, design: .rounded))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pct(acc.accuracyPct))
+                            .font(.system(size: 48, weight: .heavy))
                             .foregroundStyle(Theme.Palette.accent)
-                        Text("\(correct) of \(total) correct")
+                        Text("\(acc.correctPredictions) of \(acc.totalPredictions) correct")
                             .font(Theme.Font.caption())
                             .foregroundStyle(Theme.Palette.textSecondary)
+                        accuracyVerdict(acc.accuracyPct)
                     }
                     Spacer()
-                    if cumulativeSpark.count > 1 {
-                        Sparkline(values: cumulativeSpark, tint: sparkTint)
-                            .frame(width: 128, height: 46)
-                    }
                 }
                 Divider().overlay(Theme.Palette.border)
                 HStack(spacing: Theme.Spacing.sm) {
-                    miniStat("Last 30", stats.rolling30)
+                    miniStat("Strong", confPct(acc.strongCorrect, acc.strongTotal))
                     Divider().frame(height: 32).overlay(Theme.Palette.border)
-                    miniStat("Season", stats.currentSeason)
+                    miniStat("Moderate", confPct(acc.moderateCorrect, acc.moderateTotal))
                     Divider().frame(height: 32).overlay(Theme.Palette.border)
-                    miniStat("All-time", stats.allTime)
+                    miniStat("Close", confPct(acc.closeCorrect, acc.closeTotal))
                 }
+            } else {
+                Text("No graded picks yet — this model's accuracy shows up once its official predictions grade.")
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .padding(.vertical, Theme.Spacing.sm)
             }
         }
+    }
+
+    private func confPct(_ correct: Int, _ total: Int) -> Double? {
+        total > 0 ? Double(correct) / Double(total) * 100 : nil
+    }
+
+    private func accuracyVerdict(_ acc: Double) -> some View {
+        let d = acc - 50
+        if d >= 2 { return AnyView(StatusPill(text: "+\(Int(d.rounded())) vs even",
+                                              color: Theme.Palette.positive, solid: d >= 8)) }
+        if d <= -2 { return AnyView(StatusPill(text: "\(Int(d.rounded())) vs even", color: Theme.Palette.negative)) }
+        return AnyView(StatusPill(text: "Coin flip", color: Theme.Palette.textTertiary))
     }
 
     /// Cumulative accuracy series for the hero sparkline + its up/down tint.
@@ -127,17 +226,9 @@ struct StatsView: View {
         return l >= f ? Theme.Palette.positive : Theme.Palette.negative
     }
 
-    private func accuracyVerdict(_ acc: Double) -> AnyView {
-        let d = acc - 50
-        if d >= 2 { return AnyView(StatusPill(text: "+\(Int(d.rounded())) vs even",
-                                              color: Theme.Palette.positive, solid: d >= 8)) }
-        if d <= -2 { return AnyView(StatusPill(text: "\(Int(d.rounded())) vs even", color: Theme.Palette.negative)) }
-        return AnyView(StatusPill(text: "Coin flip", color: Theme.Palette.textTertiary))
-    }
-
-    private func miniStat(_ label: String, _ window: WindowStats?) -> some View {
+    private func miniStat(_ label: String, _ value: Double?) -> some View {
         VStack(spacing: 2) {
-            Text(window.map { pct($0.pct) } ?? "—")
+            Text(value.map { pct($0) } ?? "—")
                 .font(Theme.Font.statNumber())
                 .foregroundStyle(Theme.Palette.textPrimary)
             Text(label)
@@ -147,7 +238,7 @@ struct StatsView: View {
         .frame(maxWidth: .infinity)
     }
 
-    // MARK: - Trend chart
+    // MARK: - Trend chart (official model)
 
     private var trendCard: some View {
         SectionCard("Accuracy trend", accessory: AnyView(windowPicker)) {
@@ -244,136 +335,84 @@ struct StatsView: View {
         }
     }
 
-    // MARK: - Confidence breakdown
+    // MARK: - Teams browser
 
-    private func confidenceCard(_ stats: AccuracyStats) -> some View {
-        SectionCard("By confidence") {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                confidenceRow("Strong", pctVal: stats.strongPct, correct: stats.strongCorrect, total: stats.strongTotal, color: Theme.Palette.strong)
-                confidenceRow("Moderate", pctVal: stats.moderatePct, correct: stats.moderateCorrect, total: stats.moderateTotal, color: Theme.Palette.moderate)
-                confidenceRow("Close", pctVal: stats.closePct, correct: stats.closeCorrect, total: stats.closeTotal, color: Theme.Palette.close)
+    private let teamColumns = Array(repeating: GridItem(.flexible(), spacing: Theme.Spacing.sm), count: 6)
+    private var teamAbbrevs: [String] { TeamInfo.all.keys.sorted() }
+
+    private var teamsSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            SectionLabel("Teams") {
+                NavigationLink { TeamsView() } label: {
+                    HStack(spacing: 3) {
+                        Text("All")
+                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                    }
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.accent)
+                }
             }
-        }
-    }
-
-    private func confidenceRow(_ label: String, pctVal: Double, correct: Int, total: Int, color: Color) -> some View {
-        VStack(spacing: Theme.Spacing.xxs) {
-            HStack {
-                Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
-                Spacer()
-                Text("\(correct)/\(total)  ·  \(pct(pctVal))")
-                    .font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textSecondary)
-            }
-            ProbBar(fraction: pctVal / 100, tint: color, height: 6)
-        }
-    }
-
-    // MARK: - Bet types
-
-    private func betTypeCard(_ stats: AccuracyStats) -> some View {
-        SectionCard("By bet type") {
-            VStack(spacing: Theme.Spacing.md) {
-                betTypeRow("Moneyline", stats.accuracyPct, stats.totalGames)
-                betTypeRow("Puck line", stats.puckLinePct, stats.puckLineTotal)
-                betTypeRow("Over / Under", stats.ouPct, stats.ouTotal)
-            }
-        }
-    }
-
-    /// The break‑even hit rate for a standard −110 bet.
-    private let breakEven = 52.4
-
-    private func betTypeRow(_ label: String, _ pctVal: Double, _ total: Int) -> some View {
-        let hasData = total > 0
-        let tint: Color = !hasData ? Theme.Palette.textTertiary
-            : (pctVal >= breakEven ? Theme.Palette.positive
-               : (pctVal >= 50 ? Theme.Palette.moderate : Theme.Palette.negative))
-        return VStack(spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
-                Text(label).font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textPrimary)
-                Text("\(total) bets").font(.system(size: 10)).foregroundStyle(Theme.Palette.textTertiary)
-                Spacer(minLength: 0)
-                Text(hasData ? pct(pctVal) : "—")
-                    .font(Theme.Font.statNumber()).foregroundStyle(Theme.Palette.textPrimary)
-                betVerdict(pctVal, total)
-            }
-            ProbBar(fraction: pctVal / 100, tint: tint, reference: breakEven / 100, height: 7)
-        }
-    }
-
-    private func betVerdict(_ pctVal: Double, _ total: Int) -> some View {
-        if total == 0 { return AnyView(StatusPill(text: "No data", color: Theme.Palette.textTertiary)) }
-        if pctVal >= breakEven {
-            return AnyView(StatusPill(text: "Profitable", systemImage: "checkmark",
-                                      color: Theme.Palette.positive, solid: pctVal >= 55))
-        }
-        if pctVal >= 50 { return AnyView(StatusPill(text: "Break-even", color: Theme.Palette.moderate)) }
-        return AnyView(StatusPill(text: "Below", color: Theme.Palette.negative))
-    }
-
-    // MARK: - Parlay
-
-    private func parlayCard(_ parlay: ParlayStats) -> some View {
-        let pill = AnyView(StatusPill(text: "\(pct(parlay.hitPct)) hit",
-                                      color: parlay.hitPct >= 50 ? Theme.Palette.positive : Theme.Palette.textSecondary))
-        return SectionCard("Daily parlay", accessory: pill) {
-            HStack(spacing: Theme.Spacing.sm) {
-                StatPill(label: "Hit rate", value: pct(parlay.hitPct))
-                Divider().frame(height: 32).overlay(Theme.Palette.border)
-                StatPill(label: "Hits", value: "\(parlay.hitCount)/\(parlay.gradedParlays)")
-                Divider().frame(height: 32).overlay(Theme.Palette.border)
-                StatPill(label: "Avg legs", value: String(format: "%.1f", parlay.avgLegs))
-            }
-        }
-    }
-
-    // MARK: - Recent results
-
-    private var recentCard: some View {
-        SectionCard("Recent results") {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                ForEach(model.recent.prefix(12)) { record in
-                    recentRow(record)
-                    if record.id != model.recent.prefix(12).last?.id {
-                        Divider().overlay(Theme.Palette.border)
+            Card {
+                LazyVGrid(columns: teamColumns, spacing: Theme.Spacing.sm) {
+                    ForEach(teamAbbrevs, id: \.self) { abbrev in
+                        NavigationLink { TeamDetailView(abbrev: abbrev) } label: {
+                            VStack(spacing: 3) {
+                                CrestView(abbrev: abbrev, size: 36)
+                                Text(abbrev)
+                                    .font(.system(size: 9, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Theme.Palette.textSecondary)
+                            }
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
         }
     }
 
-    private func recentRow(_ record: PredictionRecord) -> some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            resultIcon(record.correct)
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(record.awayTeam) @ \(record.homeTeam)")
-                    .font(Theme.Font.caption())
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                Text("Pick: \(record.pick) · \(record.confidence.capitalized)")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Theme.Palette.textTertiary)
-            }
-            Spacer()
-            if let af = record.awayFinal, let hf = record.homeFinal {
-                Text("\(af)–\(hf)").font(Theme.Font.mono()).foregroundStyle(Theme.Palette.textSecondary)
-            } else {
-                Text("—").font(Theme.Font.caption()).foregroundStyle(Theme.Palette.textTertiary)
+    // MARK: - Deep dives (drill-in rows)
+
+    private var deepDivesSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            SectionLabel("Deep Dives")
+            Card(padding: 0) {
+                VStack(spacing: 0) {
+                    NavigationLink { CalibrationDetailView() } label: {
+                        ModeRow(icon: "scope", tint: Theme.Palette.accent, title: "Calibration",
+                                subtitle: "When it says X%, does X% happen?")
+                    }
+                    .buttonStyle(.plain)
+                    rowDivider
+                    if let stats = model.stats {
+                        NavigationLink { BreakdownView(stats: stats) } label: {
+                            ModeRow(icon: "chart.bar.fill", tint: Theme.Palette.accentAlt, title: "Breakdown",
+                                    subtitle: "By confidence & bet type",
+                                    value: pct(stats.accuracyPct))
+                        }
+                        .buttonStyle(.plain)
+                        rowDivider
+                    }
+                    NavigationLink { ParlayStatsView(parlay: model.parlay) } label: {
+                        ModeRow(icon: "square.stack.3d.up.fill", tint: Theme.Palette.moderate, title: "Daily parlay",
+                                subtitle: "The optimizer's track record",
+                                value: model.parlay.map { "\(Int($0.hitPct.rounded()))%" })
+                    }
+                    .buttonStyle(.plain)
+                    rowDivider
+                    NavigationLink { RecentResultsView(records: model.recent) } label: {
+                        ModeRow(icon: "clock.arrow.circlepath", tint: Theme.Palette.positive, title: "Recent results",
+                                subtitle: "Every graded pick, latest first",
+                                value: "\(model.recent.count)")
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.vertical, Theme.Spacing.xxs)
             }
         }
     }
 
-    private func resultIcon(_ correct: Bool?) -> some View {
-        Group {
-            switch correct {
-            case .some(true):
-                Image(systemName: "checkmark.circle.fill").foregroundStyle(Theme.Palette.positive)
-            case .some(false):
-                Image(systemName: "xmark.circle.fill").foregroundStyle(Theme.Palette.negative)
-            case .none:
-                Image(systemName: "clock").foregroundStyle(Theme.Palette.textTertiary)
-            }
-        }
-        .font(.system(size: 16))
+    private var rowDivider: some View {
+        Divider().overlay(Theme.Palette.border).padding(.leading, 66)
     }
 
     // MARK: - Helpers

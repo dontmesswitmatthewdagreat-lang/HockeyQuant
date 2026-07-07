@@ -1,8 +1,11 @@
 import SwiftUI
 
-/// Detailed team view: standings, advanced analytics, goalies, injuries.
+/// Detailed team view: standings, advanced analytics, players, goalies, injuries.
 struct TeamDetailView: View {
     @State private var model: TeamDetailViewModel
+    @State private var skaters: [SkaterStats] = []
+    @State private var showAllSkaters = false
+    private let api = APIClient()
 
     init(abbrev: String) {
         _model = State(initialValue: TeamDetailViewModel(abbrev: abbrev))
@@ -18,6 +21,8 @@ struct TeamDetailView: View {
         .navigationTitle(info.abbrev)
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
+        // Player stats load separately (best-effort) so the page never blocks on them.
+        .task { skaters = (try? await api.skaters(team: model.abbrev)) ?? [] }
     }
 
     @ViewBuilder
@@ -39,6 +44,9 @@ struct TeamDetailView: View {
                     standingsCard(detail.stats)
                     if let advanced = detail.advancedStats {
                         advancedCard(advanced)
+                    }
+                    if !skaters.isEmpty {
+                        playersCard
                     }
                     if !detail.goalies.isEmpty {
                         goaliesCard(detail.goalies)
@@ -140,6 +148,80 @@ struct TeamDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Players (skater season stats)
+
+    private var playersCard: some View {
+        let visible = showAllSkaters ? skaters : Array(skaters.prefix(10))
+        return Card {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                sectionHeader("Players (\(skaters.count))")
+                skaterHeaderRow
+                ForEach(visible) { skater in
+                    skaterRow(skater)
+                    if skater.id != visible.last?.id {
+                        Divider().overlay(Theme.Palette.border)
+                    }
+                }
+                if skaters.count > 10 {
+                    PressableButton(action: {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            showAllSkaters.toggle()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Text(showAllSkaters ? "Show top 10" : "Show all \(skaters.count)")
+                            Image(systemName: showAllSkaters ? "chevron.up" : "chevron.down")
+                                .font(.system(size: 10, weight: .bold))
+                        }
+                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.accent)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, Theme.Spacing.xxs)
+                    }
+                }
+            }
+        }
+    }
+
+    private var skaterHeaderRow: some View {
+        HStack(spacing: 0) {
+            Text("SKATER").frame(maxWidth: .infinity, alignment: .leading)
+            Text("GP").frame(width: 36, alignment: .trailing)
+            Text("G").frame(width: 32, alignment: .trailing)
+            Text("A").frame(width: 32, alignment: .trailing)
+            Text("P").frame(width: 36, alignment: .trailing)
+        }
+        .font(.system(size: 10, weight: .bold))
+        .foregroundStyle(Theme.Palette.textTertiary)
+    }
+
+    private func skaterRow(_ s: SkaterStats) -> some View {
+        HStack(spacing: 0) {
+            HStack(spacing: Theme.Spacing.xs) {
+                Text(s.position)
+                    .font(.system(size: 10, weight: .heavy, design: .rounded))
+                    .foregroundStyle(info.color)
+                    .frame(width: 16)
+                Text(s.name)
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(s.gamesPlayed)").frame(width: 36, alignment: .trailing)
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text("\(s.goals)").frame(width: 32, alignment: .trailing)
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text("\(s.assists)").frame(width: 32, alignment: .trailing)
+                .foregroundStyle(Theme.Palette.textSecondary)
+            Text("\(s.points)").frame(width: 36, alignment: .trailing)
+                .fontWeight(.bold)
+                .foregroundStyle(Theme.Palette.textPrimary)
+        }
+        .font(.system(size: 13, weight: .medium, design: .monospaced))
     }
 
     // MARK: - Goalies
