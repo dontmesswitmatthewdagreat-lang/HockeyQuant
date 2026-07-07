@@ -7,6 +7,14 @@ struct MLWeight: Decodable, Identifiable {
     let weight: Double
 }
 
+/// One point on the learning curve: CV accuracy when training on the most
+/// recent `games` games.
+struct MLCurvePoint: Decodable, Identifiable {
+    let games: Int
+    let accuracy: Double
+    var id: Int { games }
+}
+
 struct MLSaveResponse: Decodable {
     let modelId: String
     let name: String
@@ -16,7 +24,7 @@ struct MLSaveResponse: Decodable {
 }
 
 struct MLModelResponse: Decodable {
-    let n: Int
+    let n: Int                    // games actually trained on (the window)
     let homeRate: Double
     let officialAccuracy: Double
     let kind: String              // "logistic" | "boosted"
@@ -25,4 +33,8 @@ struct MLModelResponse: Decodable {
     let auc: Double
     let featuresUsed: [String]
     let weights: [MLWeight]
+    // Optional until the backend deploy lands.
+    let totalGames: Int?          // all graded games available
+    let dateRange: [String]?      // [first, last] yyyy-MM-dd of the window
+    let curve: [MLCurvePoint]?    // learning curve across window sizes
 }

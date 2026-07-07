@@ -298,6 +298,20 @@ struct GoalieStats: Decodable, Sendable, Identifiable {
     var id: String { name }
 }
 
+struct SkaterStats: Decodable, Sendable, Identifiable {
+    let name: String
+    let position: String
+    let gamesPlayed: Int
+    let goals: Int
+    let assists: Int
+    let points: Int
+    let xgoals: Double
+    let shots: Int
+    let toiPerGame: Double   // minutes per game
+
+    var id: String { name }
+}
+
 struct AdvancedStats: Decodable, Sendable {
     let corsiPct: Double
     let fenwickPct: Double
@@ -390,8 +404,14 @@ struct UserModel: Decodable, Identifiable, Sendable {
     let createdAt: String
     let updatedAt: String
     let accuracy: ModelAccuracyStats?
+    // "weighted" (hand-tuned) or "ml" (trained); optional until backend deploys.
+    let modelType: String?
+    let mlKind: String?                  // "logistic" | "boosted"
+    let mlFeatures: [String]?            // human-readable feature labels
 
     var resolvedMultipliers: ModelMultipliers { multipliers ?? .official }
+    var isML: Bool { modelType == "ml" }
+    var mlKindLabel: String { mlKind == "boosted" ? "Boosted" : "Logistic" }
 }
 
 struct ModelsListResponse: Decodable, Sendable {

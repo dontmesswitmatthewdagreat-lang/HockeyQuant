@@ -103,6 +103,16 @@ struct APIClient: Sendable {
         return try await get(url, as: TeamDetailResponse.self)
     }
 
+    /// `GET /api/teams/{abbrev}/skaters` — team skaters sorted by points.
+    func skaters(team abbrev: String) async throws -> [SkaterStats] {
+        let url = environment.baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("teams")
+            .appendingPathComponent(abbrev)
+            .appendingPathComponent("skaters")
+        return try await get(url, as: [SkaterStats].self)
+    }
+
     // MARK: - Accuracy
 
     /// `GET /api/accuracy/stats` — overall accuracy stats + recent results.
@@ -348,20 +358,21 @@ extension APIClient {
     }
 
     /// `GET /api/accuracy/ml-model` — train a model (logistic|boosted) on the features.
-    func mlModel(features: [String], model: String = "logistic") async throws -> MLModelResponse {
+    func mlModel(features: [String], model: String = "logistic", window: Int = 0) async throws -> MLModelResponse {
         var comps = URLComponents(url: apiURL("accuracy").appendingPathComponent("ml-model"), resolvingAgainstBaseURL: false)!
         var items = [URLQueryItem(name: "model", value: model)]
         if !features.isEmpty { items.append(URLQueryItem(name: "features", value: features.joined(separator: ","))) }
+        if window > 0 { items.append(URLQueryItem(name: "window", value: String(window))) }
         comps.queryItems = items
         let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
         return try Self.decode(MLModelResponse.self, from: data)
     }
 
     /// `POST /api/accuracy/ml-model/save` — train + save an ML model to the leaderboard.
-    func createMLModel(name: String, features: [String], model: String, token: String) async throws -> MLSaveResponse {
-        struct Req: Encodable { let name: String; let features: [String]; let model: String }
+    func createMLModel(name: String, features: [String], model: String, window: Int = 0, token: String) async throws -> MLSaveResponse {
+        struct Req: Encodable { let name: String; let features: [String]; let model: String; let window: Int }
         let url = apiURL("accuracy").appendingPathComponent("ml-model").appendingPathComponent("save")
-        let data = try await perform("POST", url, token: token, body: Req(name: name, features: features, model: model))
+        let data = try await perform("POST", url, token: token, body: Req(name: name, features: features, model: model, window: window))
         return try Self.decode(MLSaveResponse.self, from: data)
     }
 
