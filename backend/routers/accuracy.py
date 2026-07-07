@@ -1782,7 +1782,7 @@ def _ml_dataset():
     if sb is None:
         raise HTTPException(status_code=503, detail="Database not configured")
     preds = sb.table("predictions").select(
-        "game_date,home_team,away_team,home_final,away_final,correct").not_is("correct", "null").execute().data
+        "game_date,home_team,away_team,home_final,away_final,correct").not_is("correct", "null").order("game_date").execute().data
     dailies = sb.table("daily_predictions").select("game_date,predictions").execute().data
     lk = {}
     for row in dailies:
@@ -1904,30 +1904,52 @@ def _gbm_logodds(stumps, X):
     return F
 
 
+_ML_MIN_WINDOW = 60
+
+
+def _ml_cv_accuracies(X, y, boosted):
+    """5-fold CV accuracies for a (window of the) dataset. Standardizes inside."""
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Xs = (X - mu) / sd
+    rng = _np.random.default_rng(42); idx = _np.arange(len(y)); rng.shuffle(idx)
+    folds = _np.array_split(idx, 5); accs = []
+    for i in range(5):
+        te = folds[i]; tr = _np.concatenate([folds[j] for j in range(5) if j != i])
+        if boosted:
+            stumps, _imp = _train_gbm(Xs[tr], y[tr])
+            pred = (_gbm_logodds(stumps, Xs[te]) > 0).astype(int)
+        else:
+            w, b = _ml_train(Xs[tr], y[tr])
+            pred = (Xs[te] @ w + b > 0).astype(int)
+        accs.append(float((pred == y[te]).mean()))
+    return accs
+
+
+def _ml_window_slice(data, cols, window):
+    """Most-recent-`window` slice (dataset is chronological). 0 = everything."""
+    X_all = data["X"][:, cols]; y_all = data["y"]; meta_all = data["meta"]
+    total = len(y_all)
+    n_used = total if window <= 0 else max(min(window, total), min(_ML_MIN_WINDOW, total))
+    return X_all[-n_used:], y_all[-n_used:], meta_all[-n_used:], total
+
+
 @router.get("/accuracy/ml-model")
-def ml_model(features: str = "", model: str = "logistic"):
-    """Train a model on the chosen factor features; return 5-fold CV accuracy, AUC,
-    and the learned weights (logistic = signed coefficients; boosted = importances)."""
+def ml_model(features: str = "", model: str = "logistic", window: int = 0):
+    """Train a model on the chosen factor features over the most recent `window`
+    games (0 = all); return 5-fold CV accuracy, AUC, the learned weights, and a
+    learning curve of accuracy vs training-window size."""
     data = _ml_dataset()
     sel = [f for f in features.split(",") if f] if features else _ML_IDS
     cols = [i for i, fid in enumerate(_ML_IDS) if fid in sel] or list(range(len(_ML_IDS)))
-    X = data["X"][:, cols]; y = data["y"]; n = len(y)
-    mu, sd = X.mean(0), X.std(0) + 1e-9
-    Xs = (X - mu) / sd
     boosted = model == "boosted"
 
+    X, y, meta, total = _ml_window_slice(data, cols, window)
+    n = len(y)
+    mu, sd = X.mean(0), X.std(0) + 1e-9
+    Xs = (X - mu) / sd
+
     with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
-        rng = _np.random.default_rng(42); idx = _np.arange(n); rng.shuffle(idx)
-        folds = _np.array_split(idx, 5); accs = []
-        for i in range(5):
-            te = folds[i]; tr = _np.concatenate([folds[j] for j in range(5) if j != i])
-            if boosted:
-                stumps, _imp = _train_gbm(Xs[tr], y[tr])
-                pred = (_gbm_logodds(stumps, Xs[te]) > 0).astype(int)
-            else:
-                w, b = _ml_train(Xs[tr], y[tr])
-                pred = (Xs[te] @ w + b > 0).astype(int)
-            accs.append(float((pred == y[te]).mean()))
+        accs = _ml_cv_accuracies(X, y, boosted)
         if boosted:
             stumps, importance = _train_gbm(Xs, y)
             scores = _gbm_logodds(stumps, Xs)
@@ -1938,14 +1960,27 @@ def ml_model(features: str = "", model: str = "logistic"):
             vals = [float(w[i]) for i in range(len(cols))]
         auc = _ml_auc(scores, y)
 
+        # Learning curve: CV accuracy at a few most-recent-g-games checkpoints,
+        # so the client can chart how much history helps for these features.
+        X_full = data["X"][:, cols]; y_full = data["y"]
+        checkpoints = sorted({g for g in [100, 175, 250, 350, 450, total]
+                              if _ML_MIN_WINDOW <= g <= total})
+        curve = []
+        for g in checkpoints:
+            c = _ml_cv_accuracies(X_full[-g:], y_full[-g:], boosted)
+            curve.append({"games": g, "accuracy": round(float(_np.mean(c)) * 100, 1)})
+
     weights = sorted(
         [{"id": _ML_IDS[cols[i]], "label": _ML_LABELS[_ML_IDS[cols[i]]], "weight": round(vals[i], 3)} for i in range(len(cols))],
         key=lambda x: -abs(x["weight"]))
     return {
-        "n": n, "home_rate": data["home_rate"], "official_accuracy": data["official_accuracy"],
+        "n": n, "total_games": total,
+        "date_range": [meta[0]["game_date"], meta[-1]["game_date"]] if meta else None,
+        "home_rate": data["home_rate"], "official_accuracy": data["official_accuracy"],
         "kind": "boosted" if boosted else "logistic",
         "accuracy": round(float(_np.mean(accs)) * 100, 1), "accuracy_std": round(float(_np.std(accs)) * 100, 1),
         "auc": auc, "features_used": [_ML_IDS[i] for i in cols], "weights": weights,
+        "curve": curve,
     }
 
 
@@ -1953,6 +1988,7 @@ class SaveMLModelRequest(BaseModel):
     name: str
     features: List[str] = []
     model: str = "logistic"
+    window: int = 0   # train on the most recent N games (0 = all history)
 
 
 @router.post("/accuracy/ml-model/save")
@@ -1970,17 +2006,21 @@ def save_ml_model(req: SaveMLModelRequest, authorization: str = Header(None)):
     sel = [f for f in req.features if f] or _ML_IDS
     cols = [i for i, fid in enumerate(_ML_IDS) if fid in sel] or list(range(len(_ML_IDS)))
     used = [_ML_IDS[i] for i in cols]
-    X = data["X"][:, cols]; y = data["y"]; meta = data["meta"]; n = len(y)
+    X, y, meta, _total = _ml_window_slice(data, cols, req.window)
+    n = len(y)
     mu = X.mean(0); sd = X.std(0) + 1e-9; Xs = (X - mu) / sd
     boosted = req.model == "boosted"
+    trained_range = [meta[0]["game_date"], meta[-1]["game_date"]] if meta else None
 
     with _np.errstate(over="ignore", invalid="ignore", divide="ignore"):
         if boosted:
             stumps, _imp = _train_gbm(Xs, y)
-            ml_meta = {"features": used, "kind": "boosted", "mu": mu.tolist(), "sd": sd.tolist(), "stumps": stumps}
+            ml_meta = {"features": used, "kind": "boosted", "mu": mu.tolist(), "sd": sd.tolist(), "stumps": stumps,
+                       "window": n, "trained_range": trained_range}
         else:
             w, b = _ml_train(Xs, y)
-            ml_meta = {"features": used, "kind": "logistic", "mu": mu.tolist(), "sd": sd.tolist(), "w": w.tolist(), "b": float(b)}
+            ml_meta = {"features": used, "kind": "logistic", "mu": mu.tolist(), "sd": sd.tolist(), "w": w.tolist(), "b": float(b),
+                       "window": n, "trained_range": trained_range}
         # Out-of-fold probabilities for an honest historical record.
         rng = _np.random.default_rng(42); idx = _np.arange(n); rng.shuffle(idx)
         folds = _np.array_split(idx, 5)
@@ -2002,7 +2042,7 @@ def save_ml_model(req: SaveMLModelRequest, authorization: str = Header(None)):
 
     ins = sb.table("user_models").insert([{
         "user_id": user_id, "name": name,
-        "description": f"{ml_meta['kind'].title()} ML · {len(used)} features",
+        "description": f"{ml_meta['kind'].title()} ML · {len(used)} features · last {n} games",
         "is_active": True, "model_type": "ml", "ml_meta": ml_meta,
         "weight_offensive": 40, "weight_defensive": 15, "weight_goaltending": 30,
         "weight_points_pct": 10, "weight_win_rate": 5,
