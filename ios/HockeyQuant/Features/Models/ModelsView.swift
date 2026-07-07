@@ -7,6 +7,15 @@ struct ModelsView: View {
     @State private var model = ModelsViewModel()
     @State private var editor: ModelEditorMode?
 
+    // "+ New" builder chooser → classic slider editor or the ML trainer.
+    private enum BuilderKind { case classic, ml }
+    @State private var showChooser = false
+    @State private var pendingBuilder: BuilderKind?
+    @State private var showMLBuilder = false
+    @State private var mlDetail: UserModel?
+    @State private var expandedModelIds: Set<String> = []
+    @State private var segment = 0   // 0 = My Models, 1 = The Lab
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -19,32 +28,110 @@ struct ModelsView: View {
                     content
                 }
             }
-            .navigationTitle("Models")
-            .toolbar {
-                if auth.isSignedIn {
-                    ToolbarItem(placement: .topBarLeading) {
-                        NavigationLink { ModelsLeaderboardView() } label: {
-                            Label("Leaderboard", systemImage: "trophy.fill")
-                        }
-                    }
-                    ToolbarItem(placement: .topBarLeading) {
-                        NavigationLink { PlaygroundView() } label: {
-                            Label("Playground", systemImage: "flask.fill")
-                        }
-                    }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { editor = .create } label: {
-                            Label("New", systemImage: "plus")
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) { AvatarButton() }
-            }
+            // The curved hero band carries the top controls (+ New, avatar).
+            .toolbar(.hidden, for: .navigationBar)
             .sheet(item: $editor) { mode in
                 ModelEditorView(mode: mode) { await reload() }
             }
+            // Builder chooser: pick a path, then the target sheet opens on dismiss
+            // (opening a second sheet mid-dismissal races otherwise).
+            .sheet(isPresented: $showChooser, onDismiss: {
+                switch pendingBuilder {
+                case .classic: editor = .create
+                case .ml: showMLBuilder = true
+                case nil: break
+                }
+                pendingBuilder = nil
+            }) {
+                builderChooser
+                    .presentationDetents([.height(320)])
+                    .presentationDragIndicator(.visible)
+            }
+            .sheet(isPresented: $showMLBuilder) { mlBuilderSheet }
+            .sheet(item: $mlDetail) { m in
+                MLModelDetailSheet(model: m) { await reload() }
+            }
         }
         .task(id: auth.isSignedIn) { await reload() }
+    }
+
+    // MARK: - Builder chooser
+
+    private var builderChooser: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("New model")
+                    .font(Theme.Font.title())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text("Pick how you want to build it.")
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(Theme.Palette.textSecondary)
+            }
+            chooserOption(icon: "slider.horizontal.3", tint: Theme.Palette.accent,
+                          title: "Classic builder",
+                          subtitle: "Hand-tune the factor weights and emphasis with sliders.") {
+                pendingBuilder = .classic
+                showChooser = false
+            }
+            chooserOption(icon: "cpu.fill", tint: Color(hex: 0xAF52DE),
+                          title: "Machine-learned",
+                          subtitle: "Pick the inputs — it trains on the season's games and reports out-of-sample accuracy.") {
+                pendingBuilder = .ml
+                showChooser = false
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.Palette.background)
+    }
+
+    private func chooserOption(icon: String, tint: Color, title: String, subtitle: String,
+                               action: @escaping () -> Void) -> some View {
+        PressableButton(action: action) {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(tint.opacity(0.16))
+                    Image(systemName: icon)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
+                .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(Theme.Font.headlineHeavy())
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text(subtitle)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            .padding(Theme.Spacing.sm)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .stroke(Theme.Palette.border, lineWidth: 1))
+        }
+    }
+
+    private var mlBuilderSheet: some View {
+        NavigationStack {
+            MLModelView(onSaved: {
+                showMLBuilder = false
+                Task { await reload() }
+            })
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("Cancel") { showMLBuilder = false }
+                }
+            }
+        }
     }
 
     private func reload() async {
@@ -85,40 +172,137 @@ struct ModelsView: View {
         case .error(let message):
             ErrorStateView(message: message) { Task { await reload() } }
         case .loaded(let models):
-            if models.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    VStack(spacing: Theme.Spacing.md) {
-                        ForEach(Array(models.enumerated()), id: \.element.id) { index, m in
-                            Button { editor = .edit(m) } label: { ModelCard(model: m) }
-                                .buttonStyle(.plain)
-                                .staggeredEntrance(index: index)
+            ScrollView {
+                VStack(spacing: Theme.Spacing.lg) {
+                    modelsBand(models)   // full-bleed curved header
+                    VStack(spacing: Theme.Spacing.lg) {
+                        BigSegment(selection: $segment, options: ["My Models", "The Lab"])
+                        ZStack {
+                            if segment == 0 {
+                                modelsSegment(models).transition(.opacity)
+                            } else {
+                                labGrid.transition(.opacity)
+                            }
                         }
                     }
-                    .padding(Theme.Spacing.md)
+                    .padding(.horizontal, Theme.Spacing.md)
                 }
-                .refreshable { await reload() }
+                .padding(.bottom, Theme.Spacing.md)
+            }
+            .refreshable { await reload() }
+        }
+    }
+
+    // MARK: - Hero band (curved header)
+
+    private func modelsBand(_ models: [UserModel]) -> some View {
+        HeroBand(tint: Theme.Palette.accent) {
+            VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    Spacer()
+                    BandIconButton(systemImage: "plus") { showChooser = true }
+                    AvatarButton()
+                }
+                Text("Models")
+                    .font(.system(size: 30, weight: .heavy))
+                    .foregroundStyle(.white)
+                Text("\(models.count) model\(models.count == 1 ? "" : "s") · 6 lab tools · one leaderboard")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
             }
         }
     }
 
-    private var emptyState: some View {
+    // MARK: - My Models segment
+
+    private func modelsSegment(_ models: [UserModel]) -> some View {
         VStack(spacing: Theme.Spacing.md) {
-            EmptyStateView(
-                systemImage: "slider.horizontal.3",
-                title: "No models yet",
-                message: "Create your first model and tune the weightings your way."
-            )
-            PressableButton(action: { editor = .create }) {
-                Label("New model", systemImage: "plus")
-                    .font(Theme.Font.headline())
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, Theme.Spacing.lg)
-                    .padding(.vertical, Theme.Spacing.sm)
-                    .background(Theme.Palette.accent)
-                    .clipShape(Capsule())
+            if models.isEmpty {
+                emptyModelsCard
+            } else {
+                ForEach(Array(models.enumerated()), id: \.element.id) { index, m in
+                    ModelCard(
+                        model: m,
+                        isExpanded: expandedModelIds.contains(m.id),
+                        onToggle: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                if expandedModelIds.contains(m.id) {
+                                    expandedModelIds.remove(m.id)
+                                } else {
+                                    expandedModelIds.insert(m.id)
+                                }
+                            }
+                        },
+                        // ML models aren't slider-editable — show their detail instead.
+                        onOpen: { if m.isML { mlDetail = m } else { editor = .edit(m) } }
+                    )
+                    .staggeredEntrance(index: index)
+                }
+                Button { showChooser = true } label: {
+                    CapsuleActionLabel(title: "New model", systemImage: "plus", prominent: true)
+                }
+                .buttonStyle(.plain)
             }
+        }
+    }
+
+    private var emptyModelsCard: some View {
+        Card {
+            VStack(spacing: Theme.Spacing.sm) {
+                Image(systemName: "slider.horizontal.3")
+                    .font(.system(size: 30))
+                    .foregroundStyle(Theme.Palette.accent)
+                Text("No models yet")
+                    .font(Theme.Font.headline())
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text("Create your first model and tune the weightings your way.")
+                    .font(Theme.Font.caption())
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .multilineTextAlignment(.center)
+                PressableButton(action: { editor = .create }) {
+                    Label("New model", systemImage: "plus")
+                        .font(Theme.Font.headline())
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, Theme.Spacing.lg)
+                        .padding(.vertical, Theme.Spacing.xs)
+                        .background(Theme.Palette.accent)
+                        .clipShape(Capsule())
+                }
+                .padding(.top, Theme.Spacing.xxs)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - The Lab segment (tool tile grid)
+
+    private var labGrid: some View {
+        let cols = Array(repeating: GridItem(.flexible(), spacing: Theme.Spacing.sm), count: 3)
+        return LazyVGrid(columns: cols, spacing: Theme.Spacing.sm) {
+            NavigationLink { WhatIfSimulatorView() } label: {
+                ActionTile(icon: "dial.medium.fill", title: "What-if", tint: Theme.Palette.accent)
+            }
+            .buttonStyle(.plain)
+            NavigationLink { MonteCarloView() } label: {
+                ActionTile(icon: "dice.fill", title: "Monte-Carlo", tint: Theme.Palette.accentAlt)
+            }
+            .buttonStyle(.plain)
+            NavigationLink { SeasonOddsView() } label: {
+                ActionTile(icon: "chart.xyaxis.line", title: "Season odds", tint: Theme.Palette.positive)
+            }
+            .buttonStyle(.plain)
+            NavigationLink { BacktestView() } label: {
+                ActionTile(icon: "list.bullet.rectangle.fill", title: "Backtester", tint: Theme.Palette.moderate)
+            }
+            .buttonStyle(.plain)
+            NavigationLink { MLModelView() } label: {
+                ActionTile(icon: "cpu.fill", title: "ML model", tint: Color(hex: 0xAF52DE))
+            }
+            .buttonStyle(.plain)
+            NavigationLink { ModelsLeaderboardView() } label: {
+                ActionTile(icon: "trophy.fill", title: "Leaderboard", tint: Color(hex: 0xC9A227))
+            }
+            .buttonStyle(.plain)
         }
     }
 }
@@ -127,53 +311,108 @@ struct ModelsView: View {
 
 struct ModelCard: View {
     let model: UserModel
+    var isExpanded: Bool = true
+    var onToggle: (() -> Void)? = nil
+    var onOpen: (() -> Void)? = nil
 
     var body: some View {
         Card {
             VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(model.name)
-                            .font(Theme.Font.headline())
-                            .foregroundStyle(Theme.Palette.textPrimary)
-                        if let desc = model.description, !desc.isEmpty {
-                            Text(desc)
-                                .font(Theme.Font.caption())
-                                .foregroundStyle(Theme.Palette.textTertiary)
-                                .lineLimit(1)
+                // Header taps toggle expansion; the action row inside opens edit/detail.
+                PressableButton(action: { onToggle?() }) {
+                    HStack(alignment: .center, spacing: Theme.Spacing.xs) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(model.name)
+                                .font(Theme.Font.headline())
+                                .foregroundStyle(Theme.Palette.textPrimary)
+                                .multilineTextAlignment(.leading)
+                            if let desc = model.description, !desc.isEmpty {
+                                Text(desc)
+                                    .font(Theme.Font.caption())
+                                    .foregroundStyle(Theme.Palette.textTertiary)
+                                    .lineLimit(1)
+                            }
                         }
-                    }
-                    Spacer()
-                    accuracyVerdict
-                }
-                if let acc = model.accuracy, acc.totalPredictions > 0 {
-                    HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
-                        Text("\(Int(acc.accuracyPct.rounded()))%")
-                            .font(.system(size: 26, weight: .heavy, design: .rounded))
-                            .foregroundStyle(Theme.Palette.accent)
-                        Text("\(acc.correctPredictions)/\(acc.totalPredictions) graded")
-                            .font(Theme.Font.caption())
+                        Spacer(minLength: Theme.Spacing.xs)
+                        if model.isML {
+                            StatusPill(text: "ML", systemImage: "cpu", color: Color(hex: 0xAF52DE), solid: true)
+                        }
+                        accuracyVerdict
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .bold))
                             .foregroundStyle(Theme.Palette.textTertiary)
-                        Spacer(minLength: 0)
+                            .rotationEffect(.degrees(isExpanded ? -180 : 0))
                     }
-                    // Where this model's accuracy lands on a coin‑flip → elite track.
-                    RangeGauge(fraction: normAcc(acc.accuracyPct), loLabel: "40%", hiLabel: "65%",
-                               tint: Theme.Palette.textPrimary,
-                               gradient: [Theme.Palette.negative, Theme.Palette.moderate, Theme.Palette.positive])
-                } else {
-                    Text("No graded picks yet")
-                        .font(Theme.Font.caption())
-                        .foregroundStyle(Theme.Palette.textTertiary)
+                    .contentShape(Rectangle())
                 }
-                Divider().overlay(Theme.Palette.border)
-                Text("WEIGHTS")
-                    .font(.system(size: 10, weight: .heavy, design: .rounded)).tracking(0.6)
+
+                if isExpanded {
+                    expandedContent
+                        .transition(.opacity)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder private var expandedContent: some View {
+        if let acc = model.accuracy, acc.totalPredictions > 0 {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
+                Text("\(Int(acc.accuracyPct.rounded()))%")
+                    .font(.system(size: 26, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.accent)
+                Text("\(acc.correctPredictions)/\(acc.totalPredictions) graded")
+                    .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textTertiary)
-                VStack(spacing: 7) {
-                    ForEach(Array(model.weights.rows.enumerated()), id: \.offset) { i, row in
-                        weightRow(row.label, row.value, WeightBar.colors[i % WeightBar.colors.count])
-                    }
+                Spacer(minLength: 0)
+            }
+            // Where this model's accuracy lands on a coin‑flip → elite track.
+            RangeGauge(fraction: normAcc(acc.accuracyPct), loLabel: "40%", hiLabel: "65%",
+                       tint: Theme.Palette.textPrimary,
+                       gradient: [Theme.Palette.negative, Theme.Palette.moderate, Theme.Palette.positive])
+        } else {
+            Text("No graded picks yet")
+                .font(Theme.Font.caption())
+                .foregroundStyle(Theme.Palette.textTertiary)
+        }
+        Divider().overlay(Theme.Palette.border)
+        if model.isML {
+            Text("FEATURES · \(model.mlKindLabel.uppercased())")
+                .font(.system(size: 10, weight: .heavy, design: .rounded)).tracking(0.6)
+                .foregroundStyle(Theme.Palette.textTertiary)
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)],
+                      alignment: .leading, spacing: 6) {
+                ForEach(model.mlFeatures ?? [], id: \.self) { f in
+                    Text(f)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0xAF52DE))
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .background(Color(hex: 0xAF52DE).opacity(0.10))
+                        .clipShape(Capsule())
                 }
+            }
+        } else {
+            Text("WEIGHTS")
+                .font(.system(size: 10, weight: .heavy, design: .rounded)).tracking(0.6)
+                .foregroundStyle(Theme.Palette.textTertiary)
+            VStack(spacing: 7) {
+                ForEach(Array(model.weights.rows.enumerated()), id: \.offset) { i, row in
+                    weightRow(row.label, row.value, WeightBar.colors[i % WeightBar.colors.count])
+                }
+            }
+        }
+        if onOpen != nil {
+            PressableButton(action: { onOpen?() }) {
+                HStack(spacing: 4) {
+                    Image(systemName: model.isML ? "info.circle" : "slider.horizontal.3")
+                        .font(.system(size: 11, weight: .bold))
+                    Text(model.isML ? "View details" : "Edit weights")
+                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .heavy))
+                }
+                .font(.system(size: 12, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.accent)
+                .frame(maxWidth: .infinity)
+                .padding(.top, Theme.Spacing.xxs)
             }
         }
     }
@@ -212,6 +451,161 @@ struct ModelCard: View {
         } else {
             StatusPill(text: "Untested", color: Theme.Palette.textTertiary)
         }
+    }
+}
+
+// MARK: - ML model detail (info + delete; ML models aren't slider-editable)
+
+struct MLModelDetailSheet: View {
+    let model: UserModel
+    var onChanged: () async -> Void
+
+    @Environment(AuthStore.self) private var auth
+    @Environment(\.dismiss) private var dismiss
+    @State private var confirmDelete = false
+    @State private var deleting = false
+    @State private var errorMessage: String?
+    private let api = APIClient()
+
+    private let mlTint = Color(hex: 0xAF52DE)
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                Theme.backgroundView().ignoresSafeArea()
+                ScrollView {
+                    VStack(spacing: Theme.Spacing.md) {
+                        header
+                        if let acc = model.accuracy, acc.totalPredictions > 0 {
+                            accuracyCard(acc)
+                        }
+                        featuresCard
+                        howItWorks
+                        deleteButton
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(Theme.Font.caption())
+                                .foregroundStyle(Theme.Palette.negative)
+                        }
+                    }
+                    .padding(Theme.Spacing.md)
+                }
+            }
+            .navigationTitle(model.name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+            .confirmationDialog("Delete “\(model.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("Delete model", role: .destructive) { Task { await deleteModel() } }
+            } message: {
+                Text("This removes the model and its tracked predictions.")
+            }
+        }
+    }
+
+    private var header: some View {
+        Card {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(mlTint.opacity(0.16))
+                    Image(systemName: "cpu.fill")
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundStyle(mlTint)
+                }
+                .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(model.mlKindLabel) ML model")
+                        .font(Theme.Font.headlineHeavy())
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("\((model.mlFeatures ?? []).count) features · trained on the season's graded games")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private func accuracyCard(_ acc: ModelAccuracyStats) -> some View {
+        SectionCard("Accuracy") {
+            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.xs) {
+                    Text("\(Int(acc.accuracyPct.rounded()))%")
+                        .font(.system(size: 34, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.accent)
+                    Text("\(acc.correctPredictions)/\(acc.totalPredictions) graded")
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                    Spacer(minLength: 0)
+                }
+                RangeGauge(fraction: min(max((acc.accuracyPct - 40) / 25, 0), 1),
+                           loLabel: "40%", hiLabel: "65%",
+                           tint: Theme.Palette.textPrimary,
+                           gradient: [Theme.Palette.negative, Theme.Palette.moderate, Theme.Palette.positive])
+            }
+        }
+    }
+
+    private var featuresCard: some View {
+        SectionCard("Features") {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 6)],
+                      alignment: .leading, spacing: 6) {
+                ForEach(model.mlFeatures ?? [], id: \.self) { f in
+                    Text(f)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(mlTint)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .frame(maxWidth: .infinity)
+                        .background(mlTint.opacity(0.10))
+                        .clipShape(Capsule())
+                }
+            }
+        }
+    }
+
+    private var howItWorks: some View {
+        SectionCard("How it works") {
+            Text("This model was trained once on the season's graded games and keeps its learned weights. It automatically calls each night's official slate, and its picks are graded like any other model. ML models can't be edited — train a new one from + New to try different inputs.")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+    }
+
+    private var deleteButton: some View {
+        PressableButton(action: { confirmDelete = true }) {
+            HStack(spacing: 6) {
+                if deleting { ProgressView().tint(.white) } else { Image(systemName: "trash.fill") }
+                Text(deleting ? "Deleting…" : "Delete model")
+            }
+            .font(Theme.Font.headline())
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, Theme.Spacing.sm)
+            .background(Theme.Palette.negative)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+        }
+        .disabled(deleting)
+    }
+
+    private func deleteModel() async {
+        guard let token = await auth.accessToken() else {
+            errorMessage = "Sign in to delete this model."
+            return
+        }
+        deleting = true
+        errorMessage = nil
+        do {
+            try await api.deleteModel(id: model.id, token: token)
+            await onChanged()
+            dismiss()
+        } catch {
+            errorMessage = "Couldn't delete: \(error.localizedDescription)"
+        }
+        deleting = false
     }
 }
 
