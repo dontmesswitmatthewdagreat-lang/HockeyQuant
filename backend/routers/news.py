@@ -12,6 +12,7 @@ from typing import Optional, List
 
 import requests
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from services.supabase_client import get_supabase
 from services.news_sources import fetch_league_items, fetch_team_items, _google_news
@@ -168,3 +169,79 @@ def search(q: str):
             if len(past) >= 8:
                 break
     return {"answer": ans["answer"], "sources": ans["items"], "past_matches": past[:8]}
+
+
+# MARK: - Article quick summary (long-press on a news card)
+
+_summary_cache: dict = {}
+
+
+class SummarizeRequest(BaseModel):
+    url: str
+    headline: str = ""
+    blurb: str = ""
+
+
+def _article_text(url: str) -> str:
+    """Best-effort readable text from an article page (paragraph tags only)."""
+    resp = requests.get(
+        url,
+        headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"},
+        timeout=12, allow_redirects=True,
+    )
+    resp.raise_for_status()
+    html = resp.text
+    html = re.sub(r"<(script|style|nav|header|footer|aside)[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
+    paras = re.findall(r"<p[^>]*>(.*?)</p>", html, re.S | re.I)
+    chunks = []
+    for p in paras:
+        txt = re.sub(r"<[^>]+>", " ", p)
+        txt = re.sub(r"\s+", " ", txt).strip()
+        if len(txt) > 60:  # skip nav crumbs / bylines
+            chunks.append(txt)
+    return " ".join(chunks)[:6000]
+
+
+@router.post("/news/summarize")
+def summarize(req: SummarizeRequest):
+    """3–4 sentence AI summary of one article so users don't have to leave the
+    app. Cached per URL; article text is fetched best-effort and we fall back
+    to the digest headline/blurb when a site blocks us."""
+    url = (req.url or "").strip()
+    if not url.startswith("http"):
+        raise HTTPException(status_code=400, detail="Invalid URL")
+    if url in _summary_cache:
+        return {"summary": _summary_cache[url], "cached": True}
+
+    try:
+        text = _article_text(url)
+    except Exception:
+        text = ""
+    source = f"ARTICLE TEXT:\n{text}" if len(text) >= 400 else \
+        f"Only the headline and blurb are available.\nHEADLINE: {req.headline}\nBLURB: {req.blurb}"
+    if len(text) < 400 and not (req.headline or req.blurb):
+        raise HTTPException(status_code=422, detail="Could not read this article")
+
+    from services.llm import groq_chat
+    try:
+        summary = groq_chat(
+            [
+                {"role": "system", "content": (
+                    "You summarize NHL news for a hockey app. Reply with a 3-4 sentence "
+                    "plain-text summary of the article: what happened, who is involved, and "
+                    "why it matters. No preamble, no markdown, no headline restatement.")},
+                {"role": "user", "content": source},
+            ],
+            max_tokens=400, temperature=0.3,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Summary unavailable: {e}")
+
+    # If the model ran out of tokens mid-thought, cut back to the last full sentence.
+    if summary and summary[-1] not in ".!?\"" and "." in summary:
+        summary = summary[: summary.rfind(".") + 1]
+
+    if len(_summary_cache) > 500:
+        _summary_cache.clear()
+    _summary_cache[url] = summary
+    return {"summary": summary, "cached": False}
