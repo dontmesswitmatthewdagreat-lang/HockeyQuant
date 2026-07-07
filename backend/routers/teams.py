@@ -64,6 +64,18 @@ class GoalieStats(BaseModel):
     is_starter: bool
 
 
+class SkaterStats(BaseModel):
+    name: str
+    position: str
+    games_played: int
+    goals: int
+    assists: int
+    points: int
+    xgoals: float
+    shots: int
+    toi_per_game: float  # minutes per game
+
+
 class AdvancedStats(BaseModel):
     corsi_for: float
     corsi_against: float
@@ -402,6 +414,55 @@ async def get_team_goalies(abbrev: str):
         ))
 
     return goalies
+
+
+@router.get("/teams/{abbrev}/skaters", response_model=List[SkaterStats])
+async def get_team_skaters(abbrev: str):
+    """
+    Get all skaters for a team from MoneyPuck season data.
+
+    - **abbrev**: Team abbreviation (e.g., TOR, BOS, EDM)
+
+    Returns skaters sorted by points (leaders first).
+    """
+    abbrev = abbrev.upper()
+    if abbrev not in ALL_TEAMS:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Team '{abbrev}' not found. Valid abbreviations: {', '.join(sorted(ALL_TEAMS))}"
+        )
+
+    data_loader = get_data_loader()
+    data_loader.load_all_data()
+
+    skater_data = data_loader.skater_data
+    if skater_data is None:
+        raise HTTPException(status_code=500, detail="Failed to load skater data")
+
+    team_skaters = skater_data[skater_data['team'] == abbrev]
+    if team_skaters.empty:
+        return []
+
+    skaters = []
+    for _, s in team_skaters.iterrows():
+        goals = int(float(s.get('I_F_goals', 0)))
+        assists = int(float(s.get('I_F_primaryAssists', 0)) + float(s.get('I_F_secondaryAssists', 0)))
+        games = int(s.get('games_played', 0))
+        icetime = float(s.get('icetime', 0))
+        skaters.append(SkaterStats(
+            name=str(s['name']),
+            position=str(s.get('position', '?')).upper(),
+            games_played=games,
+            goals=goals,
+            assists=assists,
+            points=goals + assists,
+            xgoals=round(float(s.get('I_F_xGoals', 0)), 1),
+            shots=int(float(s.get('I_F_shotsOnGoal', 0))),
+            toi_per_game=round((icetime / 60) / games, 1) if games > 0 else 0.0,
+        ))
+
+    skaters.sort(key=lambda sk: sk.points, reverse=True)
+    return skaters
 
 
 @router.get("/divisions")
