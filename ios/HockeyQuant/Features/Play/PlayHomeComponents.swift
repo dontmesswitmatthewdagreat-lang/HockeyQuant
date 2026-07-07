@@ -1,7 +1,8 @@
 import SwiftUI
 
-// Components for the redesigned "arcade mode-select" Play home. Each segment is a
-// distinct gamified tile; data all comes pre-loaded from GamificationStore.
+// Components for the Rocket Money-style Play home: a personal greeting, a
+// big-balance Cap Space hero, the slate progress ring with compact game rows,
+// and grouped mode rows. Data comes pre-loaded from GamificationStore.
 
 // MARK: - Section label
 
@@ -35,7 +36,7 @@ extension SectionLabel where Trailing == EmptyView {
     init(_ title: String) { self.init(title, trailing: { EmptyView() }) }
 }
 
-/// A compact pill chip used for the season tag and the slate "called" progress.
+/// A compact pill chip used for the season tag and small stat callouts.
 struct PillChip: View {
     let text: String
     var systemImage: String? = nil
@@ -54,227 +55,174 @@ struct PillChip: View {
     }
 }
 
-// MARK: - Identity HUD (GM tier / XP / streak)
+// MARK: - Slate progress ring
 
-/// The player's account identity: GM tier, XP progress, and current streak. Taps → SeasonView.
-struct GMIdentityCard: View {
-    let stats: UserStats
-    let season: SeasonStats
+/// The signature progress ring: how much of tonight's slate you've called.
+struct SlateRing: View {
+    let picked: Int
+    let total: Int
 
-    private var tier: GMTier { GMTier.current(forXp: season.xp) }
-    private var next: GMTier? { GMTier.next(forXp: season.xp) }
-    private var progress: Double { GMTier.progress(forXp: season.xp) }
+    private var fraction: Double { total > 0 ? Double(picked) / Double(total) : 0 }
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                HStack(spacing: Theme.Spacing.md) {
-                    ZStack {
-                        Circle().fill(tier.color.opacity(0.18))
-                        Circle().stroke(tier.color.opacity(0.55), lineWidth: 2)
-                        Image(systemName: tier.icon).font(.system(size: 24)).foregroundStyle(tier.color)
-                    }
-                    .frame(width: 56, height: 56)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(tier.name).font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
-                        Text("General Manager").font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Theme.Palette.textTertiary)
-                    }
-                    Spacer(minLength: 0)
-                    streakChip
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                }
-
-                // XP position on the tier ladder → the signature range gauge.
-                RangeGauge(fraction: next == nil ? 1 : progress,
-                           hiLabel: next.map { "\(season.xp) / \($0.threshold) XP → \($0.name)" }
-                                    ?? "Max tier · \(season.xp) XP",
-                           tint: tier.color, filled: true)
-
-                Divider().overlay(Theme.Palette.border)
-
-                // Season metric strip — a compact stats panel.
-                HStack(spacing: Theme.Spacing.sm) {
-                    metric("Record", "\(stats.picksCorrect)–\(max(0, stats.picksMade - stats.picksCorrect))")
-                    metricDivider
-                    metric("Accuracy", stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—")
-                    metricDivider
-                    metric("Beat AI", "\(stats.beatsModel)")
-                    metricDivider
-                    metric("Cups", "\(stats.stanleyCups)")
-                }
-            }
-        }
-    }
-
-    private func metric(_ label: String, _ value: String) -> some View {
-        VStack(spacing: 1) {
-            Text(value).font(.system(size: 18, weight: .heavy, design: .rounded))
-                .foregroundStyle(Theme.Palette.textPrimary).contentTransition(.numericText())
-            Text(label).font(.system(size: 10, weight: .medium)).foregroundStyle(Theme.Palette.textSecondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private var metricDivider: some View {
-        Divider().frame(height: 26).overlay(Theme.Palette.border)
-    }
-
-    private var streakChip: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "flame.fill").font(.system(size: 11)).foregroundStyle(Color(hex: 0xFF6B35))
-            Text("\(stats.currentStreak)").font(.system(size: 14, weight: .heavy, design: .rounded))
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .contentTransition(.numericText())
-            Text("· best \(stats.bestStreak)").font(.system(size: 9, weight: .medium))
-                .foregroundStyle(Theme.Palette.textPrimary)
-        }
-        .padding(.horizontal, 8).padding(.vertical, 4)
-        .background(Color(hex: 0xFF6B35).opacity(0.12)).clipShape(Capsule())
-    }
-}
-
-// MARK: - Featured ranked mode (Global League)
-
-/// The marquee "ranked" mode: a glowing tile with the Stanley Cup ring, arena tier,
-/// and Cap Space / Accuracy / Picks. Taps → GlobalLeagueView.
-struct RankedModeTile: View {
-    let stats: UserStats
-
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var ring: Double = 0
-    @State private var displayCups: Int = 0
-
-    private var arena: Arena { Arena.current(forCups: stats.stanleyCups) }
-
-    var body: some View {
-        Card {
-            VStack(spacing: Theme.Spacing.md) {
-                HStack(alignment: .center, spacing: Theme.Spacing.md) {
-                    cupRing
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack(spacing: Theme.Spacing.xs) {
-                            Text("GLOBAL LEAGUE")
-                                .font(.system(size: 15, weight: .heavy, design: .rounded))
-                                .foregroundStyle(Theme.Palette.textPrimary)
-                            rankedPill
-                        }
-                        HStack(spacing: Theme.Spacing.xs) {
-                            Text(arena.name)
-                                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                                .foregroundStyle(arena.color)
-                            accuracyVerdict
-                        }
-                        Text("Climb the Cup ladder vs everyone")
-                            .font(.system(size: 11)).foregroundStyle(Theme.Palette.textPrimary)
-                    }
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                }
-                Divider().overlay(Theme.Palette.border)
-                statsRow
-            }
-        }
-        .overlay(
-            AnimatedGradientRing(cornerRadius: Theme.Radius.md, lineWidth: 2)
-                .opacity(reduceMotion ? 0.6 : 1)
-                .allowsHitTesting(false)
-        )
-        .onAppear { animateIn() }
-        .onChange(of: stats.stanleyCups) { _, _ in animateIn() }
-    }
-
-    private func animateIn() {
-        let target = Arena.progress(forCups: stats.stanleyCups)
-        guard !reduceMotion else { ring = target; displayCups = stats.stanleyCups; return }
-        withAnimation(.easeOut(duration: 0.9)) { ring = target; displayCups = stats.stanleyCups }
-    }
-
-    /// A short "how are your picks going" verdict on Global League accuracy.
-    private var accuracyVerdict: AnyView {
-        guard stats.picksMade > 0 else { return AnyView(StatusPill(text: "Unranked", color: Theme.Palette.textTertiary)) }
-        let acc = stats.accuracy
-        if acc >= 55 { return AnyView(StatusPill(text: "Sharp", systemImage: "flame.fill", color: Theme.Palette.positive, solid: true)) }
-        if acc >= 50 { return AnyView(StatusPill(text: "Solid", color: Theme.Palette.positive)) }
-        if acc >= 45 { return AnyView(StatusPill(text: "Steady", color: Theme.Palette.moderate)) }
-        return AnyView(StatusPill(text: "Cold", color: Theme.Palette.negative))
-    }
-
-    private var rankedPill: some View {
-        Text("RANKED")
-            .font(.system(size: 9, weight: .heavy, design: .rounded))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 7).padding(.vertical, 3)
-            .background(Theme.Palette.accent).clipShape(Capsule())
-    }
-
-    private var cupRing: some View {
         ZStack {
-            Circle().stroke(Theme.Palette.border, lineWidth: 6)
+            Circle().stroke(Theme.Palette.background, lineWidth: 7)
             Circle()
-                .trim(from: 0, to: max(0.02, ring))
-                .stroke(AngularGradient(colors: [arena.color, Theme.Palette.accent, arena.color], center: .center),
-                        style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                .trim(from: 0, to: max(total > 0 ? 0.02 : 0, fraction))
+                .stroke(AngularGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt, Theme.Palette.accent],
+                                        center: .center),
+                        style: StrokeStyle(lineWidth: 7, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .animation(.easeOut(duration: 0.7), value: fraction)
             VStack(spacing: 0) {
-                Image(systemName: "trophy.fill").font(.system(size: 12)).foregroundStyle(arena.color)
-                Text("\(displayCups)").font(.system(size: 22, weight: .heavy, design: .rounded))
+                Text("\(picked)/\(max(total, 0))")
+                    .font(.system(size: 17, weight: .heavy, design: .rounded))
                     .foregroundStyle(Theme.Palette.textPrimary)
                     .contentTransition(.numericText())
-                Text("CUPS").font(.system(size: 8, weight: .bold)).foregroundStyle(Theme.Palette.textPrimary)
+                Text("CALLED")
+                    .font(.system(size: 7, weight: .bold))
+                    .tracking(0.5)
+                    .foregroundStyle(Theme.Palette.textTertiary)
             }
         }
-        .frame(width: 72, height: 72)
-    }
-
-    private var statsRow: some View {
-        HStack(spacing: Theme.Spacing.sm) {
-            StatPill(label: "Cap Space", value: stats.capSpace.asCapMoney, labelColor: Theme.Palette.textPrimary)
-            Divider().frame(height: 28).overlay(Theme.Palette.border)
-            StatPill(label: "Accuracy", value: stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—", labelColor: Theme.Palette.textPrimary)
-            Divider().frame(height: 28).overlay(Theme.Palette.border)
-            StatPill(label: "Picks", value: "\(stats.picksMade)", labelColor: Theme.Palette.textPrimary)
-        }
+        .frame(width: 68, height: 68)
     }
 }
 
-// MARK: - Secondary mode tile (Private Leagues / My Franchise)
+// MARK: - Slate game row (bill-style)
 
-/// A square-ish gamified mode tile used 2-up under the ranked hero.
-struct ModeTile: View {
-    let title: String
-    let icon: String
-    let subtitle: String
-    let tint: Color
+/// A compact "upcoming bill"-style row for one game: overlapping crests, the
+/// matchup, the model's lean + start time, and the pick state. Tap → pick sheet.
+struct SlateGameRow: View {
+    let game: GamePrediction
+    let pick: UserPick?
+
+    private var graded: Bool { pick?.correct != nil }
 
     var body: some View {
-        Card {
-            VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
-                        .fill(tint.opacity(0.16))
-                    Image(systemName: icon).font(.system(size: 20, weight: .semibold)).foregroundStyle(tint)
-                }
-                .frame(width: 44, height: 44)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title).font(Theme.Font.headlineHeavy()).foregroundStyle(Theme.Palette.textPrimary)
-                        .lineLimit(1).minimumScaleFactor(0.8)
-                    Text(subtitle).font(.system(size: 11)).foregroundStyle(Theme.Palette.textPrimary)
-                        .lineLimit(2, reservesSpace: true)
-                }
-                HStack(spacing: 3) {
-                    Text("ENTER").font(.system(size: 10, weight: .heavy, design: .rounded))
-                    Image(systemName: "chevron.right").font(.system(size: 9, weight: .heavy))
-                }
-                .foregroundStyle(tint)
+        HStack(spacing: Theme.Spacing.sm) {
+            ZStack {
+                CrestView(abbrev: game.away.team, size: 30).offset(x: -9)
+                CrestView(abbrev: game.home.team, size: 30).offset(x: 9)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(width: 52, height: 34)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(game.away.info.abbrev) @ \(game.home.info.abbrev)")
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            Spacer(minLength: Theme.Spacing.xs)
+            trailingState
         }
+        .contentShape(Rectangle())
+    }
+
+    private var subtitle: String {
+        var parts = ["Model: \(game.pick)"]
+        if let t = startTime { parts.append(t) }
+        return parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder private var trailingState: some View {
+        if graded {
+            let correct = pick?.correct == true
+            HStack(spacing: 4) {
+                Image(systemName: correct ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(correct ? Theme.Palette.positive : Theme.Palette.negative)
+                Text(correct ? "+\(pick?.xpAwarded ?? 0)" : "Missed")
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    .foregroundStyle(correct ? Theme.Palette.positive : Theme.Palette.negative)
+            }
+        } else if let pick {
+            HStack(spacing: 4) {
+                Image(systemName: "checkmark.circle.fill").font(.system(size: 11))
+                Text(pick.pick.uppercased())
+                    .font(.system(size: 12, weight: .heavy, design: .rounded))
+            }
+            .foregroundStyle(Theme.Palette.accent)
+            .padding(.horizontal, 9).padding(.vertical, 4)
+            .background(Theme.Palette.accent.opacity(0.14))
+            .clipShape(Capsule())
+        } else {
+            HStack(spacing: 2) {
+                Text("Call")
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+            }
+            .font(.system(size: 13, weight: .heavy, design: .rounded))
+            .foregroundStyle(Theme.Palette.accent)
+        }
+    }
+
+    private var startTime: String? {
+        guard let iso = game.gameTime, let date = Self.isoParser.date(from: iso) else { return nil }
+        return Self.timeFmt.string(from: date)
+    }
+
+    private static let isoParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
+    }()
+    private static let timeFmt: DateFormatter = {
+        let f = DateFormatter(); f.dateFormat = "h:mm a"; return f
+    }()
+}
+
+// MARK: - Mode row (grouped-list style)
+
+/// A grouped-list row: icon in a tinted rounded square, title + subtitle, and a
+/// trailing value + chevron (the subscriptions-list pattern).
+struct ModeRow: View {
+    let icon: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    var value: String? = nil
+    var valueCaption: String? = nil
+
+    var body: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                    .fill(tint.opacity(0.16))
+                Image(systemName: icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(tint)
+            }
+            .frame(width: 38, height: 38)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                Text(subtitle)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: Theme.Spacing.xs)
+            if value != nil || valueCaption != nil {
+                VStack(alignment: .trailing, spacing: 1) {
+                    if let value {
+                        Text(value)
+                            .font(.system(size: 14, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                    }
+                    if let valueCaption {
+                        Text(valueCaption)
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                    }
+                }
+            }
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textTertiary)
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+        .padding(.vertical, Theme.Spacing.sm)
+        .contentShape(Rectangle())
     }
 }

@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The gamification home: your level/XP/streak, "call the game" daily picks,
-/// achievements, and a link to the leaderboard. Requires sign-in.
+/// The gamification home, Rocket Money-style: a personal greeting, the Cap Space
+/// "balance" hero, tonight's slate as a progress ring + compact game rows (tap a
+/// row → pick sheet), and the game modes as a grouped list. Requires sign-in.
 struct PlayView: View {
     @Environment(AuthStore.self) private var auth
     @Environment(GamificationStore.self) private var game
@@ -9,6 +10,8 @@ struct PlayView: View {
     @State private var model = PlayViewModel()
     @State private var fantasyStore: FantasyStore?
     @State private var showingDatePicker = false
+    @State private var pickSheetGame: GamePrediction?
+    @State private var segment = 0   // 0 = Slate, 1 = My Stats
 
     // Celebration state
     @State private var confettiTrigger = 0
@@ -36,18 +39,8 @@ struct PlayView: View {
                 }
             }
             .environment(\.cardTeamBlobs, false)
-            .navigationBarTitleDisplayMode(.inline)   // custom adaptive "Play" lives in the content
-            .toolbarColorScheme(.dark, for: .navigationBar)   // dark nav chrome to match the dark tab
-            .toolbar {
-                if auth.isSignedIn {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        NavigationLink { LeaderboardView() } label: {
-                            Label("Leaderboard", systemImage: "trophy.fill")
-                        }
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) { AvatarButton() }
-            }
+            // The curved hero band carries the top controls (trophy, avatar).
+            .toolbar(.hidden, for: .navigationBar)
             .overlay {
                 if let achievement = achievementToShow {
                     AchievementUnlockView(achievement: achievement) { dismissAchievement() }
@@ -115,7 +108,10 @@ struct PlayView: View {
 
     private var signInPrompt: some View {
         VStack(alignment: .leading, spacing: 0) {
-            AdaptiveBlobTitle(text: "Play").padding(.horizontal, Theme.Spacing.md)
+            Text("Play")
+                .font(Theme.Font.display())
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .padding(.horizontal, Theme.Spacing.md)
             Spacer()
             VStack(spacing: Theme.Spacing.md) {
                 Image(systemName: "gamecontroller.fill")
@@ -141,18 +137,23 @@ struct PlayView: View {
     private var signedInContent: some View {
         ScrollView {
             VStack(spacing: Theme.Spacing.lg) {
-                titleRow.staggeredEntrance(index: 0)
-                // Identity HUD — who you are as a GM (tier / XP / streak). Tap → SeasonView.
-                NavigationLink { SeasonView() } label: {
-                    GMIdentityCard(stats: game.stats ?? .empty, season: game.seasonStats)
+                heroBand.staggeredEntrance(index: 0)   // full-bleed curved header
+                VStack(spacing: Theme.Spacing.lg) {
+                    actionTiles.staggeredEntrance(index: 1)
+                    BigSegment(selection: $segment, options: ["Slate", "My Stats"])
+                        .staggeredEntrance(index: 2)
+                    ZStack {
+                        if segment == 0 {
+                            slateCard.transition(.opacity)
+                        } else {
+                            statsSegment.transition(.opacity)
+                        }
+                    }
+                    .staggeredEntrance(index: 3)
                 }
-                .buttonStyle(.plain)
-                .staggeredEntrance(index: 1)
-                modesSection.staggeredEntrance(index: 2)
-                trophyCase.staggeredEntrance(index: 3)
-                slateSection.staggeredEntrance(index: 4)
+                .padding(.horizontal, Theme.Spacing.md)
             }
-            .padding(Theme.Spacing.md)
+            .padding(.bottom, Theme.Spacing.md)
         }
         .refreshable {
             // Stats/achievements first so reward celebrations fire even if the
@@ -164,35 +165,309 @@ struct PlayView: View {
             await model.loadGames()
         }
         .sheet(isPresented: $showingDatePicker) { datePickerSheet }
+        .sheet(item: $pickSheetGame) { prediction in pickSheet(prediction) }
     }
 
-    private var titleRow: some View {
-        AdaptiveBlobTitle(text: "Play")
-            .overlay(alignment: .trailing) { PillChip(text: Season.current.id) }
+    // MARK: - Hero band (curved header)
+
+    private var heroBand: some View {
+        let xp = game.seasonStats.xp
+        let tier = GMTier.current(forXp: xp)
+        return VStack(spacing: Theme.Spacing.sm) {
+            HeroBand(tint: Theme.Palette.accent, centerpieceOverhang: 36) {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    HStack(spacing: Theme.Spacing.xs) {
+                        BandPill(text: tier.name, systemImage: tier.icon)
+                        Spacer()
+                        NavigationLink { LeaderboardView() } label: { bandIcon("trophy.fill") }
+                            .buttonStyle(.plain)
+                        AvatarButton()
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(timeGreeting)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.8))
+                        HStack(alignment: .firstTextBaseline) {
+                            Text("@\(auth.username ?? "GM")")
+                                .font(.system(size: 26, weight: .heavy))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.6)
+                            Spacer()
+                            BandPill(text: Season.current.id)
+                        }
+                    }
+                    .padding(.bottom, Theme.Spacing.md)   // room for the overlapping badge
+                }
+            } centerpiece: {
+                ZStack {
+                    Circle().fill(Theme.Palette.surfaceRaised)
+                    Circle().stroke(.white, lineWidth: 3)
+                    Image(systemName: tier.icon)
+                        .font(.system(size: 28))
+                        .foregroundStyle(tier.color)
+                }
+                .frame(width: 72, height: 72)
+                .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
+            }
+            xpStrip
+        }
     }
 
-    // MARK: - Game modes (ranked hero + 2 mode tiles)
+    private func bandIcon(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(.white)
+            .frame(width: 36, height: 36)
+            .background(.white.opacity(0.18))
+            .clipShape(Circle())
+    }
 
-    private var modesSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            SectionLabel("Game Modes")
+    private var xpStrip: some View {
+        let xp = game.seasonStats.xp
+        let tier = GMTier.current(forXp: xp)
+        let next = GMTier.next(forXp: xp)
+        return VStack(spacing: 5) {
+            RangeGauge(fraction: next == nil ? 1 : GMTier.progress(forXp: xp),
+                       tint: tier.color, filled: true)
+            Text(next.map { "\(xp) / \($0.threshold) XP → \($0.name)" } ?? "Max tier · \(xp) XP")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Theme.Palette.textTertiary)
+        }
+        .padding(.horizontal, Theme.Spacing.md)
+    }
+
+    private var timeGreeting: String {
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 5..<12: return "Good morning"
+        case 12..<17: return "Good afternoon"
+        default: return "Good evening"
+        }
+    }
+
+    // MARK: - Quick-action tiles
+
+    private var actionTiles: some View {
+        HStack(spacing: Theme.Spacing.sm) {
             NavigationLink { globalDestination } label: {
-                RankedModeTile(stats: game.stats ?? .empty)
+                ActionTile(icon: "trophy.fill", title: "Global League", tint: Theme.Palette.accent)
             }
             .buttonStyle(.plain)
-            HStack(spacing: Theme.Spacing.sm) {
-                NavigationLink { FantasyHomeView() } label: {
-                    ModeTile(title: "Private Leagues", icon: "person.3.fill",
-                             subtitle: "Fantasy hockey with your friends", tint: Theme.Palette.accent)
+            NavigationLink { FantasyHomeView() } label: {
+                ActionTile(icon: "person.3.fill", title: "Private Leagues", tint: Theme.Palette.accentAlt)
+            }
+            .buttonStyle(.plain)
+            NavigationLink { FranchiseView() } label: {
+                ActionTile(icon: "rectangle.stack.fill", title: "My Franchise", tint: Color(hex: 0xAF52DE))
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    // MARK: - My Stats segment (balance card + achievements)
+
+    private var statsSegment: some View {
+        let stats = game.stats ?? .empty
+        return VStack(spacing: Theme.Spacing.md) {
+            Card {
+                VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                    Text("CAP SPACE")
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(1.0)
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                    Text(stats.capSpace.asCapMoney)
+                        .font(.system(size: 46, weight: .heavy))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .contentTransition(.numericText())
+                    HStack(spacing: Theme.Spacing.sm) {
+                        NavigationLink { SeasonView() } label: {
+                            CapsuleActionLabel(title: "Season")
+                        }
+                        .buttonStyle(.plain)
+                        NavigationLink { LeaderboardView() } label: {
+                            CapsuleActionLabel(title: "Leaderboard", prominent: true)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    Divider().overlay(Theme.Palette.border)
+                    HStack(spacing: Theme.Spacing.sm) {
+                        metric("Record", "\(stats.picksCorrect)–\(max(0, stats.picksMade - stats.picksCorrect))")
+                        metricDivider
+                        metric("Accuracy", stats.picksMade > 0 ? "\(Int(stats.accuracy.rounded()))%" : "—")
+                        metricDivider
+                        metric("Beat AI", "\(stats.beatsModel)")
+                        metricDivider
+                        metric("Cups", "\(stats.stanleyCups)")
+                    }
+                }
+            }
+            Card(padding: 0) {
+                NavigationLink { AchievementsView() } label: {
+                    ModeRow(icon: "rosette", tint: Theme.Palette.moderate, title: "Achievements",
+                            subtitle: "Badges for streaks & milestones",
+                            value: "\(game.earnedIds.count)/\(game.achievements.count)")
                 }
                 .buttonStyle(.plain)
-                NavigationLink { FranchiseView() } label: {
-                    ModeTile(title: "My Franchise", icon: "rectangle.stack.fill",
-                             subtitle: "Collect cards & build your dream team", tint: Theme.Palette.accentAlt)
-                }
-                .buttonStyle(.plain)
+                .padding(.vertical, Theme.Spacing.xxs)
             }
         }
+    }
+
+    private func metric(_ label: String, _ value: String) -> some View {
+        VStack(spacing: 1) {
+            Text(value)
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .contentTransition(.numericText())
+            Text(label)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(Theme.Palette.textSecondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var metricDivider: some View {
+        Divider().frame(height: 26).overlay(Theme.Palette.border)
+    }
+
+    // MARK: - Tonight's slate (ring + game rows)
+
+    private var slateCard: some View {
+        Card {
+            VStack(spacing: Theme.Spacing.md) {
+                HStack(spacing: Theme.Spacing.md) {
+                    SlateRing(picked: slateCounts.picked, total: slateCounts.total)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Tonight's picks")
+                            .font(Theme.Font.headlineHeavy())
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                        Text(slateSubtitle)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                dateControls
+                slateRows
+            }
+        }
+    }
+
+    private var slateCounts: (picked: Int, total: Int) {
+        guard case .loaded(let games) = model.gamesState else { return (0, 0) }
+        let picked = games.filter { g in
+            game.pick(forGameId: GamificationStore.gameId(date: model.dateString, away: g.away.team, home: g.home.team)) != nil
+        }.count
+        return (picked, games.count)
+    }
+
+    private var slateSubtitle: String {
+        if case .loading = model.gamesState { return "Loading the slate…" }
+        let (picked, total) = slateCounts
+        if total == 0 { return "No games \(model.dateLabel.lowercased())" }
+        if picked == total { return "All called — good luck" }
+        return "\(total - picked) left to call"
+    }
+
+    private var dateControls: some View {
+        HStack(spacing: 0) {
+            stepButton("chevron.left") { model.step(days: -1) }.accessibilityLabel("Previous day")
+            PressableButton(action: { showingDatePicker = true }) {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar").font(.system(size: 11, weight: .bold))
+                    Text(model.dateLabel).font(.system(size: 13, weight: .heavy, design: .rounded))
+                }
+                .foregroundStyle(Theme.Palette.textSecondary)
+                .frame(maxWidth: .infinity)
+            }
+            .accessibilityLabel("Choose date")
+            stepButton("chevron.right") { model.step(days: 1) }.accessibilityLabel("Next day")
+        }
+        .padding(.vertical, 2)
+        .background(Theme.Palette.background)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+    }
+
+    private func stepButton(_ name: String, action: @escaping () -> Void) -> some View {
+        PressableButton(action: action) {
+            Image(systemName: name)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Theme.Palette.accent)
+                .frame(width: 40, height: 32)
+                .contentShape(Rectangle())
+        }
+    }
+
+    @ViewBuilder
+    private var slateRows: some View {
+        switch model.gamesState {
+        case .loading:
+            VStack(spacing: Theme.Spacing.sm) {
+                ForEach(0..<3, id: \.self) { _ in LoadingShimmer(height: 44) }
+            }
+        case .empty:
+            Text("Find a date with games to make your picks.")
+                .font(Theme.Font.caption())
+                .foregroundStyle(Theme.Palette.textTertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        case .error(let message):
+            ErrorStateView(message: message) { Task { await model.loadGames() } }
+        case .loaded(let games):
+            VStack(spacing: 0) {
+                ForEach(Array(games.enumerated()), id: \.element.id) { index, prediction in
+                    let id = GamificationStore.gameId(date: model.dateString, away: prediction.away.team, home: prediction.home.team)
+                    let pick = game.pick(forGameId: id)
+                    Button {
+                        // Open the pick sheet until the game is graded (you can
+                        // still change an ungraded call).
+                        if pick?.correct == nil {
+                            Haptics.tap()
+                            pickSheetGame = prediction
+                        }
+                    } label: {
+                        SlateGameRow(game: prediction, pick: pick)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, Theme.Spacing.xs)
+                    if index < games.count - 1 {
+                        Divider().overlay(Theme.Palette.border).padding(.leading, 64)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Pick sheet
+
+    private func pickSheet(_ prediction: GamePrediction) -> some View {
+        let id = GamificationStore.gameId(date: model.dateString, away: prediction.away.team, home: prediction.home.team)
+        return VStack(spacing: Theme.Spacing.md) {
+            Text("Make the call")
+                .font(Theme.Font.title())
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .padding(.top, Theme.Spacing.md)
+            Text("Who wins \(prediction.away.info.abbrev) @ \(prediction.home.info.abbrev)?")
+                .font(Theme.Font.caption())
+                .foregroundStyle(Theme.Palette.textSecondary)
+            CallGameCard(
+                game: prediction,
+                pick: game.pick(forGameId: id),
+                isSubmitting: game.submitting.contains(id),
+                onPick: { team in
+                    Task {
+                        await game.submitPick(game: prediction, dateString: model.dateString, pick: team)
+                        pickSheetGame = nil
+                    }
+                }
+            )
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.md)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Theme.Palette.background.ignoresSafeArea())
+        .presentationDetents([.medium])
+        .presentationDragIndicator(.visible)
+        .environment(\.colorScheme, .dark)
     }
 
     @ViewBuilder
@@ -204,113 +479,7 @@ struct PlayView: View {
         }
     }
 
-    // MARK: - Trophy case (achievements)
-
-    private var trophyCase: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            SectionLabel("Trophy Case") {
-                NavigationLink { AchievementsView() } label: {
-                    HStack(spacing: 3) {
-                        Text("\(game.earnedIds.count)/\(game.achievements.count)")
-                        Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
-                    }
-                    .font(.system(size: 12, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Theme.Palette.accent)
-                }
-            }
-            Card {
-                if game.achievements.isEmpty {
-                    Text("Make picks to start earning badges.")
-                        .font(Theme.Font.caption())
-                        .foregroundStyle(Theme.Palette.textPrimary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: Theme.Spacing.md) {
-                            ForEach(game.achievements) { achievement in
-                                badge(achievement, earned: game.earnedIds.contains(achievement.id))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // MARK: - Tonight's slate (date + call-the-game)
-
-    private var slateSection: some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
-            SectionLabel("Tonight's Slate") {
-                if let progress = slateProgress {
-                    PillChip(text: progress, systemImage: "hockey.puck.fill")
-                }
-            }
-            dateBar
-            gamesSection
-        }
-    }
-
-    /// "{picked}/{games} called" for the loaded slate, or nil when no games.
-    private var slateProgress: String? {
-        guard case .loaded(let games) = model.gamesState, !games.isEmpty else { return nil }
-        let picked = games.filter { g in
-            game.pick(forGameId: GamificationStore.gameId(date: model.dateString, away: g.away.team, home: g.home.team)) != nil
-        }.count
-        return "\(picked)/\(games.count) called"
-    }
-
-    private func badge(_ achievement: Achievement, earned: Bool) -> some View {
-        VStack(spacing: 4) {
-            ZStack {
-                Circle()
-                    .fill(earned ? Theme.Palette.accent.opacity(0.16) : Theme.Palette.background)
-                    .frame(width: 48, height: 48)
-                Image(systemName: achievement.icon)
-                    .font(.system(size: 20))
-                    .foregroundStyle(earned ? Theme.Palette.accent : Theme.Palette.textPrimary)
-            }
-            Text(achievement.name)
-                .font(.system(size: 9, weight: .medium))
-                .foregroundStyle(earned ? Theme.Palette.textPrimary : Theme.Palette.textPrimary)
-                .lineLimit(1)
-                .frame(width: 60)
-        }
-        .opacity(earned ? 1 : 0.55)
-        .accessibilityLabel("\(achievement.name): \(achievement.description) — \(earned ? "earned" : "locked")")
-    }
-
-    // MARK: - Date bar
-
-    private var dateBar: some View {
-        HStack(spacing: 0) {
-            stepButton("chevron.left") { model.step(days: -1) }.accessibilityLabel("Previous day")
-            PressableButton(action: { showingDatePicker = true }) {
-                HStack(spacing: 6) {
-                    Image(systemName: "calendar").font(.system(size: 12, weight: .bold))
-                    Text(model.dateLabel).font(Theme.Font.headlineHeavy())
-                }
-                .foregroundStyle(Theme.Palette.textPrimary)
-                .frame(maxWidth: .infinity)
-            }
-            .accessibilityLabel("Choose date")
-            stepButton("chevron.right") { model.step(days: 1) }.accessibilityLabel("Next day")
-        }
-        .padding(.horizontal, Theme.Spacing.xs).padding(.vertical, Theme.Spacing.xxs)
-        .background(Theme.Palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous).stroke(Theme.Palette.border, lineWidth: 1))
-    }
-
-    private func stepButton(_ name: String, action: @escaping () -> Void) -> some View {
-        PressableButton(action: action) {
-            Image(systemName: name)
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(Theme.Palette.accent)
-                .frame(width: 40, height: 36)
-                .contentShape(Rectangle())
-        }
-    }
+    // MARK: - Date picker sheet
 
     private var datePickerSheet: some View {
         NavigationStack {
@@ -326,36 +495,5 @@ struct PlayView: View {
                 }
         }
         .presentationDetents([.medium, .large])
-    }
-
-    // MARK: - Games
-
-    @ViewBuilder
-    private var gamesSection: some View {
-        switch model.gamesState {
-        case .loading:
-            ForEach(0..<3, id: \.self) { _ in LoadingShimmer(height: 150) }
-        case .empty:
-            EmptyStateView(
-                systemImage: "calendar.badge.exclamationmark",
-                title: "No games \(model.dateLabel.lowercased())",
-                message: "Find a date with games to make your picks."
-            )
-        case .error(let message):
-            ErrorStateView(message: message) { Task { await model.loadGames() } }
-        case .loaded(let games):
-            ForEach(Array(games.enumerated()), id: \.element.id) { index, prediction in
-                let id = GamificationStore.gameId(date: model.dateString, away: prediction.away.team, home: prediction.home.team)
-                CallGameCard(
-                    game: prediction,
-                    pick: game.pick(forGameId: id),
-                    isSubmitting: game.submitting.contains(id),
-                    onPick: { team in
-                        Task { await game.submitPick(game: prediction, dateString: model.dateString, pick: team) }
-                    }
-                )
-                .staggeredEntrance(index: index)
-            }
-        }
     }
 }
