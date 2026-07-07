@@ -65,6 +65,9 @@ class ModelAccuracyStats(BaseModel):
 
 class UserModel(BaseModel):
     """A user's custom prediction model"""
+    # Allow the `model_type` field name (pydantic v2 reserves the `model_` prefix).
+    model_config = {"protected_namespaces": ()}
+
     id: str
     user_id: str
     name: str
@@ -75,6 +78,26 @@ class UserModel(BaseModel):
     created_at: str
     updated_at: str
     accuracy: Optional[ModelAccuracyStats] = None
+    # "weighted" (hand-tuned sliders) or "ml" (trained on the season's games).
+    model_type: str = "weighted"
+    ml_kind: Optional[str] = None            # "logistic" | "boosted"
+    ml_features: Optional[List[str]] = None  # human-readable feature labels
+
+
+_ML_FEATURE_LABELS = {
+    "goalie": "Goalie (GSAX)", "fatigue": "Fatigue / rest", "streak": "Form / streak",
+    "st": "Special teams", "injury": "Injuries", "h2h": "Head-to-head",
+    "base_score": "Quality score", "xg_diff": "Expected goals",
+}
+
+
+def _ml_display(row: dict):
+    """(model_type, ml_kind, ml_feature_labels) for a user_models row."""
+    if row.get("model_type") != "ml":
+        return "weighted", None, None
+    meta = row.get("ml_meta") or {}
+    feats = [_ML_FEATURE_LABELS.get(f, f) for f in (meta.get("features") or [])]
+    return "ml", meta.get("kind"), feats
 
 
 class ModelsListResponse(BaseModel):
@@ -224,6 +247,7 @@ async def list_models(authorization: str = Header(None)):
         models = []
         for row in result.data:
             accuracy = calculate_model_accuracy(row["id"], supabase)
+            mtype, mkind, mfeats = _ml_display(row)
 
             models.append(UserModel(
                 id=row["id"],
@@ -236,6 +260,9 @@ async def list_models(authorization: str = Header(None)):
                 created_at=row["created_at"],
                 updated_at=row["updated_at"],
                 accuracy=accuracy,
+                model_type=mtype,
+                ml_kind=mkind,
+                ml_features=mfeats,
             ))
 
         return ModelsListResponse(models=models, total=len(models))
@@ -426,6 +453,7 @@ async def get_model(model_id: str, authorization: str = Header(None)):
 
         row = result.data[0]
         accuracy = calculate_model_accuracy(model_id, supabase)
+        mtype, mkind, mfeats = _ml_display(row)
 
         return UserModel(
             id=row["id"],
@@ -437,6 +465,9 @@ async def get_model(model_id: str, authorization: str = Header(None)):
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             accuracy=accuracy,
+            model_type=mtype,
+            ml_kind=mkind,
+            ml_features=mfeats,
         )
 
     except HTTPException:
@@ -484,6 +515,7 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
 
         row = result.data[0]
         accuracy = calculate_model_accuracy(model_id, supabase)
+        mtype, mkind, mfeats = _ml_display(row)
 
         return UserModel(
             id=row["id"],
@@ -495,6 +527,9 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             accuracy=accuracy,
+            model_type=mtype,
+            ml_kind=mkind,
+            ml_features=mfeats,
         )
 
     except HTTPException:
@@ -546,6 +581,51 @@ def get_analyzer() -> NHLAnalyzer:
     return _analyzer
 
 
+def _ml_model_predictions(model: dict, model_id: str, date_str: str, supabase) -> dict:
+    """Predictions for an ML model: score the cached games for the date with the
+    stored coefficients (same math as training/backfill)."""
+    # Deferred import — avoids any module-level router import cycle.
+    from routers.accuracy import _ml_feature_vector, _ml_prob_home
+
+    meta = model.get("ml_meta") or {}
+    features = meta.get("features") or []
+
+    games = []
+    try:
+        cache = supabase.table("daily_predictions").select("predictions").eq("game_date", date_str).execute()
+        if cache.data:
+            games = cache.data[0].get("predictions") or []
+            if isinstance(games, str):
+                games = json.loads(games)
+    except Exception:
+        games = []
+
+    predictions = []
+    for g in games:
+        away = (g.get("away") or {}).get("team")
+        home = (g.get("home") or {}).get("team")
+        if not away or not home or not features:
+            continue
+        try:
+            p_home = _ml_prob_home(meta, _ml_feature_vector(g, features))
+        except Exception:
+            continue
+        margin = abs(p_home - 0.5) * 200
+        g2 = dict(g)
+        g2["pick"] = home if p_home >= 0.5 else away
+        g2["diff"] = round(margin, 2)
+        g2["confidence"] = "STRONG" if margin >= 20 else ("MODERATE" if margin >= 8 else "CLOSE")
+        predictions.append(g2)
+
+    return {
+        "date": date_str,
+        "model_id": model_id,
+        "model_name": model["name"],
+        "games_count": len(predictions),
+        "predictions": predictions,
+    }
+
+
 @router.get("/models/{model_id}/predictions/{date_str}")
 async def get_model_predictions(model_id: str, date_str: str, authorization: str = Header(None)):
     """
@@ -585,6 +665,11 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+    # ML models predict from their stored coefficients over the cached game
+    # features — the slider weights on the row are just placeholder defaults.
+    if model.get("model_type") == "ml":
+        return _ml_model_predictions(model, model_id, date_str, supabase)
 
     # Get predictions with custom weights + factor emphasis
     try:

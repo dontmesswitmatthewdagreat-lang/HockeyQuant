@@ -716,11 +716,61 @@ async def store_model_predictions(date_str: str):
         raise HTTPException(status_code=500, detail=f"Analyzer error: {str(e)}")
 
     total_stored = 0
+    ml_games = None   # daily_predictions cache for the date, fetched once for all ML models
     for model in models:
         model_id = model["id"]
-        # ML models are backfilled at creation; forward ML prediction is a future
-        # enhancement, so skip them here rather than store weighted picks for them.
+        # ML models predict from their stored coefficients over the cached game
+        # features (same math as training) — no analyzer run needed.
         if model.get("model_type") == "ml":
+            meta = model.get("ml_meta") or {}
+            features = meta.get("features") or []
+            if not features:
+                continue
+            if ml_games is None:
+                try:
+                    cache = supabase.table("daily_predictions").select("predictions").eq("game_date", date_str).execute()
+                    ml_games = (cache.data[0].get("predictions") if cache.data else None) or []
+                except Exception:
+                    ml_games = []
+            ml_insert = []
+            for g in ml_games:
+                game_time_str = g.get("game_time")
+                if not game_time_str:
+                    continue
+                try:
+                    game_time = datetime.fromisoformat(game_time_str.replace("Z", "+00:00"))
+                    if now < (game_time - timedelta(minutes=15)):
+                        continue   # same 15-min official gate as weighted models
+                except Exception:
+                    continue
+                away = (g.get("away") or {}).get("team")
+                home = (g.get("home") or {}).get("team")
+                if not away or not home:
+                    continue
+                game_id = f"{date_str}_{away}_{home}"
+                if (model_id, game_id) in existing_set:
+                    continue
+                try:
+                    p_home = _ml_prob_home(meta, _ml_feature_vector(g, features))
+                except Exception:
+                    continue
+                margin = abs(p_home - 0.5) * 200
+                ml_insert.append({
+                    "model_id": model_id, "game_id": game_id, "game_date": date_str,
+                    "away_team": away, "home_team": home,
+                    "pick": home if p_home >= 0.5 else away,
+                    "away_score": round((1 - p_home) * 100, 1),
+                    "home_score": round(p_home * 100, 1),
+                    "diff": round(margin, 2),
+                    "confidence": "STRONG" if margin >= 20 else ("MODERATE" if margin >= 8 else "CLOSE"),
+                })
+                existing_set.add((model_id, game_id))
+            if ml_insert:
+                try:
+                    supabase.table("model_predictions").insert(ml_insert).execute()
+                    total_stored += len(ml_insert)
+                except Exception as e:
+                    print(f"ML store error for model {model_id}: {e}")
             continue
         weights_data = {
             "offense": float(model.get("weight_offensive", 40)),
