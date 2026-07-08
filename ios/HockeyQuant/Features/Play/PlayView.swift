@@ -175,11 +175,10 @@ struct PlayView: View {
         let tier = GMTier.current(forXp: xp)
         let cups = (game.stats ?? .empty).stanleyCups
         return VStack(spacing: Theme.Spacing.sm) {
-            HeroBand(tint: Theme.Palette.accent, centerpieceOverhang: 36) {
+            HeroBand(tint: Theme.Palette.accent, centerpieceOverhang: 64) {
                 VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     HStack(spacing: Theme.Spacing.xs) {
                         BandPill(text: tier.name, systemImage: tier.icon)
-                        BandPill(text: "\(cups) Cups", systemImage: "trophy.fill")
                         Spacer()
                         NavigationLink { LeaderboardView() } label: { bandIcon("trophy.fill") }
                             .buttonStyle(.plain)
@@ -202,18 +201,47 @@ struct PlayView: View {
                     .padding(.bottom, Theme.Spacing.md)   // room for the overlapping badge
                 }
             } centerpiece: {
-                ZStack {
-                    Circle().fill(Theme.Palette.surfaceRaised)
-                    Circle().stroke(.white, lineWidth: 3)
-                    Image(systemName: tier.icon)
-                        .font(.system(size: 28))
-                        .foregroundStyle(tier.color)
+                // Clash Royale-style: the tier badge with the cup count slung
+                // underneath as the centerpiece of the whole page.
+                VStack(spacing: -10) {
+                    ZStack {
+                        Circle().fill(Theme.Palette.surfaceRaised)
+                        Circle().stroke(.white, lineWidth: 3)
+                        Image(systemName: tier.icon)
+                            .font(.system(size: 28))
+                            .foregroundStyle(tier.color)
+                    }
+                    .frame(width: 72, height: 72)
+                    .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
+                    NavigationLink { LeaderboardView() } label: { cupCounter(cups) }
+                        .buttonStyle(.plain)
                 }
-                .frame(width: 72, height: 72)
-                .shadow(color: .black.opacity(0.30), radius: 6, y: 2)
             }
             xpStrip
         }
+    }
+
+    /// The big gold trophy counter (tap → leaderboard).
+    private func cupCounter(_ cups: Int) -> some View {
+        HStack(spacing: 7) {
+            Image(systemName: "trophy.fill")
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+            Text("\(cups)")
+                .font(.system(size: 24, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.35), radius: 1, y: 1)
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 7)
+        .background(
+            Capsule().fill(LinearGradient(colors: [Color(hex: 0xFFC94D), Color(hex: 0xE89B00)],
+                                          startPoint: .top, endPoint: .bottom))
+        )
+        .overlay(Capsule().strokeBorder(.white, lineWidth: 2.5))
+        .shadow(color: .black.opacity(0.30), radius: 6, y: 3)
     }
 
     private func bandIcon(_ name: String) -> some View {
