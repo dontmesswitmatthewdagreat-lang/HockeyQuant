@@ -23,6 +23,8 @@ struct FreeAgent: Decodable, Identifiable, Hashable {
     let prevTeam: String?
     let prevAav: Double?
     let type: String            // "UFA" | "RFA"
+    /// Market-model fair value (nil when the model can't value them).
+    let fairAav: Double?
     var id: String { name }
 
     var isForward: Bool { ["C", "LW", "RW", "W", "F"].contains(position) }

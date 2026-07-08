@@ -21,11 +21,19 @@ struct GMMove: Codable, Identifiable {
     var team: String?
     var aav: Double?
     var years: Int?
+    var fairAav: Double?    // market value at signing time (grades the move)
     // Trade
     var teamA: String?
     var teamB: String?
     var piecesAtoB: [TradePiece]?
     var piecesBtoA: [TradePiece]?
+
+    /// steal / fair / overpay vs the market model (signings only).
+    var verdict: String? {
+        guard kind == .signing, let aav, let fairAav, fairAav > 0 else { return nil }
+        let prem = (aav - fairAav) / fairAav
+        return prem < -0.15 ? "steal" : (prem > 0.15 ? "overpay" : "fair")
+    }
 
     var headline: String {
         switch kind {
@@ -89,14 +97,14 @@ final class OffseasonStore {
     func addSigning(agent: FreeAgent, team: String, aav: Double, years: Int) {
         moves.append(GMMove(id: UUID(), date: Date(), kind: .signing,
                             player: agent.name, position: agent.position,
-                            team: team, aav: aav, years: years,
+                            team: team, aav: aav, years: years, fairAav: agent.fairAav,
                             teamA: nil, teamB: nil, piecesAtoB: nil, piecesBtoA: nil))
         persist()
     }
 
     func addTrade(teamA: String, teamB: String, aToB: [TradePiece], bToA: [TradePiece]) {
         moves.append(GMMove(id: UUID(), date: Date(), kind: .trade,
-                            player: nil, position: nil, team: nil, aav: nil, years: nil,
+                            player: nil, position: nil, team: nil, aav: nil, years: nil, fairAav: nil,
                             teamA: teamA, teamB: teamB, piecesAtoB: aToB, piecesBtoA: bToA))
         persist()
     }

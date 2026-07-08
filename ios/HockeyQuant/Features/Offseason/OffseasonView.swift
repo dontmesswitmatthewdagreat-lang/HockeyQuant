@@ -109,6 +109,15 @@ struct OffseasonView: View {
                 HStack {
                     BackChip()
                     Spacer()
+                    NavigationLink { PlayerMarketView() } label: {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .background(.white.opacity(0.18))
+                            .clipShape(Circle())
+                    }
+                    .buttonStyle(.plain)
                     BandPill(text: "\(store.moves.count) moves", systemImage: "list.bullet")
                 }
                 Text("Offseason GM")
@@ -161,6 +170,7 @@ struct OffseasonView: View {
             ErrorStateView(message: message) { Task { await store.load() } }
         case .loaded:
             VStack(spacing: Theme.Spacing.sm) {
+                marketPromo
                 searchField
                 filterChips
                 ForEach(filteredAgents.prefix(80)) { agent in
@@ -174,6 +184,39 @@ struct OffseasonView: View {
                 }
             }
         }
+    }
+
+    private var marketPromo: some View {
+        NavigationLink { PlayerMarketView() } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color(hex: 0x1F8A5B).opacity(0.16))
+                    Image(systemName: "chart.line.uptrend.xyaxis")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(Color(hex: 0x1F8A5B))
+                }
+                .frame(width: 42, height: 42)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Player Market")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("Fair values, movers, and every signing graded")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            .padding(Theme.Spacing.sm)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                .strokeBorder(Color(hex: 0x1F8A5B).opacity(0.4), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
     }
 
     private var searchField: some View {
@@ -422,6 +465,7 @@ struct MoveCard: View {
                     .tracking(0.8)
                     .foregroundStyle(Theme.Palette.textTertiary)
                 Spacer()
+                if let v = move.verdict { verdictPill(v) }
                 Button(action: onDelete) {
                     Image(systemName: "trash")
                         .font(.system(size: 12, weight: .semibold))

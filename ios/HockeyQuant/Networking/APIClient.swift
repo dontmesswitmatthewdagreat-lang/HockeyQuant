@@ -127,6 +127,29 @@ struct APIClient: Sendable {
                       as: TeamRosterResponse.self)
     }
 
+    // MARK: - Player market
+
+    /// `GET /api/market/overview` — heat, index, movers, graded signings.
+    func marketOverview() async throws -> MarketOverview {
+        try await get(apiURL("market").appendingPathComponent("overview"), as: MarketOverview.self)
+    }
+
+    /// `GET /api/market/players` — search, or the top of the market.
+    func marketPlayers(query: String? = nil, limit: Int = 50) async throws -> [MarketPlayer] {
+        var comps = URLComponents(url: apiURL("market").appendingPathComponent("players"),
+                                  resolvingAgainstBaseURL: false)!
+        var items = [URLQueryItem(name: "limit", value: String(limit))]
+        if let query, !query.isEmpty { items.append(URLQueryItem(name: "q", value: query)) }
+        comps.queryItems = items
+        return try await get(comps.url!, as: MarketPlayersResponse.self).players
+    }
+
+    /// `GET /api/market/player/{name}` — value range, history, comps, fits.
+    func marketPlayer(name: String) async throws -> PlayerMarketDetail {
+        try await get(apiURL("market").appendingPathComponent("player").appendingPathComponent(name),
+                      as: PlayerMarketDetail.self)
+    }
+
     // MARK: - News summary
 
     /// `POST /api/news/summarize` — 3-4 sentence AI summary of one article.

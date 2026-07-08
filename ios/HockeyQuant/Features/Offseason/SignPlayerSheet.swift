@@ -140,8 +140,25 @@ struct SignPlayerSheet: View {
                 Text("Total: \((aav * years).asCapMoney) over \(Int(years)) year\(Int(years) == 1 ? "" : "s")")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Palette.textTertiary)
+                if let fair = agent.fairAav {
+                    HStack(spacing: Theme.Spacing.xs) {
+                        Text("Market value: \(fair.asCapMoney)/yr")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                        Spacer()
+                        verdictPill(liveVerdict(fair: fair))
+                    }
+                    .padding(Theme.Spacing.xs)
+                    .background(Theme.Palette.surfaceRaised)
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous))
+                }
             }
         }
+    }
+
+    private func liveVerdict(fair: Double) -> String {
+        let prem = (aav - fair) / fair
+        return prem < -0.15 ? "steal" : (prem > 0.15 ? "overpay" : "fair")
     }
 
     private var capCard: some View {
