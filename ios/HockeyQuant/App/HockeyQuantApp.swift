@@ -8,6 +8,7 @@ struct HockeyQuantApp: App {
     @State private var gamification = GamificationStore()
     @State private var theme = ThemeStore()
     @State private var avatar = AvatarStore()
+    @State private var premium = PremiumStore()
 
     var body: some Scene {
         WindowGroup {
@@ -17,6 +18,7 @@ struct HockeyQuantApp: App {
                 .environment(gamification)
                 .environment(theme)
                 .environment(avatar)
+                .environment(premium)
                 .tint(theme.accent)
                 .onOpenURL { url in
                     GIDSignIn.sharedInstance.handle(url)
