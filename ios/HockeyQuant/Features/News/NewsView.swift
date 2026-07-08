@@ -142,7 +142,7 @@ struct NewsView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     playCTA
-                    ForEach(store.digests) { digest in
+                    ForEach(orderedDigests) { digest in
                         digestSection(digest)
                     }
                 }
@@ -150,6 +150,11 @@ struct NewsView: View {
             }
             .refreshable { await store.loadLatest(team: auth.favoriteTeam) }
         }
+    }
+
+    /// Feed order: the favorite team's digests lead, league news follows.
+    private var orderedDigests: [NewsDigest] {
+        store.digests.filter { !$0.isLeague } + store.digests.filter(\.isLeague)
     }
 
     private var watchedCurrent: Bool {
