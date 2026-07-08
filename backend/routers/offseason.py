@@ -29,6 +29,12 @@ def market():
         raise HTTPException(status_code=503, detail=f"Cap data unavailable: {e}")
     if not teams or not agents:
         raise HTTPException(status_code=503, detail="Cap data unavailable")
+    # Fair values from the market model (best-effort — the hub renders without them).
+    try:
+        from services.player_market import values_for_names
+        fair = values_for_names([a["name"] for a in agents])
+    except Exception:
+        fair = {}
     # Space + allocations sums to the upper limit for non-LTIR teams. Spotrac
     # sometimes serves the cap table without the allocations column, so fall
     # back to the announced 2026-27 upper limit.
@@ -53,6 +59,7 @@ def market():
                 "prevTeam": a["prev_team"],
                 "prevAav": a["prev_aav"],
                 "type": a["type"],
+                "fairAav": (fair.get(a["name"]) or {}).get("market_value"),
             }
             for a in agents
         ],
