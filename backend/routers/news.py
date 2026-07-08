@@ -233,7 +233,7 @@ def summarize(req: SummarizeRequest):
                     "why it matters. No preamble, no markdown, no headline restatement.")},
                 {"role": "user", "content": source},
             ],
-            max_tokens=400, temperature=0.3,
+            max_tokens=700, temperature=0.3,
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Summary unavailable: {e}")
@@ -241,6 +241,11 @@ def summarize(req: SummarizeRequest):
     # If the model ran out of tokens mid-thought, cut back to the last full sentence.
     if summary and summary[-1] not in ".!?\"" and "." in summary:
         summary = summary[: summary.rfind(".") + 1]
+
+    # Never cache (or serve) an empty completion — the model occasionally spends
+    # its whole budget reasoning; let the client retry instead.
+    if not summary.strip():
+        raise HTTPException(status_code=503, detail="Summary came back empty — try again")
 
     if len(_summary_cache) > 500:
         _summary_cache.clear()

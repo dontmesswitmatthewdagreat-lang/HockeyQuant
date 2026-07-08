@@ -38,7 +38,7 @@ struct NewsView: View {
             }
             .toolbar(.hidden, for: .navigationBar)
         }
-        .task {
+        .task(id: auth.favoriteTeam) {
             await store.loadLatest(team: auth.favoriteTeam)
             // Load the mock draft up front so the "new" badge can pull the user
             // into Prospects even while they're still on the News tab.
@@ -249,11 +249,27 @@ struct NewsView: View {
                 Spacer()
                 kindBadge(d.kindLabel)
             }
-            if let lead = d.items.first { heroCard(lead).staggeredEntrance(index: 0) }
-            ForEach(Array(d.items.dropFirst().enumerated()), id: \.element.id) { i, item in
+            let items = orderedItems(d)
+            if let lead = items.first { heroCard(lead).staggeredEntrance(index: 0) }
+            ForEach(Array(items.dropFirst().enumerated()), id: \.element.id) { i, item in
                 compactCard(item).staggeredEntrance(index: min(i + 1, 8))
             }
         }
+    }
+
+    /// League digests float stories about the favorite team to the top
+    /// (matched on team name/nickname in the headline or blurb).
+    private func orderedItems(_ d: NewsDigest) -> [DigestItem] {
+        guard d.isLeague, let fav = auth.favoriteTeam else { return d.items }
+        let info = TeamInfo.lookup(fav)
+        let needles = [info.name.lowercased(),
+                       info.name.components(separatedBy: " ").last?.lowercased() ?? ""]
+            .filter { $0.count > 3 }
+        func isFav(_ it: DigestItem) -> Bool {
+            let text = "\(it.headline) \(it.blurb)".lowercased()
+            return needles.contains { text.contains($0) }
+        }
+        return d.items.filter(isFav) + d.items.filter { !isFav($0) }
     }
 
     private func heroCard(_ item: DigestItem) -> some View {

@@ -123,7 +123,12 @@ struct NewsSummarySheet: View {
     private func load() async {
         do {
             let result = try await api.summarizeArticle(url: item.url, headline: item.headline, blurb: item.blurb)
-            withAnimation(.easeOut(duration: 0.3)) { summary = result.summary }
+            let text = result.summary.trimmingCharacters(in: .whitespacesAndNewlines)
+            if text.isEmpty {
+                failed = true
+            } else {
+                withAnimation(.easeOut(duration: 0.3)) { summary = text }
+            }
         } catch {
             failed = true
         }
