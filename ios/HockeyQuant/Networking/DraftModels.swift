@@ -36,13 +36,19 @@ struct LotteryOdds: Codable, Hashable, Identifiable {
 }
 
 /// A server-generated first-round mock draft, refreshed weekly.
-struct MockDraft: Codable, Hashable {
+struct MockDraft: Codable, Hashable, Identifiable {
     let draftYear: Int
     let edition: String          // ISO year-week, e.g. "2026-W25" — drives the "new" badge
     let generatedAt: String?
     let orderBasis: String?
     let lotteryOdds: [LotteryOdds]?
     let picks: [MockPick]
+    /// "HockeyQuant" (internal engine) or an outlet name ("ESPN", "TSN", ...).
+    let source: String?
+
+    var sourceLabel: String { source ?? "HockeyQuant" }
+    var isInternal: Bool { sourceLabel == "HockeyQuant" }
+    var id: String { "\(edition)-\(sourceLabel)" }
 
     /// Pre-lottery while the order is still a standings projection; once the order
     /// goes official (NHL API / post-lottery reporting) the odds card shows results.
@@ -50,3 +56,4 @@ struct MockDraft: Codable, Hashable {
 }
 
 struct MockDraftResponse: Codable { let mockDraft: MockDraft? }
+struct MockDraftsListResponse: Codable { let mocks: [MockDraft] }

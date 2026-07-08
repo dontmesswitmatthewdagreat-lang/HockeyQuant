@@ -11,6 +11,8 @@ final class NewsStore {
     private(set) var draftProspects: [Prospect] = []   // league draft board
     private(set) var teamProspects: [Prospect] = []    // favorite team's pool
     private(set) var mockDraft: MockDraft?             // weekly first-round projection
+    private(set) var mocks: [MockDraft] = []           // all sources (internal + insiders)
+    private(set) var draftClass: [DraftedPick] = []    // favorite team's actual picks
     private(set) var loading = false
     private(set) var loadingDraft = false
     private(set) var loadingTeam = false
@@ -62,9 +64,14 @@ final class NewsStore {
         loadingMock = true
         defer { loadingMock = false }
         do {
-            mockDraft = try await api.mockDraft()
+            mocks = try await api.mockDrafts()
+            mockDraft = mocks.first(where: \.isInternal) ?? mocks.first
         } catch {
             self.error = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
         }
+    }
+
+    func loadDraftClass(team: String) async {
+        draftClass = (try? await api.draftResults(team: team).picks) ?? []
     }
 }

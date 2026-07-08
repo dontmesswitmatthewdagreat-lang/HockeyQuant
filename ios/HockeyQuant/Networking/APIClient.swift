@@ -823,6 +823,22 @@ extension APIClient {
         return try Self.decode(ProspectDetailResponse.self, from: data)
     }
 
+    /// `GET /api/prospects/draft-results` — actual picks once the draft happened.
+    func draftResults(team: String?) async throws -> DraftResultsResponse {
+        var comps = URLComponents(url: apiURL("prospects").appendingPathComponent("draft-results"),
+                                  resolvingAgainstBaseURL: false)!
+        if let team, !team.isEmpty { comps.queryItems = [URLQueryItem(name: "team", value: team)] }
+        let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
+        return try Self.decode(DraftResultsResponse.self, from: data)
+    }
+
+    /// `GET /api/prospects/mock-drafts` — newest mock from every source.
+    func mockDrafts() async throws -> [MockDraft] {
+        let url = apiURL("prospects").appendingPathComponent("mock-drafts")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(MockDraftsListResponse.self, from: data).mocks
+    }
+
     /// `GET /api/prospects/mock-draft` — the latest weekly first-round mock draft.
     func mockDraft() async throws -> MockDraft? {
         let url = apiURL("prospects").appendingPathComponent("mock-draft")

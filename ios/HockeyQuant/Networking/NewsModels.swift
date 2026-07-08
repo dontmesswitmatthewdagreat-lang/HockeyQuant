@@ -182,5 +182,23 @@ struct ProspectDetailResponse: Codable {
     let prospect: Prospect
     let rankHistory: [RankPoint]
     let projection: ProspectProjection?
+    let drafted: DraftedPick?
     let news: [ProspectNewsItem]
+}
+
+/// An actual (post-draft) selection from the NHL API.
+struct DraftedPick: Codable, Hashable, Identifiable {
+    let round: Int?
+    let overall: Int
+    let team: String?
+    let player: String
+    let position: String?
+    let league: String?
+    let club: String?
+    var id: Int { overall }
+}
+
+struct DraftResultsResponse: Codable {
+    let year: Int
+    let picks: [DraftedPick]
 }

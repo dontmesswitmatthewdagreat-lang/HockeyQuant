@@ -20,7 +20,11 @@ struct ProspectDetailSheet: View {
             ScrollView {
                 VStack(spacing: Theme.Spacing.md) {
                     hero
-                    if let proj = detail?.projection { projectionCard(proj) }
+                    if let drafted = detail?.drafted {
+                        draftedCard(drafted)
+                    } else if let proj = detail?.projection {
+                        projectionCard(proj)
+                    }
                     if let history = detail?.rankHistory, history.count >= 2 { trendCard(history) }
                     newsCard
                 }
@@ -106,6 +110,35 @@ struct ProspectDetailSheet: View {
         case "international-goalie":   return "Intl goalie"
         default:                      return "ranked"
         }
+    }
+
+    // MARK: - Actual draft result (post-draft)
+
+    private func draftedCard(_ pick: DraftedPick) -> some View {
+        let teamColor = pick.team.map { TeamInfo.lookup($0).color } ?? Theme.Palette.accent
+        return SectionCard("Drafted") {
+            HStack(spacing: Theme.Spacing.sm) {
+                if let team = pick.team { CrestView(abbrev: team, size: 44) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("#\(pick.overall) overall · \(pick.team ?? "?")")
+                        .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text(draftedLine(pick))
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                }
+                Spacer()
+                StatusPill(text: "OFFICIAL", color: teamColor, solid: true)
+            }
+        }
+    }
+
+    private func draftedLine(_ pick: DraftedPick) -> String {
+        var parts: [String] = []
+        if let round = pick.round { parts.append("Round \(round)") }
+        if let year = prospect.draftYear { parts.append("\(year) NHL Draft") }
+        if let club = pick.club, !club.isEmpty { parts.append("from \(club)") }
+        return parts.joined(separator: " · ")
     }
 
     // MARK: - Projection

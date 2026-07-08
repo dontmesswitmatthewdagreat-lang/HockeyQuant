@@ -16,6 +16,7 @@ struct NewsView: View {
     @State private var summaryItem: DigestItem?
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
+    @State private var mockSource: String?     // selected insider mock (nil = first)
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -46,8 +47,9 @@ struct NewsView: View {
         .task(id: tab) {
             // Load every prospect list so swiping between them is instant.
             guard tab == 1 else { return }
-            if let fav = auth.favoriteTeam, store.teamProspects.isEmpty {
-                await store.loadTeamProspects(team: fav)
+            if let fav = auth.favoriteTeam {
+                if store.teamProspects.isEmpty { await store.loadTeamProspects(team: fav) }
+                if store.draftClass.isEmpty { await store.loadDraftClass(team: fav) }
             }
             if store.draftProspects.isEmpty { await store.loadDraftProspects() }
         }
@@ -448,6 +450,7 @@ struct NewsView: View {
             ScrollView {
                 LazyVStack(spacing: Theme.Spacing.xs) {
                     if draftBoard {
+                        if prospectQuery.isEmpty { podiumHero(items) }
                         // The NHL ranks four separate lists; group + label them so
                         // the per-list "#1, #2, …" numbering reads correctly.
                         ForEach(draftGroups(items), id: \.key) { group in
@@ -460,6 +463,10 @@ struct NewsView: View {
                             }
                         }
                     } else {
+                        if !store.draftClass.isEmpty {
+                            draftClassSection
+                        }
+                        prospectSectionHeader("Prospect pool", count: items.count)
                         ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
                             prospectRow(p, rank: p.ranking ?? (i + 1)).staggeredEntrance(index: min(i, 10))
                         }
@@ -470,6 +477,111 @@ struct NewsView: View {
             .scrollDismissesKeyboard(.immediately)
             .refreshable { await refresh() }
         }
+    }
+
+    // MARK: - Podium hero (draft board top 3)
+
+    /// The top three of the first Central Scouting list on a gradient stage —
+    /// silver / gold / bronze, gold elevated in the middle.
+    @ViewBuilder
+    private func podiumHero(_ items: [Prospect]) -> some View {
+        let top = Array((draftGroups(items).first?.items.prefix(3)) ?? [])
+        if top.count == 3 {
+            HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
+                podiumColumn(top[1], rank: 2, size: 58)
+                podiumColumn(top[0], rank: 1, size: 74).offset(y: -12)
+                podiumColumn(top[2], rank: 3, size: 58)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, Theme.Spacing.lg + 12)
+            .padding(.bottom, Theme.Spacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .fill(LinearGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt.opacity(0.85)],
+                                         startPoint: .topLeading, endPoint: .bottomTrailing))
+            )
+            .padding(.bottom, Theme.Spacing.xs)
+        }
+    }
+
+    private func podiumColumn(_ p: Prospect, rank: Int, size: CGFloat) -> some View {
+        PressableButton(action: { detailProspect = p }) {
+            VStack(spacing: 6) {
+                ZStack(alignment: .bottom) {
+                    ZStack {
+                        Circle().fill(.white.opacity(0.25))
+                        if let url = p.headshotURL {
+                            AsyncImage(url: url) { phase in
+                                if let img = phase.image { img.resizable().scaledToFill() } else { monogram(p) }
+                            }
+                        } else { monogram(p) }
+                    }
+                    .frame(width: size, height: size)
+                    .clipShape(Circle())
+                    .overlay(Circle().strokeBorder(medallionColor(rank), lineWidth: 3))
+                    Text("\(rank)")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(width: 20, height: 20)
+                        .background(Circle().fill(medallionColor(rank)))
+                        .offset(y: 8)
+                }
+                .padding(.bottom, 6)
+                Text(p.name.components(separatedBy: " ").last ?? p.name)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Text(p.position ?? "")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Actual draft class (My Team, post-draft)
+
+    private var draftClassSection: some View {
+        VStack(spacing: Theme.Spacing.xs) {
+            prospectSectionHeader("This year's draft class", count: store.draftClass.count)
+            ForEach(store.draftClass) { pick in
+                HStack(spacing: Theme.Spacing.sm) {
+                    VStack(spacing: 0) {
+                        Text("R\(pick.round ?? 0)")
+                            .font(.system(size: 10, weight: .heavy))
+                            .foregroundStyle(.white.opacity(0.85))
+                        Text("\(pick.overall)")
+                            .font(.system(size: 14, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                    }
+                    .frame(width: 38, height: 38)
+                    .background(
+                        Circle().fill(LinearGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
+                                                     startPoint: .top, endPoint: .bottom))
+                    )
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(pick.player)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                            .lineLimit(1)
+                        Text([pick.position, pick.club ?? pick.league].compactMap(\.self).joined(separator: " · "))
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    StatusPill(text: "DRAFTED", color: Theme.Palette.positive)
+                }
+                .padding(Theme.Spacing.sm)
+                .background(Theme.Palette.surface)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .strokeBorder(Theme.Palette.accent.opacity(0.35), lineWidth: 1))
+            }
+        }
+        .padding(.bottom, Theme.Spacing.sm)
     }
 
     private func prospectSectionHeader(_ title: String, count: Int) -> some View {
@@ -489,20 +601,62 @@ struct NewsView: View {
 
     // MARK: - Mock draft (3rd Prospects page)
 
+    private var selectedMock: MockDraft? {
+        if let mockSource, let m = store.mocks.first(where: { $0.sourceLabel == mockSource }) { return m }
+        return store.mockDraft ?? store.mocks.first
+    }
+
     @ViewBuilder
     private var mockDraftPage: some View {
-        if store.loadingMock && store.mockDraft == nil {
+        if store.loadingMock && store.mocks.isEmpty && store.mockDraft == nil {
             shimmer
-        } else if let mock = store.mockDraft, !mock.picks.isEmpty {
-            MockDraftBoard(
-                mock: mock,
-                reveal: isNewMock && prospectPage == 2,
-                onRevealComplete: { seenMockEdition = mock.edition }
-            )
+        } else if let mock = selectedMock, !mock.picks.isEmpty {
+            VStack(spacing: 0) {
+                if store.mocks.count > 1 { mockSourcePicker }
+                MockDraftBoard(
+                    mock: mock,
+                    reveal: mock.isInternal && isNewMock && prospectPage == 2,
+                    onRevealComplete: { seenMockEdition = mock.edition }
+                )
+                .id(mock.id)
+            }
         } else {
             EmptyStateView(systemImage: "list.number", title: "No mock draft yet",
                            message: "This week's projected first round will appear here.")
         }
+    }
+
+    /// Switch between the internal projection and imported insider mocks.
+    private var mockSourcePicker: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.Spacing.xs) {
+                ForEach(store.mocks) { mock in
+                    let active = selectedMock?.id == mock.id
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            mockSource = mock.sourceLabel
+                        }
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: mock.isInternal ? "cpu" : "person.text.rectangle")
+                                .font(.system(size: 10, weight: .bold))
+                            Text(mock.isInternal ? "HockeyQuant" : mock.sourceLabel)
+                                .font(.system(size: 13, weight: .bold, design: .rounded))
+                        }
+                        .foregroundStyle(active ? .white : Theme.Palette.textSecondary)
+                        .padding(.horizontal, 13).padding(.vertical, 7)
+                        .background(active ? AnyShapeStyle(LinearGradient(
+                            colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
+                            startPoint: .leading, endPoint: .trailing))
+                            : AnyShapeStyle(Theme.Palette.border.opacity(0.45)))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, Theme.Spacing.md)
+        }
+        .padding(.bottom, Theme.Spacing.sm)
     }
 
     /// The projected first round, with a one-time slot-machine reveal for a new edition.
