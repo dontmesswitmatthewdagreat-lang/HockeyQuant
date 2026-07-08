@@ -87,6 +87,8 @@ struct Prospect: Codable, Identifiable, Hashable {
     let ranking: Int?
     let notable: Bool
     let info: ProspectInfo?
+    /// Rank change vs the previous Central Scouting list (positive = riser).
+    let rankDelta: Int?
 
     var subtitle: String {
         var parts: [String] = []
@@ -151,3 +153,34 @@ struct Prospect: Codable, Identifiable, Hashable {
 }
 
 struct ProspectsResponse: Codable { let prospects: [Prospect] }
+
+// MARK: - Prospect detail sheet
+
+struct RankPoint: Codable, Hashable, Identifiable {
+    let listDate: String
+    let rank: Int
+    var id: String { listDate }
+}
+
+struct ProspectProjection: Codable, Hashable {
+    let overall: Int?
+    let team: String?
+    let reason: String?
+    let edition: String?
+}
+
+struct ProspectNewsItem: Codable, Hashable, Identifiable {
+    let headline: String
+    let source: String?
+    let url: String
+    let publishedAt: String?
+    let blurb: String?
+    var id: String { url }
+}
+
+struct ProspectDetailResponse: Codable {
+    let prospect: Prospect
+    let rankHistory: [RankPoint]
+    let projection: ProspectProjection?
+    let news: [ProspectNewsItem]
+}

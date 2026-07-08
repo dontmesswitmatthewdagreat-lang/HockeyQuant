@@ -15,6 +15,7 @@ struct NewsView: View {
     @Environment(PremiumStore.self) private var premium
     @State private var summaryItem: DigestItem?
     @State private var showPaywall = false
+    @State private var detailProspect: Prospect?
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -62,6 +63,10 @@ struct NewsView: View {
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()
+        }
+        .sheet(item: $detailProspect) { prospect in
+            ProspectDetailSheet(prospect: prospect)
+                .presentationDetents([.large])
         }
     }
 
@@ -411,56 +416,25 @@ struct NewsView: View {
             .sorted { ($0.items.first?.categoryOrder ?? 9) < ($1.items.first?.categoryOrder ?? 9) }
     }
 
-    /// Passive Draft Board / My Team indicator — a chip + page dots, deliberately
-    /// distinct from the underline-style News/Prospects tab buttons so it reads as
-    /// "swipe between these," not "tap these."
+    /// The same big pill switcher the rest of the app uses; swiping the pages
+    /// underneath still works and stays in sync.
     private var prospectIndicator: some View {
-        VStack(spacing: 7) {
-            HStack(spacing: Theme.Spacing.xs) {
-                prospectChip("Draft Board", 0)
-                prospectChip("My Team", 1)
-                prospectChip("Mock Draft", 2, badge: isNewMock)
-            }
-            HStack(spacing: 6) {
-                ForEach(0..<3, id: \.self) { i in
-                    Capsule()
-                        .fill(prospectPage == i ? Theme.Palette.accent : Theme.Palette.border)
-                        .frame(width: prospectPage == i ? 18 : 6, height: 6)
-                }
-            }
-            .accessibilityHidden(true)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, Theme.Spacing.xxs)
-        .padding(.bottom, Theme.Spacing.sm)
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: prospectPage)
-    }
-
-    private func prospectChip(_ label: String, _ idx: Int, badge: Bool = false) -> some View {
-        let active = prospectPage == idx
-        return Text(label)
-            .font(.system(size: 13, weight: active ? .bold : .medium, design: .rounded))
-            .foregroundStyle(active ? .white : Theme.Palette.textTertiary)
-            .padding(.horizontal, Theme.Spacing.sm)
-            .padding(.vertical, 6)
-            .background { if active { Capsule().fill(Theme.Palette.accent) } }
+        BigSegment(selection: $prospectPage, options: ["Draft Board", "My Team", "Mock Draft"])
             .overlay(alignment: .topTrailing) {
-                if badge && !active {
+                if isNewMock && prospectPage != 2 {
                     Circle().fill(Theme.Palette.defaultAccentAlt)
-                        .frame(width: 7, height: 7).offset(x: 1, y: -1)
+                        .frame(width: 8, height: 8)
+                        .offset(x: -10, y: 6)
                 }
             }
-            .accessibilityElement(children: .combine)
-            .accessibilityLabel(label)
-            .accessibilityValue(active ? "selected" : "swipe to view")
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.bottom, Theme.Spacing.sm)
     }
 
     @ViewBuilder
     private func prospectGrid(_ allItems: [Prospect], loading: Bool, draftBoard: Bool,
                               refresh: @escaping () async -> Void) -> some View {
         let items = filtered(allItems)
-        let columns = [GridItem(.flexible(), spacing: Theme.Spacing.sm),
-                       GridItem(.flexible(), spacing: Theme.Spacing.sm)]
         if loading && allItems.isEmpty {
             shimmer
         } else if allItems.isEmpty {
@@ -472,14 +446,14 @@ struct NewsView: View {
                            message: "No prospects match “\(prospectQuery)”.")
         } else {
             ScrollView {
-                LazyVGrid(columns: columns, spacing: Theme.Spacing.sm) {
+                LazyVStack(spacing: Theme.Spacing.xs) {
                     if draftBoard {
                         // The NHL ranks four separate lists; group + label them so
                         // the per-list "#1, #2, …" numbering reads correctly.
                         ForEach(draftGroups(items), id: \.key) { group in
                             Section {
                                 ForEach(Array(group.items.enumerated()), id: \.element.id) { i, p in
-                                    prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
+                                    prospectRow(p, rank: p.ranking ?? (i + 1)).staggeredEntrance(index: min(i, 10))
                                 }
                             } header: {
                                 prospectSectionHeader(group.title, count: group.items.count)
@@ -487,7 +461,7 @@ struct NewsView: View {
                         }
                     } else {
                         ForEach(Array(items.enumerated()), id: \.element.id) { i, p in
-                            prospectCard(p, rank: i + 1).staggeredEntrance(index: min(i, 10))
+                            prospectRow(p, rank: p.ranking ?? (i + 1)).staggeredEntrance(index: min(i, 10))
                         }
                     }
                 }
@@ -652,6 +626,15 @@ struct NewsView: View {
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
+                if locked, let move = pick.movement, move != 0 {
+                    HStack(spacing: 1) {
+                        Image(systemName: move > 0 ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 8, weight: .heavy))
+                        Text("\(abs(move))")
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    }
+                    .foregroundStyle(move > 0 ? Theme.Palette.positive : Theme.Palette.negative)
+                }
                 if locked {
                     Text(pick.prospect.position ?? pick.need)
                         .font(.system(size: 11, weight: .heavy, design: .rounded))
@@ -792,67 +775,97 @@ struct NewsView: View {
         }
     }
 
-    private func prospectCard(_ p: Prospect, rank: Int) -> some View {
-        VStack(spacing: Theme.Spacing.xs) {
-            ZStack(alignment: .topLeading) {
-                // Headshot (team prospects) or initials monogram (draft board —
-                // the NHL has no photos for undrafted players).
+    /// One ranked prospect row: rank medallion (gold/silver/bronze in the top 3),
+    /// headshot, flag + name + club line, trend arrow, chevron. Tap → detail sheet.
+    private func prospectRow(_ p: Prospect, rank: Int) -> some View {
+        PressableButton(action: { detailProspect = p }) {
+            HStack(spacing: Theme.Spacing.sm) {
+                rankMedallion(rank, showCrest: p.team)
                 ZStack {
                     Circle()
                         .fill(LinearGradient(colors: [Theme.Palette.accent.opacity(0.55), Theme.Palette.accentAlt.opacity(0.3)],
                                              startPoint: .topLeading, endPoint: .bottomTrailing))
                     if let url = p.headshotURL {
                         AsyncImage(url: url) { phase in
-                            if let img = phase.image {
-                                img.resizable().scaledToFill()
-                            } else {
-                                monogram(p)
-                            }
+                            if let img = phase.image { img.resizable().scaledToFill() } else { monogram(p) }
                         }
                     } else {
                         monogram(p)
                     }
                 }
-                .frame(width: 84, height: 84)
+                .frame(width: 44, height: 44)
                 .clipShape(Circle())
                 .overlay(Circle().strokeBorder(Theme.Palette.border, lineWidth: 1))
-                .frame(maxWidth: .infinity)
 
-                // Rank (draft board) or team crest (my team).
-                if p.team == nil {
-                    Text("\(p.ranking ?? rank)")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded)).foregroundStyle(.white)
-                        .frame(width: 26, height: 26).background(Theme.Palette.accent).clipShape(Circle())
-                } else {
-                    CrestView(abbrev: p.team ?? "", size: 26)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        if let flag = p.flag { Text(flag).font(.system(size: 12)) }
+                        Text(p.name)
+                            .font(.system(size: 15, weight: .bold, design: .rounded))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    Text(p.info?.club.flatMap { $0.isEmpty ? nil : $0 } ?? p.subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1)
                 }
+                Spacer(minLength: Theme.Spacing.xs)
+                if let delta = p.rankDelta, delta != 0 {
+                    HStack(spacing: 2) {
+                        Image(systemName: delta > 0 ? "arrow.up" : "arrow.down")
+                            .font(.system(size: 9, weight: .heavy))
+                        Text("\(abs(delta))")
+                            .font(.system(size: 12, weight: .heavy, design: .rounded))
+                    }
+                    .foregroundStyle(delta > 0 ? Theme.Palette.positive : Theme.Palette.negative)
+                    .padding(.horizontal, 7).padding(.vertical, 3)
+                    .background((delta > 0 ? Theme.Palette.positive : Theme.Palette.negative).opacity(0.12))
+                    .clipShape(Capsule())
+                }
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
             }
-
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                if let flag = p.flag { Text(flag).font(.system(size: 13)) }
-                Text(p.name)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.85)
-            }
-            Text(p.subtitle)
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.textTertiary)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-            if p.team != nil, let r = p.ranking {
-                Text("#\(r) prospect")
-                    .font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.Palette.accent)
-            }
+            .padding(Theme.Spacing.sm)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                .strokeBorder(rank <= 3 && p.team == nil ? medallionColor(rank).opacity(0.5) : Theme.Palette.border,
+                              lineWidth: rank <= 3 && p.team == nil ? 1.5 : 1))
         }
-        .padding(Theme.Spacing.sm)
-        .frame(maxWidth: .infinity, minHeight: 158, alignment: .top)
-        .background(Theme.Palette.surface)
-        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-            .strokeBorder(Theme.Palette.border, lineWidth: 1))
+        .buttonStyle(.plain)
+    }
+
+    /// Draft board: numbered medallion (podium colors for 1–3). My Team: crest.
+    @ViewBuilder
+    private func rankMedallion(_ rank: Int, showCrest team: String?) -> some View {
+        if let team, !team.isEmpty {
+            CrestView(abbrev: team, size: 28)
+                .frame(width: 30)
+        } else {
+            Text("\(rank)")
+                .font(.system(size: rank > 99 ? 11 : 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(
+                    Circle().fill(rank <= 3
+                        ? AnyShapeStyle(LinearGradient(colors: [medallionColor(rank), medallionColor(rank).opacity(0.7)],
+                                                       startPoint: .top, endPoint: .bottom))
+                        : AnyShapeStyle(Theme.Palette.accent))
+                )
+                .shadow(color: rank <= 3 ? medallionColor(rank).opacity(0.4) : .clear, radius: 4, y: 1)
+        }
+    }
+
+    private func medallionColor(_ rank: Int) -> Color {
+        switch rank {
+        case 1: return Color(hex: 0xE8A200)   // gold
+        case 2: return Color(hex: 0x9BA6B2)   // silver
+        case 3: return Color(hex: 0xB4713C)   // bronze
+        default: return Theme.Palette.accent
+        }
     }
 
     private func monogram(_ p: Prospect) -> some View {

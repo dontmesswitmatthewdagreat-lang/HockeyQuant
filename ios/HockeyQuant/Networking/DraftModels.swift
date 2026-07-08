@@ -12,8 +12,13 @@ struct MockPick: Codable, Identifiable, Hashable {
     let need: String        // F / D / G — the group this pick addresses
     let reason: String      // need-fit explanation, or "Best player available"
     let prospect: Prospect
+    /// This prospect's slot in the previous edition (nil = new to round one).
+    let previousOverall: Int?
 
     var id: Int { overall }
+
+    /// Movement vs last week's edition (positive = rose up the board).
+    var movement: Int? { previousOverall.map { $0 - overall } }
 }
 
 /// One non-playoff team's draft-lottery standing: its chance at the No. 1 pick,

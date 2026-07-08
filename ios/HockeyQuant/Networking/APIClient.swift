@@ -816,6 +816,13 @@ extension APIClient {
         return try Self.decode(ProspectsResponse.self, from: data).prospects
     }
 
+    /// `GET /api/prospects/{nhlId}/detail` — ranking history, news, mock projection.
+    func prospectDetail(nhlId: Int) async throws -> ProspectDetailResponse {
+        let url = apiURL("prospects").appendingPathComponent(String(nhlId)).appendingPathComponent("detail")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(ProspectDetailResponse.self, from: data)
+    }
+
     /// `GET /api/prospects/mock-draft` — the latest weekly first-round mock draft.
     func mockDraft() async throws -> MockDraft? {
         let url = apiURL("prospects").appendingPathComponent("mock-draft")
