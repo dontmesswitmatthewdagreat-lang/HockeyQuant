@@ -18,3 +18,9 @@ jobs:
 
       - name: Generate weekly mock draft
         run: curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/prospects/mock-draft/generate"
+
+      - name: Import insider mock drafts
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/prospects/mock-draft/import-insiders"
+
+      - name: Sync prospects (ranking snapshot for trend arrows)
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/prospects/sync"

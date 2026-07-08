@@ -1,0 +1,20 @@
+# HockeyQuant — Player market snapshot
+# Stores today's fair/market values daily so the index chart, per-player
+# sparklines, and "today's movers" accrue history. Idempotent per day.
+
+name: Player Market Snapshot
+
+on:
+  schedule:
+    - cron: '30 13 * * *'   # 13:30 UTC daily (~9:30 AM ET)
+  workflow_dispatch:
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Store market snapshot
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/market/snapshot"
