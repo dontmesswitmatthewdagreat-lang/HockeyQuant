@@ -6,7 +6,14 @@ from fastapi import APIRouter, HTTPException
 from services.supabase_client import get_supabase
 from services.prospects import sync_all
 from services.draft_simulator import build_mock_draft
+from services.draft_results import fetch_draft_picks, drafted_lookup, team_picks
 from services.push import apns_send
+
+
+def _notable_draft_year(sb) -> int:
+    import datetime
+    rows = sb.table("prospects").select("draft_year").eq("notable", "true").limit(1).execute().data
+    return (rows[0].get("draft_year") if rows else None) or datetime.date.today().year
 
 
 def _rank_deltas(sb, nhl_ids):
@@ -83,6 +90,10 @@ def prospect_detail(nhl_id: int):
     except Exception:
         history = []
 
+    drafted = None
+    if prospect.get("draft_year"):
+        drafted = drafted_lookup(prospect["draft_year"]).get(prospect["name"].lower())
+
     projection = None
     try:
         mocks = sb.table("mock_drafts").select("edition,picks") \
@@ -108,7 +119,43 @@ def prospect_detail(nhl_id: int):
         pass
 
     return {"prospect": prospect, "rank_history": history,
-            "projection": projection, "news": news}
+            "projection": projection, "drafted": drafted, "news": news}
+
+
+@router.get("/prospects/draft-results")
+def draft_results(team: Optional[str] = None, year: Optional[int] = None):
+    """Actual draft picks once the draft has happened (all, or one team's class)."""
+    sb = _sb()
+    y = year or _notable_draft_year(sb)
+    picks = team_picks(y, team) if team else fetch_draft_picks(y)
+    return {"year": y, "picks": picks}
+
+
+@router.get("/prospects/mock-drafts")
+def list_mock_drafts():
+    """The newest mock from every source (internal engine + insider outlets)."""
+    sb = _sb()
+    rows = sb.table("mock_drafts").select("*").order("generated_at", desc=True).limit(24).execute().data
+    seen, out = set(), []
+    for r in rows:
+        src = r.get("source") or "HockeyQuant"
+        if src in seen:
+            continue
+        seen.add(src)
+        r["source"] = src
+        out.append(r)
+    # Internal projection first, then outlets alphabetically.
+    out.sort(key=lambda r: (r["source"] != "HockeyQuant", r["source"]))
+    return {"mocks": out}
+
+
+@router.post("/prospects/mock-draft/import-insiders")
+def import_insiders():
+    """Cron/admin: pull + store the latest insider mock drafts (one per outlet)."""
+    sb = _sb()
+    from services.insider_mocks import import_insider_mocks
+    imported = import_insider_mocks(sb, _notable_draft_year(sb))
+    return {"imported": imported}
 
 
 @router.post("/prospects/mock-draft/generate")
@@ -134,14 +181,20 @@ def generate_mock_draft():
         name = (p.get("prospect") or {}).get("name")
         p["previous_overall"] = prev_overall.get(name)
 
-    sb.table("mock_drafts").upsert([{
+    row = {
         "draft_year": mock["draft_year"],
         "edition": mock["edition"],
         "generated_at": mock["generated_at"],
         "order_basis": mock["order_basis"],
         "lottery_odds": mock.get("lottery_odds", []),
         "picks": mock["picks"],
-    }], on_conflict="draft_year,edition").execute()
+    }
+    try:
+        sb.table("mock_drafts").upsert([{**row, "source": "HockeyQuant"}],
+                                       on_conflict="draft_year,edition,source").execute()
+    except Exception:
+        # Pre-migration-023 fallback (no source column yet).
+        sb.table("mock_drafts").upsert([row], on_conflict="draft_year,edition").execute()
 
     if is_new_edition and mock["picks"]:
         top = mock["picks"][0]

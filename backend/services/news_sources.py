@@ -227,3 +227,46 @@ def fetch_team_items(abbrev: str, limit: int = 30) -> List[Dict]:
     if sub:
         items += _reddit(sub, abbrev, limit=15)
     return _dedupe(items)[:limit]
+
+
+# MARK: - Google News URL resolution
+
+_gnews_cache: dict = {}
+
+
+def resolve_gnews_url(url: str) -> str:
+    """Google News RSS links are JS-redirect stubs; resolve one to the real
+    article URL via Google's batchexecute API. Returns the input on failure."""
+    if "news.google.com" not in url:
+        return url
+    if url in _gnews_cache:
+        return _gnews_cache[url]
+    import json as _json
+    from urllib.parse import quote as _quote, urlparse as _urlparse
+    resolved = url
+    try:
+        art_id = _urlparse(url).path.split("/")[-1]
+        page = requests.get(f"https://news.google.com/articles/{art_id}",
+                            headers={"User-Agent": UA}, timeout=15).text
+        sg_m = re.search(r'data-n-a-sg="([^"]+)"', page)
+        ts_m = re.search(r'data-n-a-ts="([^"]+)"', page)
+        if sg_m and ts_m:
+            req = [[["Fbv4je",
+                     f'["garturlreq",[["X","X",["X","X"],null,null,1,1,"US:en",null,1,'
+                     f'null,null,null,null,null,0,1],"X","X",1,[1,1,1],1,1,null,0,0,null,0],'
+                     f'"{art_id}",{ts_m.group(1)},"{sg_m.group(1)}"]', None, "generic"]]]
+            r = requests.post(
+                "https://news.google.com/_/DotsSplashUi/data/batchexecute",
+                headers={"Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+                         "User-Agent": UA},
+                data="f.req=" + _quote(_json.dumps(req)), timeout=15)
+            for line in r.text.splitlines():
+                if "garturlres" in line:
+                    resolved = _json.loads(_json.loads(line)[0][2])[1] or url
+                    break
+    except Exception:
+        resolved = url
+    if len(_gnews_cache) > 1000:
+        _gnews_cache.clear()
+    _gnews_cache[url] = resolved
+    return resolved

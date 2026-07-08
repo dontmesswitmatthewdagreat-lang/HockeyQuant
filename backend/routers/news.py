@@ -184,8 +184,9 @@ class SummarizeRequest(BaseModel):
 
 def _article_text(url: str) -> str:
     """Best-effort readable text from an article page (paragraph tags only)."""
+    from services.news_sources import resolve_gnews_url
     resp = requests.get(
-        url,
+        resolve_gnews_url(url),
         headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15"},
         timeout=12, allow_redirects=True,
     )
