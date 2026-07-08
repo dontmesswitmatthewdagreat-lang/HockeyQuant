@@ -123,7 +123,7 @@ def import_insider_mocks(sb, draft_year: int) -> List[str]:
                 "overall": p["overall"], "round": 1, "team": p["team"],
                 "team_name": TEAM_FULL_NAMES.get(p["team"], p["team"]),
                 "need": "G" if group == "G" else ("D" if group == "D" else "F"),
-                "reason": f"Per {outlet}" + (f" — {article_title}" if article_title else ""),
+                "reason": f"Per {outlet}",
                 "source": "insider",
                 "prospect": prospect,
             })
@@ -133,7 +133,7 @@ def import_insider_mocks(sb, draft_year: int) -> List[str]:
             "edition": edition,
             "source": outlet,
             "generated_at": now.isoformat(),
-            "order_basis": f"{outlet} mock draft",
+            "order_basis": article_title or f"{outlet} mock draft",
             "lottery_odds": [],
             "picks": picks,
         }], on_conflict="draft_year,edition,source").execute()

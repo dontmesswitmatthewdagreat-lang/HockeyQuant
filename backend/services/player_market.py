@@ -33,6 +33,24 @@ def _norm(name: str) -> str:
     return re.sub(r"[^a-z ]", "", s.lower()).strip()
 
 
+def _fuzzy_key(name: str) -> str:
+    """Loosened join key: last name + first-3 of first name (catches
+    Alex/Alexander, Matt/Matthew, accent variants already stripped by _norm)."""
+    parts = _norm(name).split()
+    if len(parts) < 2:
+        return _norm(name)
+    return f"{parts[-1]}|{parts[0][:3]}"
+
+
+def _with_fuzzy(primary: Dict[str, dict]) -> Dict[str, dict]:
+    """Secondary index on the loosened key; ambiguous keys are dropped."""
+    fuzzy: Dict[str, Optional[dict]] = {}
+    for v in primary.values():
+        k = _fuzzy_key(v.get("name") or "")
+        fuzzy[k] = None if k in fuzzy else v
+    return {k: v for k, v in fuzzy.items() if v is not None}
+
+
 def _group(pos: Optional[str]) -> str:
     return "D" if (pos or "").upper().startswith("D") else "F"
 
@@ -153,6 +171,7 @@ def build_market() -> dict:
 
     prod = _production()
     ages = _nhl_ages()
+    ages_fuzzy = _with_fuzzy({k: {**v, "name": k} for k, v in ages.items()})
 
     contracts: Dict[str, dict] = {}
     for team in TEAM_SLUGS:
@@ -161,14 +180,15 @@ def build_market() -> dict:
                 contracts.setdefault(_norm(pl["name"]), {**pl, "team": team})
         except Exception:
             continue
+    contracts_fuzzy = _with_fuzzy(contracts)
 
     # Assemble every skater we can value (has production + an age).
     players: Dict[str, dict] = {}
     for key, p in prod.items():
-        age = (ages.get(key) or {}).get("age")
+        age = (ages.get(key) or ages_fuzzy.get(_fuzzy_key(p["name"])) or {}).get("age")
         if age is None or p["gp"] < 10 or p["position"] == "G":
             continue
-        c = contracts.get(key)
+        c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(p["name"]))
         players[key] = {**p, "age": round(age, 1), "aav": c["aav"] if c else None,
                         "contract_team": c["team"] if c else None}
 
