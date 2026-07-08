@@ -41,7 +41,7 @@ struct TodayView: View {
                 .refreshable { await model.load() }
             }
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(isPresented: $showingDatePicker) { datePickerSheet }
+            .floatingCard(isPresented: $showingDatePicker) { calendarCard }
             .fullScreenCover(isPresented: coverPresented) { expandedCover }
         }
         .task {
@@ -219,21 +219,15 @@ struct TodayView: View {
         }
     }
 
-    // MARK: - Date picker
+    // MARK: - Date picker (floating calendar card)
 
-    private var datePickerSheet: some View {
-        NavigationStack {
-            DatePicker("Game date", selection: dateBinding, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .padding()
-                .navigationTitle("Pick a date")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingDatePicker = false }
-                    }
-                }
-        }
-        .presentationDetents([.medium, .large])
+    private var calendarCard: some View {
+        MonthCalendarCard(
+            selection: dateBinding,
+            gameCounts: model.gameCounts,
+            onPick: { showingDatePicker = false },
+            onMonthChange: { month in Task { await model.loadMonthCounts(for: month) } }
+        )
+        .task { await model.loadMonthCounts(for: model.selectedDate) }
     }
 }

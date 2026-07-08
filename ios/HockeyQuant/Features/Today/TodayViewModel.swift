@@ -97,12 +97,16 @@ final class TodayViewModel {
     func load() async {
         state = .loading
         let dateStr = APIClient.apiDateString(selectedDate)
+        // Results for a stale date must never clobber the screen (fast day-taps
+        // race: the slower earlier request can finish last).
+        func stillCurrent() -> Bool { APIClient.apiDateString(selectedDate) == dateStr }
         do {
             // Predictions + scores in parallel; scores enrich/sort but never block.
             async let predsTask = api.predictions(dateString: dateStr)
             async let scoresTask = api.scores(forDate: dateStr)
             let response = try await predsTask
             let scores = (try? await scoresTask) ?? []
+            guard stillCurrent() else { return }
             Log.info("Loaded \(response.gamesCount) games for \(response.date)")
             Task { await loadStripCounts() }
 
@@ -115,10 +119,31 @@ final class TodayViewModel {
             gameCounts[dateStr] = response.predictions.count
             startPollingIfLive()
         } catch APIClient.APIError.noGames {
-            state = .empty
+            if stillCurrent() { state = .empty }
         } catch {
             Log.error("Failed to load predictions", error)
-            state = .error(error.localizedDescription)
+            if stillCurrent() { state = .error(error.localizedDescription) }
+        }
+    }
+
+    /// Fill game-count dots for a whole visible calendar month (cached per day).
+    func loadMonthCounts(for month: Date) async {
+        let cal = Calendar.current
+        guard let interval = cal.dateInterval(of: .month, for: month),
+              let dayCount = cal.range(of: .day, in: .month, for: month)?.count else { return }
+        let days = (0..<dayCount).compactMap { cal.date(byAdding: .day, value: $0, to: interval.start) }
+        await withTaskGroup(of: (String, Int)?.self) { group in
+            for day in days {
+                let ds = APIClient.apiDateString(day)
+                if gameCounts[ds] != nil { continue }
+                group.addTask { [api] in
+                    guard let scores = try? await api.scores(forDate: ds) else { return nil }
+                    return (ds, scores.count)
+                }
+            }
+            for await result in group {
+                if let (ds, count) = result { gameCounts[ds] = count }
+            }
         }
     }
 

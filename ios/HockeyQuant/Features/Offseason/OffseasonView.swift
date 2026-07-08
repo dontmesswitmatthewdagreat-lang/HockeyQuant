@@ -28,9 +28,8 @@ struct OffseasonView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await store.load() }
-        .sheet(item: $signingAgent) { agent in
+        .floatingCard(item: $signingAgent) { agent in
             SignPlayerSheet(store: store, agent: agent)
-                .presentationDetents([.large])
         }
         .sheet(item: $capTeam) { team in
             TeamCapSheet(store: store, team: team, onTrade: {
@@ -173,7 +172,7 @@ struct OffseasonView: View {
                 marketPromo
                 searchField
                 filterChips
-                ForEach(filteredAgents.prefix(80)) { agent in
+                ForEach(filteredAgents) { agent in
                     agentRow(agent)
                 }
                 if filteredAgents.isEmpty {
@@ -501,7 +500,7 @@ struct MoveCard: View {
             Text("\(from ?? "?") → \(to ?? "?")")
                 .font(.system(size: 12, weight: .heavy, design: .rounded))
                 .foregroundStyle(Theme.Palette.textSecondary)
-            Text(pieces.isEmpty ? "—" : pieces.map(\.name).joined(separator: ", "))
+            Text(pieces.isEmpty ? "—" : pieces.map { $0.name + (($0.retainedPct ?? 0) > 0 ? " (50% ret.)" : "") }.joined(separator: ", "))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.Palette.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)

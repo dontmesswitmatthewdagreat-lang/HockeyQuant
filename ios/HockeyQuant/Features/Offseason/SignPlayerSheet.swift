@@ -16,28 +16,22 @@ struct SignPlayerSheet: View {
     private var overCap: Bool { (spaceAfter ?? 0) < 0 }
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Theme.backgroundView().ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: Theme.Spacing.md) {
-                        header
-                        teamPicker
-                        contractCard
-                        if !team.isEmpty { capCard }
-                        signButton
-                    }
-                    .padding(Theme.Spacing.md)
-                }
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                Text("SIGN FREE AGENT")
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                header
+                teamPicker
+                contractCard
+                if !team.isEmpty { capCard }
+                signButton
             }
-            .navigationTitle("Sign free agent")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
+            .padding(Theme.Spacing.md)
         }
+        .frame(maxHeight: 620)
         .onAppear {
             if let prev = agent.prevAav { aav = min(max(prev, 775_000), 16_000_000) }
         }

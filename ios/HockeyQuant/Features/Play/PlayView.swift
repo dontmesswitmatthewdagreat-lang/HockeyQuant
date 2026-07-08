@@ -164,8 +164,8 @@ struct PlayView: View {
             await game.loadPicks(date: model.dateString)
             await model.loadGames()
         }
-        .sheet(isPresented: $showingDatePicker) { datePickerSheet }
-        .sheet(item: $pickSheetGame) { prediction in pickSheet(prediction) }
+        .floatingCard(isPresented: $showingDatePicker) { datePickerSheet }
+        .floatingCard(item: $pickSheetGame) { prediction in pickSheet(prediction) }
     }
 
     // MARK: - Hero band (curved header)
@@ -507,11 +507,6 @@ struct PlayView: View {
             Spacer(minLength: 0)
         }
         .padding(Theme.Spacing.md)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Theme.Palette.background.ignoresSafeArea())
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
-        .environment(\.colorScheme, .dark)
     }
 
     @ViewBuilder
@@ -526,18 +521,8 @@ struct PlayView: View {
     // MARK: - Date picker sheet
 
     private var datePickerSheet: some View {
-        NavigationStack {
-            DatePicker("Date", selection: dateBinding, displayedComponents: .date)
-                .datePickerStyle(.graphical)
-                .padding()
-                .navigationTitle("Pick a date")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") { showingDatePicker = false }
-                    }
-                }
+        MonthCalendarCard(selection: dateBinding, gameCounts: [:]) {
+            showingDatePicker = false
         }
-        .presentationDetents([.medium, .large])
     }
 }

@@ -59,9 +59,8 @@ struct NewsView: View {
         .sheet(isPresented: $showSearch) {
             NewsSearchView(store: store)
         }
-        .sheet(item: $summaryItem) { item in
+        .floatingCard(item: $summaryItem) { item in
             NewsSummarySheet(item: item)
-                .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView()

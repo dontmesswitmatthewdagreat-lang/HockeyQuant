@@ -48,7 +48,6 @@ struct NewsSummarySheet: View {
 
     var body: some View {
         ZStack {
-            Theme.backgroundView().ignoresSafeArea()
             ScrollView {
                 VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                     HStack(spacing: Theme.Spacing.xs) {
@@ -83,6 +82,8 @@ struct NewsSummarySheet: View {
                 .padding(.top, Theme.Spacing.sm)
             }
         }
+        .frame(minHeight: 260)
+        .frame(maxHeight: 600)
         .task { await load() }
     }
 

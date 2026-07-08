@@ -14,6 +14,8 @@ struct TradeBuilderView: View {
     @State private var selectedB: Set<String> = []
     @State private var picksA: [TradePiece] = []     // picks team A sends
     @State private var picksB: [TradePiece] = []
+    @State private var retainedA: Set<String> = []   // names A retains 50% on
+    @State private var retainedB: Set<String> = []
 
     var body: some View {
         NavigationStack {
@@ -22,8 +24,8 @@ struct TradeBuilderView: View {
                 ScrollView {
                     VStack(spacing: Theme.Spacing.md) {
                         teamPickers
-                        if !teamA.isEmpty { sideCard(team: teamA, roster: rosterA, selected: $selectedA, picks: $picksA, other: teamB) }
-                        if !teamB.isEmpty { sideCard(team: teamB, roster: rosterB, selected: $selectedB, picks: $picksB, other: teamA) }
+                        if !teamA.isEmpty { sideCard(team: teamA, roster: rosterA, selected: $selectedA, picks: $picksA, retained: $retainedA, other: teamB) }
+                        if !teamB.isEmpty { sideCard(team: teamB, roster: rosterB, selected: $selectedB, picks: $picksB, retained: $retainedB, other: teamA) }
                         if bothChosen { capSummary }
                         completeButton
                     }
@@ -45,14 +47,14 @@ struct TradeBuilderView: View {
     private var teamPickers: some View {
         HStack(spacing: Theme.Spacing.sm) {
             teamMenu(selection: $teamA, exclude: teamB, placeholder: "Team A") { new in
-                selectedA = []; picksA = []
+                selectedA = []; picksA = []; retainedA = []
                 Task { rosterA = await store.roster(for: new) }
             }
             Image(systemName: "arrow.left.arrow.right")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(Theme.Palette.textTertiary)
             teamMenu(selection: $teamB, exclude: teamA, placeholder: "Team B") { new in
-                selectedB = []; picksB = []
+                selectedB = []; picksB = []; retainedB = []
                 Task { rosterB = await store.roster(for: new) }
             }
         }
@@ -97,45 +99,81 @@ struct TradeBuilderView: View {
 
     private func sideCard(team: String, roster: [ContractPlayer],
                           selected: Binding<Set<String>>, picks: Binding<[TradePiece]>,
-                          other: String) -> some View {
+                          retained: Binding<Set<String>>, other: String) -> some View {
         SectionCard("\(team) send\(other.isEmpty ? "" : " to \(other)")") {
             VStack(spacing: Theme.Spacing.xs) {
                 if roster.isEmpty {
                     LoadingShimmer(height: 80)
                 } else {
-                    ForEach(roster.prefix(24)) { player in
+                    ForEach(roster) { player in
                         let unavailable = store.tradedAway(from: team).contains(player.name)
                         let isOn = selected.wrappedValue.contains(player.name)
-                        Button {
-                            if isOn { selected.wrappedValue.remove(player.name) }
-                            else { selected.wrappedValue.insert(player.name) }
-                        } label: {
-                            HStack {
-                                Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
-                                    .font(.system(size: 18))
-                                    .foregroundStyle(isOn ? Theme.Palette.accent : Theme.Palette.textTertiary)
-                                Text(player.name)
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(unavailable ? Theme.Palette.textTertiary : Theme.Palette.textPrimary)
-                                    .strikethrough(unavailable)
-                                Text(player.position)
-                                    .font(.system(size: 11, weight: .heavy, design: .rounded))
-                                    .foregroundStyle(Theme.Palette.textTertiary)
-                                Spacer()
-                                Text(player.aav.asCapMoney)
-                                    .font(.system(size: 13, weight: .bold, design: .monospaced))
-                                    .foregroundStyle(Theme.Palette.textSecondary)
+                        VStack(spacing: 2) {
+                            Button {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                    if isOn {
+                                        selected.wrappedValue.remove(player.name)
+                                        retained.wrappedValue.remove(player.name)
+                                    } else {
+                                        selected.wrappedValue.insert(player.name)
+                                    }
+                                }
+                            } label: {
+                                HStack {
+                                    Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+                                        .font(.system(size: 18))
+                                        .foregroundStyle(isOn ? Theme.Palette.accent : Theme.Palette.textTertiary)
+                                    Text(player.name)
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .foregroundStyle(unavailable ? Theme.Palette.textTertiary : Theme.Palette.textPrimary)
+                                        .strikethrough(unavailable)
+                                    Text(player.position)
+                                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(Theme.Palette.textTertiary)
+                                    Spacer()
+                                    Text(player.aav.asCapMoney)
+                                        .font(.system(size: 13, weight: .bold, design: .monospaced))
+                                        .foregroundStyle(Theme.Palette.textSecondary)
+                                }
+                                .padding(.vertical, 5)
+                                .contentShape(Rectangle())
                             }
-                            .padding(.vertical, 5)
-                            .contentShape(Rectangle())
+                            .buttonStyle(.plain)
+                            .disabled(unavailable)
+                            if isOn {
+                                retentionToggle(player: player, retained: retained)
+                                    .transition(.opacity)
+                            }
                         }
-                        .buttonStyle(.plain)
-                        .disabled(unavailable)
                     }
                 }
                 pickRow(team: team, picks: picks)
             }
         }
+    }
+
+    /// Real trades lean on retained salary constantly: keep 50% on the books.
+    private func retentionToggle(player: ContractPlayer, retained: Binding<Set<String>>) -> some View {
+        let isRetained = retained.wrappedValue.contains(player.name)
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                if isRetained { retained.wrappedValue.remove(player.name) }
+                else { retained.wrappedValue.insert(player.name) }
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: isRetained ? "checkmark.square.fill" : "square")
+                    .font(.system(size: 12, weight: .semibold))
+                Text("Retain 50% (\((player.aav / 2).asCapMoney) stays)")
+                    .font(.system(size: 12, weight: .semibold))
+            }
+            .foregroundStyle(isRetained ? Theme.Palette.accent : Theme.Palette.textTertiary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.leading, 28)
+            .padding(.bottom, 3)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func pickRow(team: String, picks: Binding<[TradePiece]>) -> some View {
@@ -181,16 +219,18 @@ struct TradeBuilderView: View {
 
     private var piecesAtoB: [TradePiece] {
         rosterA.filter { selectedA.contains($0.name) }
-            .map { TradePiece(name: $0.name, position: $0.position, aav: $0.aav) } + picksA
+            .map { TradePiece(name: $0.name, position: $0.position, aav: $0.aav,
+                              retainedPct: retainedA.contains($0.name) ? 0.5 : nil) } + picksA
     }
     private var piecesBtoA: [TradePiece] {
         rosterB.filter { selectedB.contains($0.name) }
-            .map { TradePiece(name: $0.name, position: $0.position, aav: $0.aav) } + picksB
+            .map { TradePiece(name: $0.name, position: $0.position, aav: $0.aav,
+                              retainedPct: retainedB.contains($0.name) ? 0.5 : nil) } + picksB
     }
 
     private func spaceAfter(for team: String, out: [TradePiece], inbound: [TradePiece]) -> Double {
         let base = store.effectiveSpace(for: team) ?? 0
-        return base + out.reduce(0) { $0 + $1.aav } - inbound.reduce(0) { $0 + $1.aav }
+        return base + out.reduce(0) { $0 + $1.transferredAav } - inbound.reduce(0) { $0 + $1.transferredAav }
     }
 
     private var capSummary: some View {

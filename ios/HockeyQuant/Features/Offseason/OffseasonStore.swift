@@ -5,8 +5,12 @@ struct TradePiece: Codable, Hashable, Identifiable {
     let name: String            // "Connor McDavid" or "2027 1st Round Pick"
     let position: String        // "C" / "D" / "G" / "PICK"
     let aav: Double             // 0 for picks
+    /// Fraction of the AAV the sending team keeps on its books (0 or 0.5).
+    var retainedPct: Double? = nil
     var id: String { name }
     var isPick: Bool { position == "PICK" }
+    /// Cap hit that actually moves to the receiving team.
+    var transferredAav: Double { aav * (1 - (retainedPct ?? 0)) }
 }
 
 /// One hypothetical move in the user's offseason timeline.
@@ -135,12 +139,14 @@ final class OffseasonStore {
             case .signing:
                 if move.team == team { delta += move.aav ?? 0 }
             case .trade:
+                // Only the transferred share moves; retained salary stays with
+                // the sender (so the sender is relieved of less).
                 let out = move.piecesAtoB ?? []
                 let inbound = move.piecesBtoA ?? []
                 if move.teamA == team {
-                    delta += inbound.reduce(0) { $0 + $1.aav } - out.reduce(0) { $0 + $1.aav }
+                    delta += inbound.reduce(0) { $0 + $1.transferredAav } - out.reduce(0) { $0 + $1.transferredAav }
                 } else if move.teamB == team {
-                    delta += out.reduce(0) { $0 + $1.aav } - inbound.reduce(0) { $0 + $1.aav }
+                    delta += out.reduce(0) { $0 + $1.transferredAav } - inbound.reduce(0) { $0 + $1.transferredAav }
                 }
             }
         }
