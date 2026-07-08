@@ -120,4 +120,23 @@ def sync_all(sb) -> int:
         r["updated_at"] = now
     for i in range(0, len(rows), 300):
         sb.table("prospects").upsert(rows[i:i + 300], on_conflict="nhl_id").execute()
+    _snapshot_rankings(sb, rows)
     return len(rows)
+
+
+def _snapshot_rankings(sb, rows) -> None:
+    """Append today's Central Scouting ranks so the app can show trends.
+    Best-effort: skipped silently until the prospect_rankings table exists."""
+    today = datetime.now(timezone.utc).date().isoformat()
+    snaps = [{
+        "nhl_id": r["nhl_id"],
+        "list_date": today,
+        "category_id": (r.get("info") or {}).get("category_id"),
+        "rank": r["ranking"],
+    } for r in rows if r.get("ranking") and r.get("nhl_id")]
+    try:
+        for i in range(0, len(snaps), 300):
+            sb.table("prospect_rankings").upsert(
+                snaps[i:i + 300], on_conflict="nhl_id,list_date").execute()
+    except Exception as e:
+        print(f"[prospects] ranking snapshot skipped: {e}")
