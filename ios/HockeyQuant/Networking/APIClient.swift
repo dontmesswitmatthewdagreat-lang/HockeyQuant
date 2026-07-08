@@ -113,6 +113,30 @@ struct APIClient: Sendable {
         return try await get(url, as: [SkaterStats].self)
     }
 
+    // MARK: - Offseason GM
+
+    /// `GET /api/offseason/market` — cap ceiling, all teams' cap sheets, FA pool.
+    func offseasonMarket() async throws -> OffseasonMarket {
+        try await get(apiURL("offseason").appendingPathComponent("market"),
+                      as: OffseasonMarket.self)
+    }
+
+    /// `GET /api/offseason/roster/{abbrev}` — a team's contracted players.
+    func offseasonRoster(team abbrev: String) async throws -> TeamRosterResponse {
+        try await get(apiURL("offseason").appendingPathComponent("roster").appendingPathComponent(abbrev),
+                      as: TeamRosterResponse.self)
+    }
+
+    // MARK: - News summary
+
+    /// `POST /api/news/summarize` — 3-4 sentence AI summary of one article.
+    func summarizeArticle(url: String, headline: String, blurb: String) async throws -> ArticleSummary {
+        struct Req: Encodable { let url: String; let headline: String; let blurb: String }
+        return try await post(apiURL("news").appendingPathComponent("summarize"),
+                              body: Req(url: url, headline: headline, blurb: blurb),
+                              as: ArticleSummary.self)
+    }
+
     // MARK: - Accuracy
 
     /// `GET /api/accuracy/stats` — overall accuracy stats + recent results.

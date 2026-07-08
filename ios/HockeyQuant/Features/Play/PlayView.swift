@@ -173,11 +173,13 @@ struct PlayView: View {
     private var heroBand: some View {
         let xp = game.seasonStats.xp
         let tier = GMTier.current(forXp: xp)
+        let cups = (game.stats ?? .empty).stanleyCups
         return VStack(spacing: Theme.Spacing.sm) {
             HeroBand(tint: Theme.Palette.accent, centerpieceOverhang: 36) {
                 VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
                     HStack(spacing: Theme.Spacing.xs) {
                         BandPill(text: tier.name, systemImage: tier.icon)
+                        BandPill(text: "\(cups) Cups", systemImage: "trophy.fill")
                         Spacer()
                         NavigationLink { LeaderboardView() } label: { bandIcon("trophy.fill") }
                             .buttonStyle(.plain)
@@ -188,7 +190,7 @@ struct PlayView: View {
                             .font(.system(size: 13, weight: .semibold))
                             .foregroundStyle(.white.opacity(0.8))
                         HStack(alignment: .firstTextBaseline) {
-                            Text("@\(auth.username ?? "GM")")
+                            Text(auth.username ?? "GM")
                                 .font(.system(size: 26, weight: .heavy))
                                 .foregroundStyle(.white)
                                 .lineLimit(1)
@@ -248,7 +250,8 @@ struct PlayView: View {
     // MARK: - Quick-action tiles
 
     private var actionTiles: some View {
-        HStack(spacing: Theme.Spacing.sm) {
+        LazyVGrid(columns: [GridItem(.flexible(), spacing: Theme.Spacing.sm), GridItem(.flexible())],
+                  spacing: Theme.Spacing.sm) {
             NavigationLink { globalDestination } label: {
                 ActionTile(icon: "trophy.fill", title: "Global League", tint: Theme.Palette.accent)
             }
@@ -259,6 +262,19 @@ struct PlayView: View {
             .buttonStyle(.plain)
             NavigationLink { FranchiseView() } label: {
                 ActionTile(icon: "rectangle.stack.fill", title: "My Franchise", tint: Color(hex: 0xAF52DE))
+            }
+            .buttonStyle(.plain)
+            NavigationLink { OffseasonView() } label: {
+                ActionTile(icon: "arrow.triangle.swap", title: "Offseason GM", tint: Color(hex: 0xFF9500))
+                    .overlay(alignment: .topTrailing) {
+                        Image(systemName: "crown.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(5)
+                            .background(Color(hex: 0xFF9500))
+                            .clipShape(Circle())
+                            .padding(8)
+                    }
             }
             .buttonStyle(.plain)
         }
