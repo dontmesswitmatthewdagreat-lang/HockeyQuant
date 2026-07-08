@@ -12,6 +12,9 @@ struct NewsView: View {
     @State private var prospectQuery = ""      // live filter for the prospect lists
     @State private var showSearch = false
     @State private var showStory = false
+    @Environment(PremiumStore.self) private var premium
+    @State private var summaryItem: DigestItem?
+    @State private var showPaywall = false
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -53,6 +56,18 @@ struct NewsView: View {
         .sheet(isPresented: $showSearch) {
             NewsSearchView(store: store)
         }
+        .sheet(item: $summaryItem) { item in
+            NewsSummarySheet(item: item)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showPaywall) {
+            PaywallView()
+        }
+    }
+
+    /// Long-press on any news card → AI summary (Premium) or the paywall.
+    private func requestSummary(_ item: DigestItem) {
+        if premium.isPremium { summaryItem = item } else { showPaywall = true }
     }
 
     // MARK: - Header
@@ -230,7 +245,7 @@ struct NewsView: View {
     }
 
     private func heroCard(_ item: DigestItem) -> some View {
-        Button { open(item) } label: {
+        Group {
             ZStack(alignment: .bottomLeading) {
                 newsImageFill(item, height: 240)
                 LinearGradient(colors: [.clear, .black.opacity(0.15), .black.opacity(0.85)],
@@ -246,11 +261,14 @@ struct NewsView: View {
             .frame(height: 240)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .onTapGesture { open(item) }
+        .modifier(HoldToSummarize { requestSummary(item) })
+        .accessibilityAddTraits(.isButton)
     }
 
     private func compactCard(_ item: DigestItem) -> some View {
-        Button { open(item) } label: {
+        Group {
             ZStack(alignment: .bottomLeading) {
                 newsImageFill(item, height: 196)
                 LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.88)],
@@ -271,7 +289,10 @@ struct NewsView: View {
             .frame(height: 196)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .onTapGesture { open(item) }
+        .modifier(HoldToSummarize { requestSummary(item) })
+        .accessibilityAddTraits(.isButton)
     }
 
     /// A photo filling a definite width×height box, center-cropped (so the image
