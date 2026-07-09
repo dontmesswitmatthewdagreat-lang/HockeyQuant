@@ -86,7 +86,8 @@ def _nhl_ages() -> Dict[str, dict]:
                     except ValueError:
                         pass
                 if name:
-                    out[_norm(name)] = {"age": age, "position": p.get("positionCode")}
+                    out[_norm(name)] = {"age": age, "position": p.get("positionCode"),
+                                        "id": p.get("id") or p.get("playerId")}
     _cache["ages"] = {"ts": time.time(), "data": out}
     return out
 
@@ -225,11 +226,13 @@ def build_market() -> dict:
     # Assemble every skater we can value (has production + an age).
     players: Dict[str, dict] = {}
     for key, p in prod.items():
-        age = (ages.get(key) or ages_fuzzy.get(_fuzzy_key(p["name"])) or {}).get("age")
+        meta = ages.get(key) or ages_fuzzy.get(_fuzzy_key(p["name"])) or {}
+        age = meta.get("age")
         if age is None or p["gp"] < 10 or p["position"] == "G":
             continue
         c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(p["name"]))
-        players[key] = {**p, "age": round(age, 1), "aav": c["aav"] if c else None,
+        players[key] = {**p, "age": round(age, 1), "nhl_id": meta.get("id"),
+                        "aav": c["aav"] if c else None,
                         "contract_team": c["team"] if c else None}
 
     # Train on real, non-ELC contracts with a meaningful sample.
@@ -262,11 +265,12 @@ def build_market() -> dict:
     goalies: Dict[str, dict] = {}
     gprod = _goalie_production()
     for key, gp_row in gprod.items():
-        age = (ages.get(key) or ages_fuzzy.get(_fuzzy_key(gp_row["name"])) or {}).get("age")
+        meta = ages.get(key) or ages_fuzzy.get(_fuzzy_key(gp_row["name"])) or {}
+        age = meta.get("age")
         if age is None or gp_row["gp"] < 5:
             continue
         c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(gp_row["name"]))
-        goalies[key] = {**gp_row, "age": round(age, 1),
+        goalies[key] = {**gp_row, "age": round(age, 1), "nhl_id": meta.get("id"),
                         "aav": c["aav"] if c else None,
                         "contract_team": c["team"] if c else None}
     gtrain = [g for g in goalies.values() if g["aav"] and g["aav"] >= 1_500_000 and g["gp"] >= 12]

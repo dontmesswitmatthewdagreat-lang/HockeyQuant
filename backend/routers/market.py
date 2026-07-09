@@ -41,6 +41,10 @@ def _player_payload(p: dict) -> dict:
     if p["position"] == "G":
         payload["gsax"] = round(p.get("gsax", 0), 1)
         payload["svPct"] = round(p.get("sv_pct", 0), 3)
+    # In-game action photo (NHL CDN, deterministic from the player id).
+    nhl_id = p.get("nhl_id")
+    if nhl_id:
+        payload["actionPhoto"] = f"https://assets.nhle.com/mugs/actionshots/1296x729/{nhl_id}.jpg"
     return payload
 
 
