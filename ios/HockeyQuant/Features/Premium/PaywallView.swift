@@ -8,33 +8,20 @@ struct PaywallView: View {
     @State private var purchasing = false
 
     var body: some View {
-        ZStack {
-            Theme.backgroundView().ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: Theme.Spacing.lg) {
-                    hero
-                    features
-                    subscribeButton
-                    restoreRow
-                    #if DEBUG
-                    devRow
-                    #endif
-                    finePrint
-                }
-                .padding(Theme.Spacing.md)
-            }
-        }
-        .overlay(alignment: .topTrailing) {
-            Button { dismiss() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .frame(width: 32, height: 32)
-                    .background(Theme.Palette.surfaceRaised)
-                    .clipShape(Circle())
+        ScrollView {
+            VStack(spacing: Theme.Spacing.lg) {
+                hero
+                features
+                subscribeButton
+                restoreRow
+                #if DEBUG
+                devRow
+                #endif
+                finePrint
             }
             .padding(Theme.Spacing.md)
         }
+        .frame(maxHeight: 640)
     }
 
     private var hero: some View {

@@ -213,27 +213,23 @@ struct TeamCapSheet: View {
     @State private var loading = true
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Theme.backgroundView().ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: Theme.Spacing.md) {
-                        header
-                        Button(action: onTrade) {
-                            CapsuleActionLabel(title: "Build a trade", systemImage: "arrow.triangle.swap", prominent: true)
-                        }
-                        .buttonStyle(.plain)
-                        rosterCard
-                    }
-                    .padding(Theme.Spacing.md)
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                Text(TeamInfo.lookup(team.abbrev).name.uppercased())
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                header
+                Button(action: onTrade) {
+                    CapsuleActionLabel(title: "Build a trade", systemImage: "arrow.triangle.swap", prominent: true)
                 }
+                .buttonStyle(.plain)
+                rosterCard
             }
-            .navigationTitle(TeamInfo.lookup(team.abbrev).name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-            }
+            .padding(Theme.Spacing.md)
         }
+        .frame(maxHeight: 640)
         .task {
             roster = await store.roster(for: team.abbrev)
             loading = false

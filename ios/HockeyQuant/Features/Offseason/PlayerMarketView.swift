@@ -53,9 +53,8 @@ struct PlayerMarketView: View {
             if Task.isCancelled { return }
             results = (try? await api.marketPlayers(query: search, limit: 25)) ?? []
         }
-        .sheet(item: $detailSelection) { sel in
+        .floatingCard(item: $detailSelection) { sel in
             PlayerValueSheet(name: sel.name)
-                .presentationDetents([.large])
         }
     }
 
@@ -120,7 +119,7 @@ struct PlayerMarketView: View {
                 heatPill("Forwards", o.heat["F"] ?? 0)
                 heatPill("Defensemen", o.heat["D"] ?? 0)
             }
-            Text("A big overpay (like an $18M offer sheet) lifts these — and every comparable player's market price with it.")
+            Text("A big overpay (like an $18M offer sheet) lifts these — and every comparable player's market price with it. Goalies are valued on GSAX at fair value only (too few signings for a reliable trend).")
                 .font(.system(size: 11))
                 .foregroundStyle(Theme.Palette.textTertiary)
         }
@@ -301,11 +300,9 @@ struct PlayerValueSheet: View {
     private let api = APIClient()
 
     var body: some View {
-        ZStack {
-            Theme.backgroundView().ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    if let d = detail {
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                if let d = detail {
                         header(d)
                         valueCard(d)
                         if d.history.count >= 2 { historyCard(d.history) }
@@ -320,12 +317,12 @@ struct PlayerValueSheet: View {
                         VStack(spacing: Theme.Spacing.sm) {
                             ForEach(0..<4, id: \.self) { _ in LoadingShimmer(height: 90) }
                         }
-                    }
                 }
-                .padding(Theme.Spacing.md)
-                .padding(.top, Theme.Spacing.lg)
             }
+            .padding(Theme.Spacing.md)
+            .padding(.top, Theme.Spacing.lg)
         }
+        .frame(maxHeight: 640)
         .task {
             do { detail = try await api.marketPlayer(name: name) }
             catch { failed = true }
@@ -342,7 +339,7 @@ struct PlayerValueSheet: View {
                     Text(d.player.name)
                         .font(.system(size: 22, weight: .heavy, design: .rounded))
                         .foregroundStyle(Theme.Palette.textPrimary)
-                    Text("\(d.player.position) · \(Int(d.player.age)) yrs · \(d.player.gp) GP · \(String(format: "%.2f", d.player.ppg)) P/GP")
+                    Text("\(d.player.position) · \(Int(d.player.age)) yrs · \(d.player.gp) GP · \(d.player.statLine)")
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
@@ -359,7 +356,9 @@ struct PlayerValueSheet: View {
                     Text(d.player.marketValue.asCapMoney)
                         .font(.system(size: 34, weight: .heavy))
                         .foregroundStyle(Theme.Palette.textPrimary)
-                    Text("market price · fundamentals \(d.player.modelValue.asCapMoney)")
+                    Text(d.player.isGoalie
+                         ? "GSAX-based fair value"
+                         : "market price · fundamentals \(d.player.modelValue.asCapMoney)")
                         .font(.system(size: 12, weight: .semibold))
                         .foregroundStyle(Theme.Palette.textSecondary)
                 }
@@ -371,9 +370,11 @@ struct PlayerValueSheet: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
-            Text(String(format: "Position market trading %+.1f%% vs fair value", d.heatPct))
-                .font(.system(size: 11))
-                .foregroundStyle(Theme.Palette.textTertiary)
+            if !d.player.isGoalie {
+                Text(String(format: "Position market trading %+.1f%% vs fair value", d.heatPct))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
         }
     }
 
@@ -388,7 +389,9 @@ struct PlayerValueSheet: View {
                     Capsule().fill(Color(hex: 0x1F8A5B).opacity(0.35))
                         .frame(width: geo.size.width * frac(p.valueHigh), height: 8)
                     tick(at: frac(p.modelValue), width: geo.size.width, color: Color(hex: 0x1F8A5B))
-                    tick(at: frac(p.marketValue), width: geo.size.width, color: Theme.Palette.accentAlt)
+                    if !p.isGoalie {
+                        tick(at: frac(p.marketValue), width: geo.size.width, color: Theme.Palette.accentAlt)
+                    }
                     if let aav = p.aav {
                         tick(at: frac(aav), width: geo.size.width, color: Theme.Palette.negative)
                     }
@@ -397,7 +400,7 @@ struct PlayerValueSheet: View {
             .frame(height: 14)
             HStack {
                 legendDot(Color(hex: 0x1F8A5B), "fair")
-                legendDot(Theme.Palette.accentAlt, "market")
+                if !p.isGoalie { legendDot(Theme.Palette.accentAlt, "market") }
                 if p.aav != nil { legendDot(Theme.Palette.negative, "paid") }
                 Spacer()
                 Text("range \(p.valueLow.asCapMoney)–\(p.valueHigh.asCapMoney)")

@@ -31,17 +31,16 @@ struct OffseasonView: View {
         .floatingCard(item: $signingAgent) { agent in
             SignPlayerSheet(store: store, agent: agent)
         }
-        .sheet(item: $capTeam) { team in
+        .floatingCard(item: $capTeam) { team in
             TeamCapSheet(store: store, team: team, onTrade: {
                 capTeam = nil
                 showTradeBuilder = true
             })
-            .presentationDetents([.large])
         }
         .sheet(isPresented: $showTradeBuilder) {
             TradeBuilderView(store: store)
         }
-        .sheet(isPresented: $showPaywall) {
+        .floatingCard(isPresented: $showPaywall) {
             PaywallView()
         }
     }

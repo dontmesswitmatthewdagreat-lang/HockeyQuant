@@ -15,33 +15,30 @@ struct ProspectDetailSheet: View {
     private let api = APIClient()
 
     var body: some View {
-        ZStack {
-            Theme.backgroundView().ignoresSafeArea()
-            ScrollView {
-                VStack(spacing: Theme.Spacing.md) {
-                    hero
-                    if let drafted = detail?.drafted {
-                        draftedCard(drafted)
-                    } else if let proj = detail?.projection {
-                        projectionCard(proj)
-                    }
-                    if let history = detail?.rankHistory, history.count >= 2 { trendCard(history) }
-                    newsCard
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                hero
+                if let drafted = detail?.drafted {
+                    draftedCard(drafted)
+                } else if let proj = detail?.projection {
+                    projectionCard(proj)
                 }
-                .padding(Theme.Spacing.md)
-                .padding(.top, Theme.Spacing.lg)
+                if let history = detail?.rankHistory, history.count >= 2 { trendCard(history) }
+                newsCard
             }
+            .padding(Theme.Spacing.md)
+            .padding(.top, Theme.Spacing.lg)
         }
+        .frame(maxHeight: 640)
         .task {
             guard let nhlId = prospect.nhlId else { failed = true; return }
             do { detail = try await api.prospectDetail(nhlId: nhlId) }
             catch { failed = true }
         }
-        .sheet(item: $summaryItem) { item in
+        .floatingCard(item: $summaryItem) { item in
             NewsSummarySheet(item: item)
-                .presentationDetents([.medium, .large])
         }
-        .sheet(isPresented: $showPaywall) { PaywallView() }
+        .floatingCard(isPresented: $showPaywall) { PaywallView() }
     }
 
     // MARK: - Hero

@@ -48,7 +48,7 @@ struct ModelsView: View {
                     .presentationDragIndicator(.visible)
             }
             .sheet(isPresented: $showMLBuilder) { mlBuilderSheet }
-            .sheet(item: $mlDetail) { m in
+            .floatingCard(item: $mlDetail) { m in
                 MLModelDetailSheet(model: m) { await reload() }
             }
         }
@@ -470,39 +470,33 @@ struct MLModelDetailSheet: View {
     private let mlTint = Color(hex: 0xAF52DE)
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                Theme.backgroundView().ignoresSafeArea()
-                ScrollView {
-                    VStack(spacing: Theme.Spacing.md) {
-                        header
-                        if let acc = model.accuracy, acc.totalPredictions > 0 {
-                            accuracyCard(acc)
-                        }
-                        featuresCard
-                        howItWorks
-                        deleteButton
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(Theme.Font.caption())
-                                .foregroundStyle(Theme.Palette.negative)
-                        }
-                    }
-                    .padding(Theme.Spacing.md)
+        ScrollView {
+            VStack(spacing: Theme.Spacing.md) {
+                Text(model.name.uppercased())
+                    .font(.system(size: 11, weight: .heavy))
+                    .tracking(1.2)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                header
+                if let acc = model.accuracy, acc.totalPredictions > 0 {
+                    accuracyCard(acc)
+                }
+                featuresCard
+                howItWorks
+                deleteButton
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.negative)
                 }
             }
-            .navigationTitle(model.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
-            .confirmationDialog("Delete “\(model.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("Delete model", role: .destructive) { Task { await deleteModel() } }
-            } message: {
-                Text("This removes the model and its tracked predictions.")
-            }
+            .padding(Theme.Spacing.md)
+        }
+        .frame(maxHeight: 640)
+        .confirmationDialog("Delete “\(model.name)”?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete model", role: .destructive) { Task { await deleteModel() } }
+        } message: {
+            Text("This removes the model and its tracked predictions.")
         }
     }
 

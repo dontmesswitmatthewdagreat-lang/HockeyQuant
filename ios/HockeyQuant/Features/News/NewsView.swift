@@ -62,12 +62,11 @@ struct NewsView: View {
         .floatingCard(item: $summaryItem) { item in
             NewsSummarySheet(item: item)
         }
-        .sheet(isPresented: $showPaywall) {
+        .floatingCard(isPresented: $showPaywall) {
             PaywallView()
         }
-        .sheet(item: $detailProspect) { prospect in
+        .floatingCard(item: $detailProspect) { prospect in
             ProspectDetailSheet(prospect: prospect)
-                .presentationDetents([.large])
         }
     }
 

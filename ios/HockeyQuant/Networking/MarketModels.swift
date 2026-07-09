@@ -15,7 +15,21 @@ struct MarketPlayer: Decodable, Identifiable, Hashable {
     let valueLow: Double
     let valueHigh: Double
     let verdict: String?     // steal | fair | overpay (nil = unsigned/ELC)
+    let gsax: Double?        // goalies only: goals saved above expected
+    let svPct: Double?       // goalies only
     var id: String { name }
+
+    var isGoalie: Bool { position == "G" }
+
+    /// Position-appropriate stat line for rows/headers.
+    var statLine: String {
+        if isGoalie {
+            let g = gsax.map { String(format: "%+.1f GSAX", $0) } ?? ""
+            let sv = svPct.map { String(format: "%.3f SV%%", $0) } ?? ""
+            return [g, sv].filter { !$0.isEmpty }.joined(separator: " · ")
+        }
+        return String(format: "%.2f P/GP", ppg)
+    }
 }
 
 struct MarketIndexPoint: Decodable, Identifiable {
