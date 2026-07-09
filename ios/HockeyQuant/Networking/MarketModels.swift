@@ -17,7 +17,10 @@ struct MarketPlayer: Decodable, Identifiable, Hashable {
     let verdict: String?     // steal | fair | overpay (nil = unsigned/ELC)
     let gsax: Double?        // goalies only: goals saved above expected
     let svPct: Double?       // goalies only
+    let actionPhoto: String? // NHL in-game action shot (detail only)
     var id: String { name }
+
+    var actionPhotoURL: URL? { actionPhoto.flatMap(URL.init(string:)) }
 
     var isGoalie: Bool { position == "G" }
 

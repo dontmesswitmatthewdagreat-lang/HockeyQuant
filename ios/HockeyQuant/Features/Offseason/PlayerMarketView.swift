@@ -301,26 +301,30 @@ struct PlayerValueSheet: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: Theme.Spacing.md) {
+            VStack(spacing: 0) {
                 if let d = detail {
-                        header(d)
+                    heroBanner(d)
+                    VStack(spacing: Theme.Spacing.md) {
                         valueCard(d)
                         if d.history.count >= 2 { historyCard(d.history) }
                         if !d.comparables.isEmpty { compsCard(d.comparables) }
                         if !d.fits.isEmpty { fitsCard(d.fits) }
-                    } else if failed {
-                        EmptyStateView(systemImage: "chart.line.downtrend.xyaxis",
-                                       title: "Not valued",
-                                       message: "Goalies and players with under 10 games aren't in the model yet.")
-                            .padding(.top, Theme.Spacing.xl)
-                    } else {
-                        VStack(spacing: Theme.Spacing.sm) {
-                            ForEach(0..<4, id: \.self) { _ in LoadingShimmer(height: 90) }
-                        }
+                    }
+                    .padding(Theme.Spacing.md)
+                } else if failed {
+                    EmptyStateView(systemImage: "chart.line.downtrend.xyaxis",
+                                   title: "Not valued",
+                                   message: "Goalies and players with under 10 games aren't in the model yet.")
+                        .padding(.top, Theme.Spacing.xl)
+                        .padding(Theme.Spacing.md)
+                } else {
+                    VStack(spacing: Theme.Spacing.sm) {
+                        ForEach(0..<4, id: \.self) { _ in LoadingShimmer(height: 90) }
+                    }
+                    .padding(Theme.Spacing.md)
+                    .padding(.top, Theme.Spacing.lg)
                 }
             }
-            .padding(Theme.Spacing.md)
-            .padding(.top, Theme.Spacing.lg)
         }
         .frame(maxHeight: 640)
         .task {
@@ -329,24 +333,59 @@ struct PlayerValueSheet: View {
         }
     }
 
-    private func header(_ d: PlayerMarketDetail) -> some View {
-        VStack(spacing: Theme.Spacing.xs) {
-            HStack(spacing: Theme.Spacing.sm) {
-                if let team = d.player.team, TeamInfo.all[team.uppercased()] != nil {
-                    CrestView(abbrev: team, size: 44)
+    /// Full-bleed in-game action photo with name + verdict overlaid.
+    private func heroBanner(_ d: PlayerMarketDetail) -> some View {
+        let teamColor = d.player.team.map { TeamInfo.lookup($0).color } ?? Theme.Palette.accent
+        let fallback = LinearGradient(colors: [teamColor, teamColor.opacity(0.5)],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing)
+        return ZStack(alignment: .bottomLeading) {
+            Group {
+                if let url = d.player.actionPhotoURL {
+                    AsyncImage(url: url) { phase in
+                        if let img = phase.image {
+                            img.resizable().scaledToFill()
+                        } else if phase.error != nil {
+                            fallback
+                        } else {
+                            fallback.overlay(ProgressView().tint(.white))
+                        }
+                    }
+                } else {
+                    fallback
                 }
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(d.player.name)
-                        .font(.system(size: 22, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Theme.Palette.textPrimary)
+            }
+            .frame(height: 210)
+            .frame(maxWidth: .infinity)
+            .clipped()
+
+            LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.88)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 210)
+
+            HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        if let team = d.player.team, TeamInfo.all[team.uppercased()] != nil {
+                            CrestView(abbrev: team, size: 26)
+                        }
+                        Text(d.player.name)
+                            .font(.system(size: 24, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
                     Text("\(d.player.position) · \(Int(d.player.age)) yrs · \(d.player.gp) GP · \(d.player.statLine)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
                 }
-                Spacer()
+                Spacer(minLength: 0)
                 if let v = d.player.verdict { verdictPill(v) }
             }
+            .padding(Theme.Spacing.md)
         }
+        .frame(height: 210)
+        .frame(maxWidth: .infinity)
+        .clipped()
     }
 
     private func valueCard(_ d: PlayerMarketDetail) -> some View {
