@@ -87,7 +87,8 @@ def _nhl_ages() -> Dict[str, dict]:
                         pass
                 if name:
                     out[_norm(name)] = {"age": age, "position": p.get("positionCode"),
-                                        "id": p.get("id") or p.get("playerId")}
+                                        "id": p.get("id") or p.get("playerId"),
+                                        "headshot": p.get("headshot")}
     _cache["ages"] = {"ts": time.time(), "data": out}
     return out
 
@@ -232,6 +233,7 @@ def build_market() -> dict:
             continue
         c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(p["name"]))
         players[key] = {**p, "age": round(age, 1), "nhl_id": meta.get("id"),
+                        "headshot": meta.get("headshot"),
                         "aav": c["aav"] if c else None,
                         "contract_team": c["team"] if c else None}
 
@@ -271,6 +273,7 @@ def build_market() -> dict:
             continue
         c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(gp_row["name"]))
         goalies[key] = {**gp_row, "age": round(age, 1), "nhl_id": meta.get("id"),
+                        "headshot": meta.get("headshot"),
                         "aav": c["aav"] if c else None,
                         "contract_team": c["team"] if c else None}
     gtrain = [g for g in goalies.values() if g["aav"] and g["aav"] >= 1_500_000 and g["gp"] >= 12]

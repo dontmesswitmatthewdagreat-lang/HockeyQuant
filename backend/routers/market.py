@@ -148,6 +148,10 @@ def player_detail(name: str):
     photo = resolve_action_photo(p, market)   # real in-game shot, not arena fallback
     if photo:
         payload["actionPhoto"] = photo
+    # Always include the headshot — the sheet falls back to it (over a team
+    # gradient) when there's no real action shot, rather than a plain gradient.
+    if p.get("headshot"):
+        payload["headshot"] = p["headshot"]
 
     return {
         "player": payload,
