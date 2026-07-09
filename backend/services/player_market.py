@@ -52,7 +52,10 @@ def _with_fuzzy(primary: Dict[str, dict]) -> Dict[str, dict]:
 
 
 def _group(pos: Optional[str]) -> str:
-    return "D" if (pos or "").upper().startswith("D") else "F"
+    p = (pos or "").upper()
+    if p.startswith("G"):
+        return "G"
+    return "D" if p.startswith("D") else "F"
 
 
 # MARK: - Data assembly
@@ -113,6 +116,43 @@ def _production() -> Dict[str, dict]:
             "toi_pg": float(s.get("icetime", 0) or 0) / gp / 60.0,   # minutes
         }
     return out
+
+
+def _goalie_production() -> Dict[str, dict]:
+    """name -> goalie value signals from MoneyPuck (GSAX, SV%, workload)."""
+    from services.data_loader import get_data_loader
+    loader = get_data_loader()
+    loader.load_all_data()
+    df = loader.goalie_data
+    out: Dict[str, dict] = {}
+    if df is None:
+        return out
+    for _, s in df.iterrows():
+        gp = int(s.get("games_played", 0) or 0)
+        if gp <= 0:
+            continue
+        xg = float(s.get("xGoals", 0) or 0)         # expected goals against
+        ga = float(s.get("goals", 0) or 0)          # actual goals against
+        shots = float(s.get("ongoal", 0) or 0)
+        gsax = xg - ga                              # goals saved above expected
+        out[_norm(str(s["name"]))] = {
+            "name": str(s["name"]),
+            "team": str(s.get("team", "")),
+            "position": "G",
+            "gp": gp,
+            "gsax": gsax,
+            "gsax_pg": gsax / gp,
+            "sv_pct": (1 - ga / shots) if shots > 0 else 0.0,
+            # Skater-shaped keys kept nil so goalies coexist in one players dict.
+            "ppg": 0.0, "xg_pg": 0.0, "toi_pg": 0.0,
+        }
+    return out
+
+
+def _goalie_features(p: dict, age: float) -> List[float]:
+    # Total GSAX captures quality×volume; games_played separates starters from
+    # backups (the biggest AAV driver); SV% adds save efficiency.
+    return [p["gsax"], p["gsax_pg"], min(p["gp"], 65), p["sv_pct"] * 100, age]
 
 
 def fetch_signings() -> List[dict]:
@@ -217,9 +257,39 @@ def build_market() -> dict:
         p["value_low"] = max(p["model_value"] - spread[_group(p["position"])], 775_000.0)
         p["value_high"] = p["model_value"] + spread[_group(p["position"])]
 
+    # Goalies: a separate GSAX-based model (their economics don't resemble
+    # skaters'). Small sample, so heavily regularized + a wider honest range.
+    goalies: Dict[str, dict] = {}
+    gprod = _goalie_production()
+    for key, gp_row in gprod.items():
+        age = (ages.get(key) or ages_fuzzy.get(_fuzzy_key(gp_row["name"])) or {}).get("age")
+        if age is None or gp_row["gp"] < 5:
+            continue
+        c = contracts.get(key) or contracts_fuzzy.get(_fuzzy_key(gp_row["name"]))
+        goalies[key] = {**gp_row, "age": round(age, 1),
+                        "aav": c["aav"] if c else None,
+                        "contract_team": c["team"] if c else None}
+    gtrain = [g for g in goalies.values() if g["aav"] and g["aav"] >= 1_500_000 and g["gp"] >= 12]
+    if len(gtrain) >= 12:
+        GX = np.array([_goalie_features(g, g["age"]) for g in gtrain])
+        gy = np.array([g["aav"] / CAP for g in gtrain])
+        gw, gmu, gsd = _ridge(GX, gy, lam=1.8)
+
+        def gpredict(g: dict) -> float:
+            x = (np.array(_goalie_features(g, g["age"])) - gmu) / gsd
+            v = float(np.append(x, 1.0) @ gw) * CAP
+            return float(min(max(v, 775_000.0), 11_000_000.0))
+
+        gresid = float(np.std([g["aav"] - gpredict(g) for g in gtrain])) or 2_000_000.0
+        for g in goalies.values():
+            g["model_value"] = gpredict(g)
+            g["value_low"] = max(g["model_value"] - gresid, 775_000.0)
+            g["value_high"] = g["model_value"] + gresid
+        players.update(goalies)
+
     # Market heat: how recent signings priced vs model, per group.
-    heat = {"F": 0.0, "D": 0.0}
-    heat_n = {"F": 0, "D": 0}
+    heat = {"F": 0.0, "D": 0.0, "G": 0.0}
+    heat_n = {"F": 0, "D": 0, "G": 0}
     graded_signings = []
     for s in fetch_signings():
         pl = players.get(_norm(s["name"]))
@@ -228,13 +298,18 @@ def build_market() -> dict:
         if fair and s["aav"] >= 1_500_000:
             prem = (s["aav"] - fair) / fair
             g = _group(s["position"])
-            if s["aav"] >= 2_000_000:
+            # Goalies keep per-signing verdicts but don't feed a market-heat
+            # trend: the summer goalie-signing pool is a handful of noisy
+            # backup deals, and one outlier shouldn't reprice every goalie.
+            if s["aav"] >= 2_000_000 and g != "G":
                 heat[g] += prem
                 heat_n[g] += 1
             verdict = "steal" if prem < -0.15 else ("overpay" if prem > 0.15 else "fair")
         graded_signings.append({**s, "fair_value": fair, "verdict": verdict})
+    # Need a few signings before claiming a market trend — 1-2 deals (common
+    # for goalies) shouldn't swing a whole position group's market value.
     for g in heat:
-        heat[g] = float(min(max(heat[g] / heat_n[g], -0.25), 0.50)) if heat_n[g] else 0.0
+        heat[g] = float(min(max(heat[g] / heat_n[g], -0.25), 0.50)) if heat_n[g] >= 3 else 0.0
 
     for p in players.values():
         p["market_value"] = p["model_value"] * (1 + heat[_group(p["position"])])
@@ -270,7 +345,8 @@ def comparables(key: str, market: dict, limit: int = 5) -> List[dict]:
     if not me:
         return []
     g = _group(me["position"])
+    floor = 12 if g == "G" else 20
     pool = [p for k, p in market["players"].items()
-            if k != key and _group(p["position"]) == g and p["gp"] >= 20]
+            if k != key and _group(p["position"]) == g and p["gp"] >= floor]
     pool.sort(key=lambda p: abs(p["market_value"] - me["market_value"]))
     return pool[:limit]

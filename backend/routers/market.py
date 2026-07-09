@@ -29,7 +29,7 @@ def _market():
 
 
 def _player_payload(p: dict) -> dict:
-    return {
+    payload = {
         "name": p["name"], "team": p.get("contract_team") or p.get("team"),
         "position": p["position"], "age": p["age"], "gp": p["gp"],
         "ppg": round(p["ppg"], 3), "aav": p.get("aav"),
@@ -38,6 +38,10 @@ def _player_payload(p: dict) -> dict:
         "valueLow": round(p["value_low"]), "valueHigh": round(p["value_high"]),
         "verdict": _verdict(p),
     }
+    if p["position"] == "G":
+        payload["gsax"] = round(p.get("gsax", 0), 1)
+        payload["svPct"] = round(p.get("sv_pct", 0), 3)
+    return payload
 
 
 def _verdict(p: dict) -> Optional[str]:
