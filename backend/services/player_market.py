@@ -396,9 +396,30 @@ def resolve_action_photo(player: dict, market: dict) -> Optional[str]:
         fallback = top[0][0] if top and top[0][1] >= 2 else None
         _team_fallback_etag[team] = fallback
 
+    # A real NHL shot is landscape (1296x729) and looks best full-bleed; the
+    # arena fallback → None (the caller uses a portrait photo instead).
     result = None if (fallback and etag == fallback) else url
     _photo_cache[nhl_id] = result
     return result
+
+
+_wiki_photo_cache: Dict[str, Optional[str]] = {}
+
+
+def wikimedia_photo(name: str) -> Optional[str]:
+    """A validated Wikipedia photo (usually in-uniform) — the portrait hero when
+    the NHL has no real action shot, preferred over the plain headshot."""
+    if not name:
+        return None
+    if name in _wiki_photo_cache:
+        return _wiki_photo_cache[name]
+    try:
+        from services.prospect_headshots import wikimedia_lead_photo
+        url = wikimedia_lead_photo(name)
+    except Exception:
+        url = None
+    _wiki_photo_cache[name] = url
+    return url
 
 
 def comparables(key: str, market: dict, limit: int = 5) -> List[dict]:

@@ -225,6 +225,46 @@ def _wikidata_headshot(name: str, birth_iso: Optional[str]) -> Tuple[Optional[st
     return None, True   # searched, no valid match
 
 
+def wikimedia_lead_photo(name: str, width: int = 1000) -> Optional[str]:
+    """The player's Wikipedia infobox photo (usually a recent in-uniform shot),
+    validated via Wikidata to be the right person (a human ice-hockey player).
+    Used as the market hero when the NHL has no real action shot — e.g. players
+    who just changed teams. Returns a Commons thumbnail URL or None."""
+    search = _wd_get({"action": "wbsearchentities", "search": name,
+                      "language": "en", "type": "item", "limit": 6})
+    for hit in search.get("search", []):
+        qid = hit.get("id")
+        if not qid:
+            continue
+        ent = _wd_get({"action": "wbgetentities", "ids": qid, "props": "claims|sitelinks"})
+        e = ent.get("entities", {}).get(qid, {})
+        claims = e.get("claims", {})
+        if _Q_HUMAN not in _claim_ids(claims, "P31"):
+            continue
+        if not (_Q_HOCKEY_PLAYER in _claim_ids(claims, "P106")
+                or _Q_ICE_HOCKEY in _claim_ids(claims, "P641")):
+            continue
+        title = (e.get("sitelinks", {}).get("enwiki", {}) or {}).get("title")
+        if not title:
+            # No English article → fall back to the raw Wikidata image (P18).
+            img = _claim_image(claims)
+            if img:
+                f = urllib.parse.quote(img.replace(" ", "_"))
+                return f"https://commons.wikimedia.org/wiki/Special:FilePath/{f}?width={width}"
+            continue
+        try:
+            r = _SESSION.get("https://en.wikipedia.org/w/api.php", params={
+                "action": "query", "titles": title, "prop": "pageimages",
+                "piprop": "thumbnail", "pithumbsize": width, "format": "json"}, timeout=15)
+            for _, pg in r.json().get("query", {}).get("pages", {}).items():
+                src = pg.get("thumbnail", {}).get("source")
+                if src:
+                    return src
+        except Exception:
+            return None
+    return None
+
+
 _WIKI_RECHECK_DAYS = 7
 _WIKI_TIME_BUDGET_S = 75
 

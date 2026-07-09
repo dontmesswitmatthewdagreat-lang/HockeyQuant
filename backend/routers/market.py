@@ -9,7 +9,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from services.supabase_client import get_supabase
-from services.player_market import build_market, comparables, resolve_action_photo, _norm, _group
+from services.player_market import (
+    build_market, comparables, resolve_action_photo, wikimedia_photo, _norm, _group,
+)
 
 router = APIRouter()
 
@@ -145,11 +147,13 @@ def player_detail(name: str):
         fits = []
 
     payload = _player_payload(p)
-    photo = resolve_action_photo(p, market)   # real in-game shot, not arena fallback
-    if photo:
-        payload["actionPhoto"] = photo
-    # Always include the headshot — the sheet falls back to it (over a team
-    # gradient) when there's no real action shot, rather than a plain gradient.
+    # Hero image, best first: a real NHL landscape action shot (full-bleed), else
+    # a validated Wikipedia photo or the headshot as a portrait over the gradient.
+    action = resolve_action_photo(p, market)
+    if action:
+        payload["actionPhoto"] = action
+    else:
+        payload["portrait"] = wikimedia_photo(p["name"]) or p.get("headshot")
     if p.get("headshot"):
         payload["headshot"] = p["headshot"]
 

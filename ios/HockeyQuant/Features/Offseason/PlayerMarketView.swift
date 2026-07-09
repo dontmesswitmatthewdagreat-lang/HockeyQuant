@@ -346,7 +346,7 @@ struct PlayerValueSheet: View {
                     if let img = phase.image {
                         img.resizable().scaledToFill()
                     } else if phase.error != nil {
-                        headshotHero(d, gradient: gradient, teamColor: teamColor)
+                        portraitHero(d, gradient: gradient)
                     } else {
                         gradient.overlay(ProgressView().tint(.white))
                     }
@@ -355,7 +355,7 @@ struct PlayerValueSheet: View {
                 .frame(maxWidth: .infinity)
                 .clipped()
             } else {
-                headshotHero(d, gradient: gradient, teamColor: teamColor)
+                portraitHero(d, gradient: gradient)
             }
 
             LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)],
@@ -388,12 +388,12 @@ struct PlayerValueSheet: View {
         .clipped()
     }
 
-    /// Headshot portrait (right-aligned) over the team gradient — the fallback
-    /// when the NHL has no real action shot for this player.
-    private func headshotHero(_ d: PlayerMarketDetail, gradient: LinearGradient, teamColor: Color) -> some View {
+    /// A portrait photo (validated Wikipedia shot, else headshot) shown whole
+    /// over the team gradient — the hero when the NHL has no real action shot.
+    private func portraitHero(_ d: PlayerMarketDetail, gradient: LinearGradient) -> some View {
         ZStack(alignment: .bottomTrailing) {
             gradient
-            if let url = d.player.headshotURL {
+            if let url = d.player.portraitURL {
                 AsyncImage(url: url) { phase in
                     if let img = phase.image {
                         img.resizable().scaledToFit()
@@ -401,8 +401,8 @@ struct PlayerValueSheet: View {
                         Color.clear
                     }
                 }
-                .frame(height: 200)
-                .padding(.trailing, Theme.Spacing.lg)
+                .frame(height: 210)
+                .padding(.trailing, Theme.Spacing.md)
             }
         }
         .frame(height: 210)
