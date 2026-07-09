@@ -343,6 +343,61 @@ def values_for_names(names: List[str]) -> Dict[str, dict]:
     return out
 
 
+# MARK: - Action photos
+
+_ACTION_URL = "https://assets.nhle.com/mugs/actionshots/1296x729/{}.jpg"
+_etag_cache: Dict[int, Optional[str]] = {}
+_team_fallback_etag: Dict[str, Optional[str]] = {}   # team -> shared fallback ETag
+_photo_cache: Dict[int, Optional[str]] = {}
+
+
+def _actionshot_etag(nhl_id) -> Optional[str]:
+    """The NHL serves a shared team-arena fallback (identical ETag) for players
+    without a personal action shot; a real shot has a unique ETag."""
+    if nhl_id in _etag_cache:
+        return _etag_cache[nhl_id]
+    etag = None
+    try:
+        r = requests.head(_ACTION_URL.format(nhl_id), timeout=8, allow_redirects=True)
+        etag = r.headers.get("ETag") if r.status_code == 200 else None
+    except Exception:
+        etag = None
+    _etag_cache[nhl_id] = etag
+    return etag
+
+
+def resolve_action_photo(player: dict, market: dict) -> Optional[str]:
+    """The player's in-game action photo, or None when the NHL only has the
+    generic team-arena fallback for them (detected via the shared ETag)."""
+    nhl_id = player.get("nhl_id")
+    if not nhl_id:
+        return None
+    if nhl_id in _photo_cache:
+        return _photo_cache[nhl_id]
+
+    url = _ACTION_URL.format(nhl_id)
+    etag = _actionshot_etag(nhl_id)
+    if not etag:                          # couldn't check → assume it's real
+        _photo_cache[nhl_id] = url
+        return url
+
+    team = player.get("contract_team") or player.get("team") or ""
+    fallback = _team_fallback_etag.get(team, "__unset__")
+    if fallback == "__unset__":
+        # The ETag shared by 2+ of a team's players is that team's arena fallback.
+        from collections import Counter
+        mates = [p["nhl_id"] for p in market["players"].values()
+                 if (p.get("contract_team") or p.get("team") or "") == team and p.get("nhl_id")][:15]
+        counts = Counter(e for e in (_actionshot_etag(m) for m in mates) if e)
+        top = counts.most_common(1)
+        fallback = top[0][0] if top and top[0][1] >= 2 else None
+        _team_fallback_etag[team] = fallback
+
+    result = None if (fallback and etag == fallback) else url
+    _photo_cache[nhl_id] = result
+    return result
+
+
 def comparables(key: str, market: dict, limit: int = 5) -> List[dict]:
     """Nearest same-group players by market value."""
     me = market["players"].get(key)

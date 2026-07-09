@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from services.supabase_client import get_supabase
-from services.player_market import build_market, comparables, _norm, _group
+from services.player_market import build_market, comparables, resolve_action_photo, _norm, _group
 
 router = APIRouter()
 
@@ -41,10 +41,6 @@ def _player_payload(p: dict) -> dict:
     if p["position"] == "G":
         payload["gsax"] = round(p.get("gsax", 0), 1)
         payload["svPct"] = round(p.get("sv_pct", 0), 3)
-    # In-game action photo (NHL CDN, deterministic from the player id).
-    nhl_id = p.get("nhl_id")
-    if nhl_id:
-        payload["actionPhoto"] = f"https://assets.nhle.com/mugs/actionshots/1296x729/{nhl_id}.jpg"
     return payload
 
 
@@ -148,8 +144,13 @@ def player_detail(name: str):
     except Exception:
         fits = []
 
+    payload = _player_payload(p)
+    photo = resolve_action_photo(p, market)   # real in-game shot, not arena fallback
+    if photo:
+        payload["actionPhoto"] = photo
+
     return {
-        "player": _player_payload(p),
+        "player": payload,
         "heatPct": round(market["heat"][_group(p["position"])] * 100, 1),
         "history": [{"date": h["snap_date"], "modelValue": float(h["model_value"]),
                      "marketValue": float(h["market_value"])} for h in history],
