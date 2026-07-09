@@ -333,32 +333,32 @@ struct PlayerValueSheet: View {
         }
     }
 
-    /// Full-bleed in-game action photo with name + verdict overlaid.
+    /// Player hero: a full-bleed in-game action photo when one exists, else the
+    /// headshot as a portrait over the team-color gradient. Name + verdict
+    /// overlaid either way.
     private func heroBanner(_ d: PlayerMarketDetail) -> some View {
         let teamColor = d.player.team.map { TeamInfo.lookup($0).color } ?? Theme.Palette.accent
-        let fallback = LinearGradient(colors: [teamColor, teamColor.opacity(0.5)],
+        let gradient = LinearGradient(colors: [teamColor.opacity(0.85), teamColor.opacity(0.35)],
                                       startPoint: .topLeading, endPoint: .bottomTrailing)
         return ZStack(alignment: .bottomLeading) {
-            Group {
-                if let url = d.player.actionPhotoURL {
-                    AsyncImage(url: url) { phase in
-                        if let img = phase.image {
-                            img.resizable().scaledToFill()
-                        } else if phase.error != nil {
-                            fallback
-                        } else {
-                            fallback.overlay(ProgressView().tint(.white))
-                        }
+            if let url = d.player.actionPhotoURL {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image {
+                        img.resizable().scaledToFill()
+                    } else if phase.error != nil {
+                        headshotHero(d, gradient: gradient, teamColor: teamColor)
+                    } else {
+                        gradient.overlay(ProgressView().tint(.white))
                     }
-                } else {
-                    fallback
                 }
+                .frame(height: 210)
+                .frame(maxWidth: .infinity)
+                .clipped()
+            } else {
+                headshotHero(d, gradient: gradient, teamColor: teamColor)
             }
-            .frame(height: 210)
-            .frame(maxWidth: .infinity)
-            .clipped()
 
-            LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.88)],
+            LinearGradient(colors: [.clear, .black.opacity(0.2), .black.opacity(0.9)],
                            startPoint: .top, endPoint: .bottom)
                 .frame(height: 210)
 
@@ -382,6 +382,28 @@ struct PlayerValueSheet: View {
                 if let v = d.player.verdict { verdictPill(v) }
             }
             .padding(Theme.Spacing.md)
+        }
+        .frame(height: 210)
+        .frame(maxWidth: .infinity)
+        .clipped()
+    }
+
+    /// Headshot portrait (right-aligned) over the team gradient — the fallback
+    /// when the NHL has no real action shot for this player.
+    private func headshotHero(_ d: PlayerMarketDetail, gradient: LinearGradient, teamColor: Color) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            gradient
+            if let url = d.player.headshotURL {
+                AsyncImage(url: url) { phase in
+                    if let img = phase.image {
+                        img.resizable().scaledToFit()
+                    } else {
+                        Color.clear
+                    }
+                }
+                .frame(height: 200)
+                .padding(.trailing, Theme.Spacing.lg)
+            }
         }
         .frame(height: 210)
         .frame(maxWidth: .infinity)
