@@ -175,6 +175,24 @@ def list_mock_drafts():
     return {"mocks": out}
 
 
+@router.get("/prospects/calder")
+def calder():
+    """Calder Watch: pool prospects producing in the NHL this season.
+    Dormant (active=false) during the offseason; lights up in October."""
+    from services.pipeline_stats import calder_watch
+    return calder_watch(_sb())
+
+
+@router.get("/prospects/pipeline-stats")
+def pipeline_stats(team: str):
+    """Live CHL season stats for a team's prospect pool (name-matched)."""
+    sb = _sb()
+    rows = sb.table("prospects").select("name").eq("team", team.upper()).limit(80).execute().data
+    from services.pipeline_stats import stats_for_names
+    matched = stats_for_names([r["name"] for r in rows])
+    return {"stats": [{"name": k, **v} for k, v in matched.items()]}
+
+
 @router.post("/prospects/mock-draft/import-insiders")
 def import_insiders():
     """Cron/admin: pull + store the latest insider mock drafts (one per outlet)."""

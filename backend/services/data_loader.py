@@ -33,10 +33,42 @@ DAILY_FACEOFF_TEAM_MAPPING = {
 class DataLoader:
     """Loads and caches data from external sources"""
 
-    # MoneyPuck URLs for current season
-    TEAM_DATA_URL = "https://moneypuck.com/moneypuck/playerData/seasonSummary/2025/regular/teams.csv"
-    GOALIE_DATA_URL = "https://moneypuck.com/moneypuck/playerData/seasonSummary/2025/regular/goalies.csv"
-    SKATER_DATA_URL = "https://moneypuck.com/moneypuck/playerData/seasonSummary/2025/regular/skaters.csv"
+    # MoneyPuck season summaries. The season label is its *start* year
+    # (2025 = the 2025-26 season). Resolved dynamically each fall, with a
+    # fallback to the previous season until MoneyPuck posts the new files.
+    _MP_BASE = "https://moneypuck.com/moneypuck/playerData/seasonSummary/{year}/regular/{kind}.csv"
+    _mp_season_cache: Optional[int] = None
+
+    @classmethod
+    def _moneypuck_season(cls) -> int:
+        if cls._mp_season_cache is not None:
+            return cls._mp_season_cache
+        from datetime import date
+        today = date.today()
+        candidate = today.year if today.month >= 9 else today.year - 1
+        year = candidate
+        try:
+            import requests as _rq
+            r = _rq.head(cls._MP_BASE.format(year=candidate, kind="teams"),
+                         headers=cls.HEADERS, timeout=10, allow_redirects=True)
+            if r.status_code != 200:
+                year = candidate - 1
+        except Exception:
+            year = candidate - 1
+        cls._mp_season_cache = year
+        return year
+
+    @property
+    def TEAM_DATA_URL(self) -> str:
+        return self._MP_BASE.format(year=self._moneypuck_season(), kind="teams")
+
+    @property
+    def GOALIE_DATA_URL(self) -> str:
+        return self._MP_BASE.format(year=self._moneypuck_season(), kind="goalies")
+
+    @property
+    def SKATER_DATA_URL(self) -> str:
+        return self._MP_BASE.format(year=self._moneypuck_season(), kind="skaters")
 
     # Headers to avoid 403 Forbidden from MoneyPuck
     HEADERS = {
