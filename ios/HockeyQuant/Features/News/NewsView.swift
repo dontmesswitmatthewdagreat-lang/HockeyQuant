@@ -17,9 +17,9 @@ struct NewsView: View {
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
     @State private var mockSource: String?     // selected insider mock (nil = first)
-    @State private var recapFrame: CGRect = .zero     // launcher frame (hero rect-morph)
     @State private var ripplePoint: CGPoint = .zero    // where the finger landed
-    @State private var rippleProgress: CGFloat = 0     // 0 = no color, 1 = card flooded
+    @State private var rippleProgress: CGFloat = 0     // press pulse: 0 = none, 1 = card flooded
+    @Namespace private var storyZoomNS                 // App Store-style zoom anchor
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -56,14 +56,9 @@ struct NewsView: View {
             }
             if store.draftProspects.isEmpty { await store.loadDraftProspects() }
         }
-        .fullScreenCover(isPresented: noSlide($showStory)) {
-            NewsStoryView(digests: store.digests, originFrame: recapFrame)
-        }
-        // Reverse of the launch: once the deck has collapsed back onto the
-        // card, drain the team-color flood back into the press point.
-        .onChange(of: showStory) { _, open in
-            guard !open else { return }
-            withAnimation(.easeIn(duration: 0.3)) { rippleProgress = 0 }
+        .fullScreenCover(isPresented: storyBinding) {
+            NewsStoryView(digests: store.digests)
+                .storyZoomDestination(id: "recap", in: storyZoomNS)
         }
         .sheet(isPresented: $showSearch) {
             NewsSearchView(store: store)
@@ -77,7 +72,6 @@ struct NewsView: View {
         .floatingCard(item: $detailProspect) { prospect in
             ProspectDetailSheet(prospect: prospect)
         }
-        .onPreferenceChange(RecapOriginKey.self) { recapFrame = $0 }
     }
 
     /// Long-press on any news card → AI summary (Premium) or the paywall.
@@ -275,11 +269,7 @@ struct NewsView: View {
         // The finish moment: the collage + moving border settle into the
         // checkmark card with a spring as the deck collapses back onto it.
         .animation(.spring(response: 0.55, dampingFraction: 0.7), value: watched)
-        .background(
-            GeometryReader { g in
-                Color.clear.preference(key: RecapOriginKey.self, value: g.frame(in: .global))
-            }
-        )
+        .storyZoomSource(id: "recap", in: storyZoomNS)
         .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
         .gesture(
             SpatialTapGesture().onEnded { value in
@@ -292,6 +282,13 @@ struct NewsView: View {
         .accessibilityAction { launchStory(at: CGPoint(x: 60, y: 40)) }
     }
 
+    /// iOS 18 uses the native zoom (the cover's own transition); the iOS 17
+    /// fallback suppresses the system slide and self-animates.
+    private var storyBinding: Binding<Bool> {
+        if #available(iOS 18.0, *) { return $showStory }
+        return noSlide($showStory)
+    }
+
     /// Diameter needed for a circle at the press point to cover the whole card.
     private func floodDiameter(in size: CGSize) -> CGFloat {
         let corners = [CGPoint(x: 0, y: 0), CGPoint(x: size.width, y: 0),
@@ -300,19 +297,22 @@ struct NewsView: View {
         return far * 2
     }
 
-    /// Press point → blob flood fills the card → the deck morphs out of it.
+    /// Tap feedback: team-color blobs pulse out from the press point, then the
+    /// native zoom carries the card into the story. The pulse cleans itself up
+    /// behind the cover so the card is normal when the deck zooms back into it.
     private func launchStory(at location: CGPoint) {
         Haptics.tap()
         ripplePoint = location
         if UIAccessibility.isReduceMotionEnabled {
-            rippleProgress = 1
             showStory = true
             return
         }
-        withAnimation(.easeOut(duration: 0.34)) { rippleProgress = 1 }
+        withAnimation(.easeOut(duration: 0.28)) { rippleProgress = 1 }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 260_000_000)
+            try? await Task.sleep(nanoseconds: 160_000_000)
             showStory = true
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            withAnimation(.easeOut(duration: 0.3)) { rippleProgress = 0 }
         }
     }
 
@@ -1159,11 +1159,24 @@ struct NewsView: View {
 }
 
 
-/// Global frame of the recap launcher card (drives the story rect-morph).
-private struct RecapOriginKey: PreferenceKey {
-    static let defaultValue: CGRect = .zero
-    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
-        let next = nextValue()
-        if next != .zero { value = next }
+// MARK: - App Store-style zoom (iOS 18), no-op on iOS 17
+
+extension View {
+    @ViewBuilder
+    func storyZoomSource(id: String, in ns: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) {
+            self.matchedTransitionSource(id: id, in: ns)
+        } else {
+            self
+        }
+    }
+
+    @ViewBuilder
+    func storyZoomDestination(id: String, in ns: Namespace.ID) -> some View {
+        if #available(iOS 18.0, *) {
+            self.navigationTransition(.zoom(sourceID: id, in: ns))
+        } else {
+            self
+        }
     }
 }

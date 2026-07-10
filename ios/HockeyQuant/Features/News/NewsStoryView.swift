@@ -10,9 +10,6 @@ import SwiftUI
 /// Completing the deck marks the digest watched (the News-tab ring goes away).
 struct NewsStoryView: View {
     let digests: [NewsDigest]
-    /// Global frame of the "Watch today's recap" card — the deck morphs out of
-    /// this rect on present and collapses back into it on dismiss.
-    var originFrame: CGRect = .zero
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -85,21 +82,14 @@ struct NewsStoryView: View {
     var body: some View {
         let slides = self.slides
         GeometryReader { geo in
-            let frame = geo.frame(in: .global)
-            let hasOrigin = originFrame != .zero && frame.width > 0 && frame.height > 0
-            let heroOffset: CGSize = hasOrigin ? CGSize(
-                width: originFrame.midX - frame.midX,
-                height: originFrame.midY - frame.midY) : .zero
-            let sx: CGFloat = hasOrigin ? max(originFrame.width / frame.width, 0.02) : 0.08
-            let sy: CGFloat = hasOrigin ? max(originFrame.height / frame.height, 0.02) : 0.08
-
             ZStack {
                 ambientBackground
+                    .ignoresSafeArea()
 
                 VStack(spacing: 0) {
                     chrome(count: slides.count)
                         .padding(.horizontal, Theme.Spacing.md)
-                        .padding(.top, 58)
+                        .padding(.top, Theme.Spacing.xs)
 
                     ZStack {
                         if slides.indices.contains(index) {
@@ -113,34 +103,12 @@ struct NewsStoryView: View {
                     .padding(.bottom, Theme.Spacing.md)
                 }
             }
-            .frame(width: geo.size.width, height: geo.size.height)
-            .clipShape(RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg,
-                                        style: .continuous))
-            // The team-color flood that filled the launcher rides the morphing
-            // rect, then dissolves to reveal the deck (and back on collapse).
-            .overlay {
-                RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg, style: .continuous)
-                    .fill(.clear)
-                    .overlay {
-                        AnimatedTeamBackground(
-                            colors: [Theme.Palette.accentAlt, Theme.Palette.accent, Theme.Palette.accentAlt],
-                            base: Theme.Palette.accent,
-                            radiusFactor: 1.0,
-                            speed: 4
-                        )
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg,
-                                                style: .continuous))
-                    .opacity(shown ? 0 : 1)
-                    .allowsHitTesting(false)
-            }
-            // The rect-morph itself: the card's exact frame ↔ full screen,
-            // stretching horizontally and vertically together.
-            .scaleEffect(x: shown ? 1 : sx, y: shown ? 1 : sy)
-            .offset(shown ? .zero : heroOffset)
+            // iOS 17 fallback entrance: the app's floating-card language.
+            // (On iOS 18+ the native zoom drives the whole move; `shown` stays
+            // visually inert there because it's set without animation.)
+            .opacity(shown ? 1 : 0)
+            .scaleEffect(shown ? 1 : 0.94)
         }
-        .ignoresSafeArea()
-        .presentationBackground(.clear)   // feed stays visible behind the hero moves
         .statusBarHidden()
         .onReceive(timer) { _ in tick(slides) }
         .onChange(of: index) { _, newValue in
@@ -156,9 +124,13 @@ struct NewsStoryView: View {
             shown = false
             if slides.isEmpty { dismiss() }
             if slides.count == 1 { markWatched() }
-            withAnimation(reduceMotion ? .easeOut(duration: 0.18)
-                          : .spring(response: 0.5, dampingFraction: 0.82)) {
-                shown = true
+            if #available(iOS 18.0, *) {
+                shown = true                    // zoom transition owns the entrance
+            } else {
+                withAnimation(reduceMotion ? .easeOut(duration: 0.18)
+                              : .spring(response: 0.42, dampingFraction: 0.85)) {
+                    shown = true
+                }
             }
             restartKenBurns()
         }
@@ -539,15 +511,19 @@ struct NewsStoryView: View {
         progress = 0
     }
 
-    /// Shrink the deck back into the launcher card, then dismiss the cover.
+    /// Close the deck. iOS 18's zoom shrinks the screen back into the launcher
+    /// card by itself; the iOS 17 fallback fades the floating-card way.
     private func collapse() {
+        if #available(iOS 18.0, *) {
+            dismiss()
+            return
+        }
         guard shown else { return }
-        withAnimation(reduceMotion ? .easeIn(duration: 0.15)
-                      : .spring(response: 0.42, dampingFraction: 0.88)) {
+        withAnimation(reduceMotion ? .easeIn(duration: 0.15) : .easeIn(duration: 0.2)) {
             shown = false
         }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 380_000_000)
+            try? await Task.sleep(nanoseconds: 210_000_000)
             dismiss()
         }
     }
