@@ -25,6 +25,7 @@ struct NewsStoryView: View {
     @State private var dragOffset: CGFloat = 0
     @State private var kenBurns = false
     @State private var shown = false             // hero expand/collapse
+    @State private var closing = false           // brief gather beat before the zoom-out
     @State private var direction = 1             // +1 forward, -1 back (slide anim)
 
     private let timer = Timer.publish(every: 0.04, on: .main, in: .common).autoconnect()
@@ -106,8 +107,9 @@ struct NewsStoryView: View {
             // iOS 17 fallback entrance: the app's floating-card language.
             // (On iOS 18+ the native zoom drives the whole move; `shown` stays
             // visually inert there because it's set without animation.)
-            .opacity(shown ? 1 : 0)
-            .scaleEffect(shown ? 1 : 0.94)
+            // `closing` adds a short gather beat before the zoom-out on close.
+            .opacity(shown ? (closing ? 0.92 : 1) : 0)
+            .scaleEffect(shown ? (closing ? 0.95 : 1) : 0.94)
         }
         .statusBarHidden()
         .onReceive(timer) { _ in tick(slides) }
@@ -122,13 +124,14 @@ struct NewsStoryView: View {
             dragOffset = 0
             direction = 1
             shown = false
+            closing = false
             if slides.isEmpty { dismiss() }
             if slides.count == 1 { markWatched() }
             if #available(iOS 18.0, *) {
                 shown = true                    // zoom transition owns the entrance
             } else {
                 withAnimation(reduceMotion ? .easeOut(duration: 0.18)
-                              : .spring(response: 0.42, dampingFraction: 0.85)) {
+                              : .spring(response: 0.55, dampingFraction: 0.85)) {
                     shown = true
                 }
             }
@@ -512,10 +515,20 @@ struct NewsStoryView: View {
     }
 
     /// Close the deck. iOS 18's zoom shrinks the screen back into the launcher
-    /// card by itself; the iOS 17 fallback fades the floating-card way.
+    /// card by itself — preceded by a short "gather" beat so the close reads
+    /// slower and more deliberate. The iOS 17 fallback fades the floating-card way.
     private func collapse() {
         if #available(iOS 18.0, *) {
-            dismiss()
+            guard !closing else { return }
+            if reduceMotion {
+                dismiss()
+                return
+            }
+            withAnimation(.easeIn(duration: 0.22)) { closing = true }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 210_000_000)
+                dismiss()
+            }
             return
         }
         guard shown else { return }

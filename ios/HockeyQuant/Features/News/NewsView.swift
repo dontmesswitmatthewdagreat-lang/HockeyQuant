@@ -307,9 +307,9 @@ struct NewsView: View {
             showStory = true
             return
         }
-        withAnimation(.easeOut(duration: 0.28)) { rippleProgress = 1 }
+        withAnimation(.easeOut(duration: 0.5)) { rippleProgress = 1 }
         Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 160_000_000)
+            try? await Task.sleep(nanoseconds: 380_000_000)
             showStory = true
             try? await Task.sleep(nanoseconds: 700_000_000)
             withAnimation(.easeOut(duration: 0.3)) { rippleProgress = 0 }
