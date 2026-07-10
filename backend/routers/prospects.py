@@ -76,6 +76,19 @@ def list_prospects(team: Optional[str] = None, limit: int = 200):
         # Intl skaters, NA goalies, Intl goalies), each ordered by rank.
         rows = q.eq("notable", "true").limit(min(limit, 500)).execute().data
         rows.sort(key=lambda r: ((r.get("info") or {}).get("category_id", 9), r.get("ranking") or 999))
+        # Post-draft: attach where each ranked player actually went, so the
+        # board shows the real draft order until the next class's rankings land.
+        year = max((r.get("draft_year") or 0 for r in rows), default=0)
+        picks = fetch_draft_picks(year) if year else []
+        if picks:
+            from services.player_market import _norm, _fuzzy_key
+            by_norm = {_norm(p["player"]): p for p in picks}
+            by_fuzzy = {_fuzzy_key(p["player"]): p for p in picks}
+            for r in rows:
+                hit = by_norm.get(_norm(r["name"])) or by_fuzzy.get(_fuzzy_key(r["name"]))
+                if hit:
+                    r["drafted"] = {"overall": hit["overall"], "round": hit["round"],
+                                    "team": hit["team"]}
     deltas = _rank_deltas(sb, [r["nhl_id"] for r in rows if r.get("nhl_id")])
     for r in rows:
         r["rank_delta"] = deltas.get(r.get("nhl_id"))
