@@ -17,6 +17,7 @@ struct NewsView: View {
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
     @State private var mockSource: String?     // selected insider mock (nil = first)
+    @State private var recapOrigin: CGPoint = .zero   // launcher center (hero expand)
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -53,8 +54,8 @@ struct NewsView: View {
             }
             if store.draftProspects.isEmpty { await store.loadDraftProspects() }
         }
-        .fullScreenCover(isPresented: $showStory) {
-            NewsStoryView(digests: store.digests)
+        .fullScreenCover(isPresented: noSlide($showStory)) {
+            NewsStoryView(digests: store.digests, origin: recapOrigin)
         }
         .sheet(isPresented: $showSearch) {
             NewsSearchView(store: store)
@@ -68,6 +69,7 @@ struct NewsView: View {
         .floatingCard(item: $detailProspect) { prospect in
             ProspectDetailSheet(prospect: prospect)
         }
+        .onPreferenceChange(RecapOriginKey.self) { recapOrigin = $0 }
     }
 
     /// Long-press on any news card → AI summary (Premium) or the paywall.
@@ -191,13 +193,22 @@ struct NewsView: View {
                             speed: 3.5
                         ).clipShape(Circle())
                     }
-                    Image(systemName: watched ? "checkmark" : "play.fill")
-                        .font(.system(size: 19, weight: .black))
-                        .foregroundStyle(watched ? Theme.Palette.strong : .white)
+                    if watched {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 19, weight: .black))
+                            .foregroundStyle(Theme.Palette.strong)
+                            .transition(.scale(scale: 0.2).combined(with: .opacity))
+                    } else {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 19, weight: .black))
+                            .foregroundStyle(.white)
+                            .transition(.scale(scale: 0.2).combined(with: .opacity))
+                    }
                 }
                 .frame(width: 48, height: 48)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(watched ? "You're caught up" : "Watch today's recap")
+                    Text(watched ? "You're all caught up!" : "Watch today's recap")
+                        .contentTransition(.opacity)
                         .font(.system(size: 17, weight: .heavy, design: .rounded))
                         .foregroundStyle(onPhoto ? .white : Theme.Palette.textPrimary)
                         .shadow(color: onPhoto ? .black.opacity(0.5) : .clear, radius: 3, y: 1)
@@ -233,7 +244,17 @@ struct NewsView: View {
                         .transition(.opacity.combined(with: .scale(scale: 1.04)))
                 }
             }
-            .animation(.easeOut(duration: 0.6), value: watched)
+            // The finish moment: the collage + moving border settle into the
+            // checkmark card with a spring as the deck collapses back onto it.
+            .animation(.spring(response: 0.55, dampingFraction: 0.7), value: watched)
+            .background(
+                GeometryReader { g in
+                    Color.clear.preference(
+                        key: RecapOriginKey.self,
+                        value: CGPoint(x: g.frame(in: .global).midX,
+                                       y: g.frame(in: .global).midY))
+                }
+            )
         }
         .buttonStyle(.plain)
         .accessibilityLabel(watched ? "Rewatch news walkthrough" : "Play news walkthrough")
@@ -1078,5 +1099,15 @@ struct NewsView: View {
         case "Analysis": return Theme.Palette.accentAlt
         default: return Theme.Palette.accent
         }
+    }
+}
+
+
+/// Global center of the recap launcher card (drives the story hero expand).
+private struct RecapOriginKey: PreferenceKey {
+    static let defaultValue: CGPoint = .zero
+    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
+        let next = nextValue()
+        if next != .zero { value = next }
     }
 }

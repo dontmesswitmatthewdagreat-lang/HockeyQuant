@@ -97,9 +97,10 @@ private struct UncheckedBox<V>: @unchecked Sendable {
     let binding: Binding<V>
 }
 
-/// Suppresses the system cover slide (we animate the card ourselves) without
-/// touching any other transaction on the presenting view.
-private func noSlide<V>(_ binding: Binding<V>) -> Binding<V> {
+/// Suppresses the system cover slide (the presented view animates itself)
+/// without touching any other transaction on the presenting view. Shared by
+/// floating cards and hero-expanding covers (e.g. the news story deck).
+func noSlide<V>(_ binding: Binding<V>) -> Binding<V> {
     let box = UncheckedBox(binding: binding)
     return Binding(
         get: { box.binding.wrappedValue },

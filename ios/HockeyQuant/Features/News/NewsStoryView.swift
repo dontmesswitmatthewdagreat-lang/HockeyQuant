@@ -10,6 +10,9 @@ import SwiftUI
 /// Completing the deck marks the digest watched (the News-tab ring goes away).
 struct NewsStoryView: View {
     let digests: [NewsDigest]
+    /// Global center of the "Watch today's recap" card — the deck expands out
+    /// of it on present and collapses back into it on dismiss.
+    var origin: CGPoint = .zero
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -24,6 +27,8 @@ struct NewsStoryView: View {
     @State private var showPaywall = false
     @State private var dragOffset: CGFloat = 0
     @State private var kenBurns = false
+    @State private var shown = false             // hero expand/collapse
+    @State private var direction = 1             // +1 forward, -1 back (slide anim)
 
     private let timer = Timer.publish(every: 0.04, on: .main, in: .common).autoconnect()
 
@@ -65,11 +70,28 @@ struct NewsStoryView: View {
 
     // MARK: - Body
 
+    /// Direction-aware slide transition: forward enters from the right,
+    /// rewinding enters from the left.
+    private var slideTransition: AnyTransition {
+        .asymmetric(
+            insertion: .move(edge: direction >= 0 ? .trailing : .leading)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.94)),
+            removal: .move(edge: direction >= 0 ? .leading : .trailing)
+                .combined(with: .opacity)
+                .combined(with: .scale(scale: 0.94)))
+    }
+
     var body: some View {
         let slides = self.slides
         GeometryReader { geo in
+            let frame = geo.frame(in: .global)
+            let heroOffset = origin == .zero ? .zero : CGSize(
+                width: origin.x - frame.midX,
+                height: origin.y - frame.midY)
             ZStack {
                 ambientBackground
+                    .opacity(shown ? 1 : 0)
 
                 VStack(spacing: 0) {
                     chrome(count: slides.count)
@@ -80,21 +102,20 @@ struct NewsStoryView: View {
                         if slides.indices.contains(index) {
                             slideCard(slides[index], size: geo.size)
                                 .id(slides[index].id)
-                                .transition(.asymmetric(
-                                    insertion: .move(edge: .trailing)
-                                        .combined(with: .opacity)
-                                        .combined(with: .scale(scale: 0.94)),
-                                    removal: .move(edge: .leading)
-                                        .combined(with: .opacity)
-                                        .combined(with: .scale(scale: 0.94))))
+                                .transition(slideTransition)
                         }
                     }
                     .padding(.horizontal, Theme.Spacing.md)
                     .padding(.top, Theme.Spacing.sm)
                     .padding(.bottom, Theme.Spacing.md)
                 }
+                // Grow out of / shrink back into the launcher card.
+                .scaleEffect(shown ? 1 : 0.08)
+                .offset(shown ? .zero : heroOffset)
+                .opacity(shown ? 1 : 0)
             }
         }
+        .presentationBackground(.clear)   // feed stays visible behind the hero moves
         .statusBarHidden()
         .onReceive(timer) { _ in tick(slides) }
         .onChange(of: index) { _, newValue in
@@ -106,8 +127,14 @@ struct NewsStoryView: View {
             index = 0
             progress = 0
             dragOffset = 0
+            direction = 1
+            shown = false
             if slides.isEmpty { dismiss() }
             if slides.count == 1 { markWatched() }
+            withAnimation(reduceMotion ? .easeOut(duration: 0.18)
+                          : .spring(response: 0.5, dampingFraction: 0.82)) {
+                shown = true
+            }
             restartKenBurns()
         }
         .floatingCard(item: $summaryItem) { item in
@@ -179,7 +206,7 @@ struct NewsStoryView: View {
                     .transition(.opacity)
                 }
                 Spacer()
-                Button { dismiss() } label: {
+                Button { collapse() } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.white)
@@ -249,7 +276,10 @@ struct NewsStoryView: View {
                 }
                 .onEnded { v in
                     if v.translation.height > 120 {
-                        dismiss()
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            dragOffset = 0
+                        }
+                        collapse()
                     } else {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
                             dragOffset = 0
@@ -467,20 +497,35 @@ struct NewsStoryView: View {
         let slides = self.slides
         if index < slides.count - 1 {
             Haptics.tap()
+            direction = 1
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index += 1 }
             progress = 0
         } else {
             markWatched()
-            dismiss()
+            collapse()
         }
     }
 
     private func prev() {
         if index > 0 {
             Haptics.tap()
+            direction = -1
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index -= 1 }
         }
         progress = 0
+    }
+
+    /// Shrink the deck back into the launcher card, then dismiss the cover.
+    private func collapse() {
+        guard shown else { return }
+        withAnimation(reduceMotion ? .easeIn(duration: 0.15)
+                      : .spring(response: 0.42, dampingFraction: 0.88)) {
+            shown = false
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 380_000_000)
+            dismiss()
+        }
     }
 
     /// Restart the slow photo zoom for the slide that just appeared.
