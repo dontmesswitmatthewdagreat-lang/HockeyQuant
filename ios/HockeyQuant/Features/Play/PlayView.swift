@@ -11,6 +11,9 @@ struct PlayView: View {
     @State private var fantasyStore: FantasyStore?
     @State private var showingDatePicker = false
     @State private var pickSheetGame: GamePrediction?
+    @State private var showWrapped = false
+    @State private var wrappedModelAcc: Double?
+    @Namespace private var wrappedNS
     @State private var segment = 0   // 0 = Slate, 1 = My Stats
 
     // Celebration state
@@ -166,6 +169,13 @@ struct PlayView: View {
         }
         .floatingCard(isPresented: $showingDatePicker) { datePickerSheet }
         .floatingCard(item: $pickSheetGame) { prediction in pickSheet(prediction) }
+        .fullScreenCover(isPresented: wrappedBinding) {
+            SeasonWrappedView(stats: game.stats ?? .empty,
+                              xp: game.seasonStats.xp,
+                              picks: Array(game.picksByGame.values),
+                              modelAccuracy: wrappedModelAcc)
+                .storyZoomDestination(id: "wrapped", in: wrappedNS)
+        }
     }
 
     // MARK: - Hero band (curved header)
@@ -345,6 +355,7 @@ struct PlayView: View {
                     }
                 }
             }
+            if stats.picksMade > 0 { wrappedBanner }
             Card(padding: 0) {
                 NavigationLink { AchievementsView() } label: {
                     ModeRow(icon: "rosette", tint: Theme.Palette.moderate, title: "Achievements",
@@ -355,6 +366,56 @@ struct PlayView: View {
                 .padding(.vertical, Theme.Spacing.xxs)
             }
         }
+    }
+
+    /// The Wrapped entry: a gradient banner that zooms into the recap deck.
+    private var wrappedBanner: some View {
+        HStack(spacing: Theme.Spacing.sm) {
+            ZStack {
+                Circle().fill(.white.opacity(0.2))
+                Image(systemName: "sparkles")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .frame(width: 44, height: 44)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Your \(Season.current.id), Wrapped")
+                    .font(.system(size: 16, weight: .heavy, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("Relive your season — then share it")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            Spacer(minLength: 0)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+        }
+        .padding(Theme.Spacing.md)
+        .background(
+            LinearGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
+                           startPoint: .leading, endPoint: .trailing)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .storyZoomSource(id: "wrapped", in: wrappedNS)
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .onTapGesture {
+            Haptics.tap()
+            showWrapped = true
+        }
+        .task {
+            if wrappedModelAcc == nil {
+                wrappedModelAcc = try? await APIClient().accuracyStats().stats.accuracyPct
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel("Your season, wrapped")
+    }
+
+    private var wrappedBinding: Binding<Bool> {
+        if #available(iOS 18.0, *) { return $showWrapped }
+        return noSlide($showWrapped)
     }
 
     private func metric(_ label: String, _ value: String) -> some View {
