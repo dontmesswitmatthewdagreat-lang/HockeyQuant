@@ -204,3 +204,38 @@ struct DraftResultsResponse: Codable {
     let year: Int
     let picks: [DraftedPick]
 }
+
+
+// MARK: - Live pipeline (CHL stats + Calder Watch)
+
+struct PipelineStat: Codable, Hashable, Identifiable {
+    let name: String
+    let league: String
+    let gp: Int
+    let goals: Int
+    let assists: Int
+    let points: Int
+    var id: String { name }
+
+    var line: String { "\(league) · \(goals)G \(assists)A · \(points) PTS" }
+}
+
+struct PipelineStatsResponse: Codable { let stats: [PipelineStat] }
+
+struct CalderPlayer: Codable, Hashable, Identifiable {
+    let name: String
+    let team: String
+    let position: String
+    let gamesPlayed: Int
+    let goals: Int
+    let assists: Int
+    let points: Int
+    let headshot: String?
+    var id: String { name }
+}
+
+struct CalderResponse: Codable {
+    let active: Bool
+    let season: String
+    let players: [CalderPlayer]
+}

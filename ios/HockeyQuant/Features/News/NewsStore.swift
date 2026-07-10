@@ -13,6 +13,8 @@ final class NewsStore {
     private(set) var mockDraft: MockDraft?             // weekly first-round projection
     private(set) var mocks: [MockDraft] = []           // all sources (internal + insiders)
     private(set) var draftClass: [DraftedPick] = []    // favorite team's actual picks
+    private(set) var calder: CalderResponse?           // rookie race (dormant offseason)
+    private(set) var pipelineStats: [String: PipelineStat] = [:]  // name -> junior line
     private(set) var loading = false
     private(set) var loadingDraft = false
     private(set) var loadingTeam = false
@@ -73,5 +75,14 @@ final class NewsStore {
 
     func loadDraftClass(team: String) async {
         draftClass = (try? await api.draftResults(team: team).picks) ?? []
+    }
+
+    func loadCalder() async {
+        calder = try? await api.calderWatch()
+    }
+
+    func loadPipelineStats(team: String) async {
+        let stats = (try? await api.pipelineStats(team: team)) ?? []
+        pipelineStats = Dictionary(stats.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
     }
 }

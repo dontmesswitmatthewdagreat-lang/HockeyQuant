@@ -855,6 +855,22 @@ extension APIClient {
         return try Self.decode(DraftResultsResponse.self, from: data)
     }
 
+    /// `GET /api/prospects/calder` — the rookie race (dormant in the offseason).
+    func calderWatch() async throws -> CalderResponse {
+        let url = apiURL("prospects").appendingPathComponent("calder")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(CalderResponse.self, from: data)
+    }
+
+    /// `GET /api/prospects/pipeline-stats` — live CHL stats for a team's pool.
+    func pipelineStats(team: String) async throws -> [PipelineStat] {
+        var comps = URLComponents(url: apiURL("prospects").appendingPathComponent("pipeline-stats"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "team", value: team)]
+        let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
+        return try Self.decode(PipelineStatsResponse.self, from: data).stats
+    }
+
     /// `GET /api/prospects/mock-drafts` — newest mock from every source.
     func mockDrafts() async throws -> [MockDraft] {
         let url = apiURL("prospects").appendingPathComponent("mock-drafts")

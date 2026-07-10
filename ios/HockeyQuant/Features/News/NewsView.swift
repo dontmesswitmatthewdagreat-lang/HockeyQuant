@@ -53,8 +53,10 @@ struct NewsView: View {
             if let fav = auth.favoriteTeam {
                 if store.teamProspects.isEmpty { await store.loadTeamProspects(team: fav) }
                 if store.draftClass.isEmpty { await store.loadDraftClass(team: fav) }
+                if store.pipelineStats.isEmpty { await store.loadPipelineStats(team: fav) }
             }
             if store.draftProspects.isEmpty { await store.loadDraftProspects() }
+            if store.calder == nil { await store.loadCalder() }
         }
         .fullScreenCover(isPresented: storyBinding) {
             NewsStoryView(digests: store.digests)
@@ -541,6 +543,7 @@ struct NewsView: View {
             ScrollView {
                 LazyVStack(spacing: Theme.Spacing.xs) {
                     if draftBoard {
+                        if prospectQuery.isEmpty { calderSection }
                         if prospectQuery.isEmpty { podiumHero(items) }
                         // The NHL ranks four separate lists; group + label them so
                         // the per-list "#1, #2, …" numbering reads correctly.
@@ -567,6 +570,77 @@ struct NewsView: View {
             }
             .scrollDismissesKeyboard(.immediately)
             .refreshable { await refresh() }
+        }
+    }
+
+    // MARK: - Calder Watch (rookie race — dormant until opening night)
+
+    @ViewBuilder
+    private var calderSection: some View {
+        if let calder = store.calder {
+            if calder.active && !calder.players.isEmpty {
+                VStack(spacing: Theme.Spacing.xs) {
+                    prospectSectionHeader("Calder Watch · \(calder.season)", count: calder.players.count)
+                    ForEach(Array(calder.players.prefix(8).enumerated()), id: \.element.id) { i, p in
+                        HStack(spacing: Theme.Spacing.sm) {
+                            Text("\(i + 1)")
+                                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                                .foregroundStyle(i < 3 ? Theme.Palette.accent : Theme.Palette.textTertiary)
+                                .frame(width: 22)
+                            CrestView(abbrev: p.team, size: 28)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(p.name)
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Theme.Palette.textPrimary)
+                                    .lineLimit(1)
+                                Text("\(p.position) · \(p.gamesPlayed) GP")
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(Theme.Palette.textSecondary)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 1) {
+                                Text("\(p.points)")
+                                    .font(.system(size: 17, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(Theme.Palette.textPrimary)
+                                Text("\(p.goals)G \(p.assists)A")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .foregroundStyle(Theme.Palette.textTertiary)
+                            }
+                        }
+                        .padding(Theme.Spacing.sm)
+                        .background(Theme.Palette.surface)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                            .strokeBorder(Theme.Palette.border, lineWidth: 1))
+                    }
+                }
+                .padding(.bottom, Theme.Spacing.sm)
+            } else if !calder.active {
+                HStack(spacing: Theme.Spacing.sm) {
+                    ZStack {
+                        Circle().fill(Theme.Palette.accent.opacity(0.12))
+                        Image(systemName: "trophy")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(Theme.Palette.accent)
+                    }
+                    .frame(width: 40, height: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Calder Watch")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Theme.Palette.textPrimary)
+                        Text("Lights up on opening night — the rookie scoring race, live all season.")
+                            .font(.system(size: 12))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(Theme.Spacing.sm)
+                .background(Theme.Palette.surface.opacity(0.6))
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .strokeBorder(Theme.Palette.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4])))
+                .padding(.bottom, Theme.Spacing.sm)
+            }
         }
     }
 
@@ -1055,7 +1129,9 @@ struct NewsView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.8)
                     }
-                    Text(p.info?.club.flatMap { $0.isEmpty ? nil : $0 } ?? p.subtitle)
+                    Text(store.pipelineStats[p.name]?.line
+                         ?? p.info?.club.flatMap { $0.isEmpty ? nil : $0 }
+                         ?? p.subtitle)
                         .font(.system(size: 12))
                         .foregroundStyle(Theme.Palette.textSecondary)
                         .lineLimit(1)
