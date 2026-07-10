@@ -10,9 +10,9 @@ import SwiftUI
 /// Completing the deck marks the digest watched (the News-tab ring goes away).
 struct NewsStoryView: View {
     let digests: [NewsDigest]
-    /// Global center of the "Watch today's recap" card — the deck expands out
-    /// of it on present and collapses back into it on dismiss.
-    var origin: CGPoint = .zero
+    /// Global frame of the "Watch today's recap" card — the deck morphs out of
+    /// this rect on present and collapses back into it on dismiss.
+    var originFrame: CGRect = .zero
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -86,17 +86,20 @@ struct NewsStoryView: View {
         let slides = self.slides
         GeometryReader { geo in
             let frame = geo.frame(in: .global)
-            let heroOffset = origin == .zero ? .zero : CGSize(
-                width: origin.x - frame.midX,
-                height: origin.y - frame.midY)
+            let hasOrigin = originFrame != .zero && frame.width > 0 && frame.height > 0
+            let heroOffset: CGSize = hasOrigin ? CGSize(
+                width: originFrame.midX - frame.midX,
+                height: originFrame.midY - frame.midY) : .zero
+            let sx: CGFloat = hasOrigin ? max(originFrame.width / frame.width, 0.02) : 0.08
+            let sy: CGFloat = hasOrigin ? max(originFrame.height / frame.height, 0.02) : 0.08
+
             ZStack {
                 ambientBackground
-                    .opacity(shown ? 1 : 0)
 
                 VStack(spacing: 0) {
                     chrome(count: slides.count)
                         .padding(.horizontal, Theme.Spacing.md)
-                        .padding(.top, Theme.Spacing.xs)
+                        .padding(.top, 58)
 
                     ZStack {
                         if slides.indices.contains(index) {
@@ -109,12 +112,34 @@ struct NewsStoryView: View {
                     .padding(.top, Theme.Spacing.sm)
                     .padding(.bottom, Theme.Spacing.md)
                 }
-                // Grow out of / shrink back into the launcher card.
-                .scaleEffect(shown ? 1 : 0.08)
-                .offset(shown ? .zero : heroOffset)
-                .opacity(shown ? 1 : 0)
             }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .clipShape(RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg,
+                                        style: .continuous))
+            // The team-color flood that filled the launcher rides the morphing
+            // rect, then dissolves to reveal the deck (and back on collapse).
+            .overlay {
+                RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg, style: .continuous)
+                    .fill(.clear)
+                    .overlay {
+                        AnimatedTeamBackground(
+                            colors: [Theme.Palette.accentAlt, Theme.Palette.accent, Theme.Palette.accentAlt],
+                            base: Theme.Palette.accent,
+                            radiusFactor: 1.0,
+                            speed: 4
+                        )
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: shown ? 48 : Theme.Radius.lg,
+                                                style: .continuous))
+                    .opacity(shown ? 0 : 1)
+                    .allowsHitTesting(false)
+            }
+            // The rect-morph itself: the card's exact frame ↔ full screen,
+            // stretching horizontally and vertically together.
+            .scaleEffect(x: shown ? 1 : sx, y: shown ? 1 : sy)
+            .offset(shown ? .zero : heroOffset)
         }
+        .ignoresSafeArea()
         .presentationBackground(.clear)   // feed stays visible behind the hero moves
         .statusBarHidden()
         .onReceive(timer) { _ in tick(slides) }
@@ -149,7 +174,7 @@ struct NewsStoryView: View {
 
     private var ambientBackground: some View {
         ZStack {
-            Color(hex: 0x0B0E13).ignoresSafeArea()
+            Color(hex: 0x0B0E13)
             if reduceMotion {
                 blobs(t: 0)
             } else {
@@ -158,7 +183,6 @@ struct NewsStoryView: View {
                 }
             }
         }
-        .ignoresSafeArea()
     }
 
     private func blobs(t: TimeInterval) -> some View {

@@ -17,7 +17,9 @@ struct NewsView: View {
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
     @State private var mockSource: String?     // selected insider mock (nil = first)
-    @State private var recapOrigin: CGPoint = .zero   // launcher center (hero expand)
+    @State private var recapFrame: CGRect = .zero     // launcher frame (hero rect-morph)
+    @State private var ripplePoint: CGPoint = .zero    // where the finger landed
+    @State private var rippleProgress: CGFloat = 0     // 0 = no color, 1 = card flooded
     @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
@@ -55,7 +57,13 @@ struct NewsView: View {
             if store.draftProspects.isEmpty { await store.loadDraftProspects() }
         }
         .fullScreenCover(isPresented: noSlide($showStory)) {
-            NewsStoryView(digests: store.digests, origin: recapOrigin)
+            NewsStoryView(digests: store.digests, originFrame: recapFrame)
+        }
+        // Reverse of the launch: once the deck has collapsed back onto the
+        // card, drain the team-color flood back into the press point.
+        .onChange(of: showStory) { _, open in
+            guard !open else { return }
+            withAnimation(.easeIn(duration: 0.3)) { rippleProgress = 0 }
         }
         .sheet(isPresented: $showSearch) {
             NewsSearchView(store: store)
@@ -69,7 +77,7 @@ struct NewsView: View {
         .floatingCard(item: $detailProspect) { prospect in
             ProspectDetailSheet(prospect: prospect)
         }
-        .onPreferenceChange(RecapOriginKey.self) { recapOrigin = $0 }
+        .onPreferenceChange(RecapOriginKey.self) { recapFrame = $0 }
     }
 
     /// Long-press on any news card → AI summary (Premium) or the paywall.
@@ -179,8 +187,7 @@ struct NewsView: View {
         let watched = watchedCurrent
         let urls = collageURLs
         let onPhoto = !watched && !urls.isEmpty   // text sits on the dark collage
-        return Button { showStory = true } label: {
-            HStack(spacing: Theme.Spacing.md) {
+        return HStack(spacing: Theme.Spacing.md) {
                 ZStack {
                     if watched {
                         Circle().fill(Theme.Palette.surface)
@@ -222,42 +229,91 @@ struct NewsView: View {
                 Image(systemName: "chevron.right").font(.system(size: 14, weight: .bold))
                     .foregroundStyle(onPhoto ? .white : (watched ? Theme.Palette.textTertiary : Theme.Palette.accent))
             }
-            .padding(Theme.Spacing.md)
-            .background {
-                if onPhoto {
-                    ZStack {
-                        HeadlineCollage(urls: urls)
-                        LinearGradient(colors: [.black.opacity(0.65), .black.opacity(0.45), .black.opacity(0.68)],
-                                       startPoint: .leading, endPoint: .trailing)
-                    }
-                } else {
-                    Theme.Palette.surface
+        .padding(Theme.Spacing.md)
+        .background {
+            if onPhoto {
+                ZStack {
+                    HeadlineCollage(urls: urls)
+                    LinearGradient(colors: [.black.opacity(0.65), .black.opacity(0.45), .black.opacity(0.68)],
+                                   startPoint: .leading, endPoint: .trailing)
                 }
+            } else {
+                Theme.Palette.surface
             }
-            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
-            .overlay {
-                if watched {
-                    RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
-                        .strokeBorder(Theme.Palette.border, lineWidth: 1)
-                } else {
-                    AnimatedGradientRing(cornerRadius: Theme.Radius.lg)
-                        .transition(.opacity.combined(with: .scale(scale: 1.04)))
-                }
-            }
-            // The finish moment: the collage + moving border settle into the
-            // checkmark card with a spring as the deck collapses back onto it.
-            .animation(.spring(response: 0.55, dampingFraction: 0.7), value: watched)
-            .background(
-                GeometryReader { g in
-                    Color.clear.preference(
-                        key: RecapOriginKey.self,
-                        value: CGPoint(x: g.frame(in: .global).midX,
-                                       y: g.frame(in: .global).midY))
-                }
-            )
         }
-        .buttonStyle(.plain)
+        // The launch flood: team-color blobs erupt from the press point and
+        // fill the card before it morphs into the story deck.
+        .overlay {
+            if rippleProgress > 0 {
+                AnimatedTeamBackground(
+                    colors: [Theme.Palette.accentAlt, Theme.Palette.accent, Theme.Palette.accentAlt],
+                    base: Theme.Palette.accent,
+                    radiusFactor: 1.0,
+                    speed: 4
+                )
+                .mask(
+                    GeometryReader { g in
+                        let d = floodDiameter(in: g.size)
+                        Circle()
+                            .frame(width: d * rippleProgress, height: d * rippleProgress)
+                            .position(ripplePoint)
+                    }
+                )
+                .allowsHitTesting(false)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .overlay {
+            if watched {
+                RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous)
+                    .strokeBorder(Theme.Palette.border, lineWidth: 1)
+            } else {
+                AnimatedGradientRing(cornerRadius: Theme.Radius.lg)
+                    .transition(.opacity.combined(with: .scale(scale: 1.04)))
+            }
+        }
+        // The finish moment: the collage + moving border settle into the
+        // checkmark card with a spring as the deck collapses back onto it.
+        .animation(.spring(response: 0.55, dampingFraction: 0.7), value: watched)
+        .background(
+            GeometryReader { g in
+                Color.clear.preference(key: RecapOriginKey.self, value: g.frame(in: .global))
+            }
+        )
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .gesture(
+            SpatialTapGesture().onEnded { value in
+                launchStory(at: value.location)
+            }
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
         .accessibilityLabel(watched ? "Rewatch news walkthrough" : "Play news walkthrough")
+        .accessibilityAction { launchStory(at: CGPoint(x: 60, y: 40)) }
+    }
+
+    /// Diameter needed for a circle at the press point to cover the whole card.
+    private func floodDiameter(in size: CGSize) -> CGFloat {
+        let corners = [CGPoint(x: 0, y: 0), CGPoint(x: size.width, y: 0),
+                       CGPoint(x: 0, y: size.height), CGPoint(x: size.width, y: size.height)]
+        let far = corners.map { hypot($0.x - ripplePoint.x, $0.y - ripplePoint.y) }.max() ?? size.width
+        return far * 2
+    }
+
+    /// Press point → blob flood fills the card → the deck morphs out of it.
+    private func launchStory(at location: CGPoint) {
+        Haptics.tap()
+        ripplePoint = location
+        if UIAccessibility.isReduceMotionEnabled {
+            rippleProgress = 1
+            showStory = true
+            return
+        }
+        withAnimation(.easeOut(duration: 0.34)) { rippleProgress = 1 }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 260_000_000)
+            showStory = true
+        }
     }
 
     private func digestSection(_ d: NewsDigest) -> some View {
@@ -1103,10 +1159,10 @@ struct NewsView: View {
 }
 
 
-/// Global center of the recap launcher card (drives the story hero expand).
+/// Global frame of the recap launcher card (drives the story rect-morph).
 private struct RecapOriginKey: PreferenceKey {
-    static let defaultValue: CGPoint = .zero
-    static func reduce(value: inout CGPoint, nextValue: () -> CGPoint) {
+    static let defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
         let next = nextValue()
         if next != .zero { value = next }
     }
