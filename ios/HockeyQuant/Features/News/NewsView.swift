@@ -663,7 +663,11 @@ struct NewsView: View {
                             .lineLimit(1)
                     }
                     Spacer()
-                    StatusPill(text: "DRAFTED", color: Theme.Palette.positive)
+                    if pick.signedElc == true {
+                        StatusPill(text: "ELC SIGNED", color: Theme.Palette.positive, solid: true)
+                    } else {
+                        StatusPill(text: "DRAFTED", color: Theme.Palette.textSecondary)
+                    }
                 }
                 .padding(Theme.Spacing.sm)
                 .background(Theme.Palette.surface)

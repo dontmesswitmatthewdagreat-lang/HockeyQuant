@@ -195,6 +195,8 @@ struct DraftedPick: Codable, Hashable, Identifiable {
     let position: String?
     let league: String?
     let club: String?
+    /// True once the player appears on his team's real cap sheet (ELC signed).
+    let signedElc: Bool?
     var id: Int { overall }
 }
 

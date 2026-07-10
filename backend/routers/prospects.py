@@ -16,6 +16,14 @@ def _notable_draft_year(sb) -> int:
     return (rows[0].get("draft_year") if rows else None) or datetime.date.today().year
 
 
+def _mock_target_year(sb) -> int:
+    """Mocks always look forward: once a draft has actually happened, the
+    next class is the story (insiders publish way-too-early mocks within
+    days), even before Central Scouting ranks it."""
+    year = _notable_draft_year(sb)
+    return year + 1 if fetch_draft_picks(year) else year
+
+
 def _rank_deltas(sb, nhl_ids):
     """nhl_id -> rank change vs the previous list snapshot (positive = riser).
     Best-effort: {} until the prospect_rankings table exists / has 2 dates."""
@@ -124,10 +132,23 @@ def prospect_detail(nhl_id: int):
 
 @router.get("/prospects/draft-results")
 def draft_results(team: Optional[str] = None, year: Optional[int] = None):
-    """Actual draft picks once the draft has happened (all, or one team's class)."""
+    """Actual draft picks once the draft has happened (all, or one team's
+    class). Team results carry ELC-signed status: a drafted player appearing
+    on his team's real cap sheet has signed his entry-level deal."""
     sb = _sb()
     y = year or _notable_draft_year(sb)
     picks = team_picks(y, team) if team else fetch_draft_picks(y)
+    if team and picks:
+        try:
+            from services.offseason_data import fetch_roster
+            from services.player_market import _norm, _fuzzy_key
+            roster = fetch_roster(team.upper())
+            names = {_norm(p["name"]) for p in roster}
+            fuzzy = {_fuzzy_key(p["name"]) for p in roster}
+            picks = [{**p, "signed_elc": _norm(p["player"]) in names
+                      or _fuzzy_key(p["player"]) in fuzzy} for p in picks]
+        except Exception:
+            pass
     return {"year": y, "picks": picks}
 
 
@@ -136,6 +157,11 @@ def list_mock_drafts():
     """The newest mock from every source (internal engine + insider outlets)."""
     sb = _sb()
     rows = sb.table("mock_drafts").select("*").order("generated_at", desc=True).limit(24).execute().data
+    # Forward-looking only: once any source covers a newer draft class, stale
+    # previous-class mocks drop out of the list.
+    if rows:
+        latest_year = max(r.get("draft_year") or 0 for r in rows)
+        rows = [r for r in rows if (r.get("draft_year") or 0) == latest_year]
     seen, out = set(), []
     for r in rows:
         src = r.get("source") or "HockeyQuant"
@@ -154,7 +180,7 @@ def import_insiders():
     """Cron/admin: pull + store the latest insider mock drafts (one per outlet)."""
     sb = _sb()
     from services.insider_mocks import import_insider_mocks
-    imported = import_insider_mocks(sb, _notable_draft_year(sb))
+    imported = import_insider_mocks(sb, _mock_target_year(sb))
     return {"imported": imported}
 
 
@@ -162,6 +188,12 @@ def import_insiders():
 def generate_mock_draft():
     """Cron/admin: build + store this week's first-round mock draft. Idempotent per ISO week."""
     sb = _sb()
+    # Post-draft the internal pool is the class that was just picked — skip
+    # until the next Central Scouting list lands (insider imports carry the
+    # way-too-early 2027+ mocks in the meantime).
+    if _mock_target_year(sb) != _notable_draft_year(sb):
+        return {"skipped": "draft complete — internal mock resumes with the next class rankings"}
+
     mock = build_mock_draft(sb)
     if not mock:
         raise HTTPException(status_code=502, detail="Could not build mock draft")
