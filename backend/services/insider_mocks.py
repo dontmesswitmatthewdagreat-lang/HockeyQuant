@@ -83,6 +83,18 @@ def import_insider_mocks(sb, draft_year: int) -> List[str]:
     """Fetch + extract one mock per outlet; store each as its own mock_drafts row.
     Returns the outlets that were imported."""
     pool = _prospect_rows(sb)
+
+    # Staleness guard: a genuine way-too-early mock for `draft_year` can't be
+    # built from players already taken in the previous draft. Google News
+    # sometimes returns last year's mock articles for a next-year query.
+    from services.draft_results import drafted_lookup
+    already_drafted = set(drafted_lookup(draft_year - 1).keys())
+
+    def is_stale(picks_raw):
+        if not picks_raw or not already_drafted:
+            return False
+        hits = sum(1 for p in picks_raw if p["player"].lower() in already_drafted)
+        return hits / len(picks_raw) > 0.3
     now = datetime.datetime.now(datetime.timezone.utc)
     _, iso_week, _ = datetime.date.today().isocalendar()
     edition = f"{draft_year}-W{iso_week:02d}"
@@ -102,6 +114,10 @@ def import_insider_mocks(sb, draft_year: int) -> List[str]:
             except Exception:
                 continue
             picks_raw = _extract_picks(outlet, text, draft_year)
+            if is_stale(picks_raw):
+                print(f"[insider-mocks] {outlet}: article is last year's mock — skipping", flush=True)
+                picks_raw = []
+                continue
             if len(picks_raw) >= 10:
                 article_title = item.get("title")
                 break
