@@ -48,8 +48,11 @@ struct NewsStoryView: View {
         if let first = digests.first, let kp = first.keyPoints, !kp.isEmpty {
             s.append(.cover(title: first.title, points: kp, asOf: first.asOf))
         }
+        var seen = Set<String>()
         for d in digests {
-            for it in d.items.prefix(5) { s.append(.item(it)) }
+            for it in d.items where seen.insert(it.url).inserted {
+                s.append(.item(it))
+            }
         }
         return s
     }
@@ -334,6 +337,9 @@ struct NewsStoryView: View {
 
                 Text("Today's\nTop Stories")
                     .font(.system(size: 40, weight: .heavy, design: .rounded))
+                    // Never let a tall key-point list squash the headline —
+                    // the list below drops entries instead.
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundStyle(.white)
                     .staggeredEntrance(index: 1)
 
@@ -342,25 +348,11 @@ struct NewsStoryView: View {
                         .staggeredEntrance(index: 2)
                 }
 
-                VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-                    ForEach(Array(points.prefix(5).enumerated()), id: \.offset) { i, p in
-                        HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-                            Text("\(i + 1)")
-                                .font(.system(size: 12, weight: .heavy, design: .rounded))
-                                .foregroundStyle(Theme.Palette.accent)
-                                .frame(width: 22, height: 22)
-                                .background(Circle().fill(.white))
-                            Text(p)
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .padding(Theme.Spacing.sm)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.13))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                        .staggeredEntrance(index: min(i + 3, 9))
-                    }
+                // Show as many key points as genuinely fit under the headline.
+                ViewThatFits(in: .vertical) {
+                    keyPointList(points, showing: 5)
+                    keyPointList(points, showing: 4)
+                    keyPointList(points, showing: 3)
                 }
                 .padding(.top, Theme.Spacing.xs)
 
@@ -376,6 +368,29 @@ struct NewsStoryView: View {
                 .staggeredEntrance(index: 6)
             }
             .padding(Theme.Spacing.lg)
+        }
+    }
+
+    private func keyPointList(_ points: [String], showing count: Int) -> some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
+            ForEach(Array(points.prefix(count).enumerated()), id: \.offset) { i, p in
+                HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
+                    Text("\(i + 1)")
+                        .font(.system(size: 12, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.accent)
+                        .frame(width: 22, height: 22)
+                        .background(Circle().fill(.white))
+                    Text(p)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(Theme.Spacing.sm)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.13))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .staggeredEntrance(index: min(i + 3, 9))
+            }
         }
     }
 

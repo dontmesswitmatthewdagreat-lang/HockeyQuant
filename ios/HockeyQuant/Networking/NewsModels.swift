@@ -76,6 +76,14 @@ struct ProspectInfo: Codable, Hashable {
     let category: String?   // NHL Central Scouting list (draft board only)
 }
 
+/// Where a ranked player actually went once his class has been drafted —
+/// flips the draft board from scouting ranks to the real draft order.
+struct DraftOutcome: Codable, Hashable {
+    let overall: Int?
+    let round: Int?
+    let team: String?
+}
+
 struct Prospect: Codable, Identifiable, Hashable {
     let id: String
     let nhlId: Int?
@@ -89,6 +97,7 @@ struct Prospect: Codable, Identifiable, Hashable {
     let info: ProspectInfo?
     /// Rank change vs the previous Central Scouting list (positive = riser).
     let rankDelta: Int?
+    let drafted: DraftOutcome?
 
     var subtitle: String {
         var parts: [String] = []

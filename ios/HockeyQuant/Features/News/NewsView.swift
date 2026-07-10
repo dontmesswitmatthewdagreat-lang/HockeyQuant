@@ -179,7 +179,7 @@ struct NewsView: View {
     }
 
     private var playCTA: some View {
-        let count = store.digests.first?.items.count ?? 0
+        let count = Set(store.digests.flatMap { $0.items.map(\.url) }).count
         let watched = watchedCurrent
         let urls = collageURLs
         let onPhoto = !watched && !urls.isEmpty   // text sits on the dark collage
@@ -543,17 +543,41 @@ struct NewsView: View {
             ScrollView {
                 LazyVStack(spacing: Theme.Spacing.xs) {
                     if draftBoard {
+                        // Once the class has been drafted, the board flips from
+                        // scouting ranks to the real draft order; players who were
+                        // passed over stay in their Central Scouting lists below.
+                        let draftedItems = items.filter { $0.drafted?.overall != nil }
+                            .sorted { ($0.drafted?.overall ?? 999) < ($1.drafted?.overall ?? 999) }
+                        let undrafted = draftedItems.isEmpty ? items
+                            : items.filter { $0.drafted?.overall == nil }
                         if prospectQuery.isEmpty { calderSection }
-                        if prospectQuery.isEmpty { podiumHero(items) }
+                        if prospectQuery.isEmpty {
+                            podiumHero(draftedItems.isEmpty
+                                       ? Array(draftGroups(items).first?.items.prefix(3) ?? [])
+                                       : Array(draftedItems.prefix(3)))
+                        }
+                        if !draftedItems.isEmpty {
+                            let year = draftedItems.first?.draftYear ?? Calendar.current.component(.year, from: .now)
+                            Section {
+                                ForEach(Array(draftedItems.enumerated()), id: \.element.id) { i, p in
+                                    prospectRow(p, rank: p.drafted?.overall ?? (i + 1))
+                                        .staggeredEntrance(index: min(i, 10))
+                                }
+                            } header: {
+                                prospectSectionHeader("The \(String(year)) draft", count: draftedItems.count)
+                            }
+                        }
                         // The NHL ranks four separate lists; group + label them so
                         // the per-list "#1, #2, …" numbering reads correctly.
-                        ForEach(draftGroups(items), id: \.key) { group in
+                        ForEach(draftGroups(undrafted), id: \.key) { group in
                             Section {
                                 ForEach(Array(group.items.enumerated()), id: \.element.id) { i, p in
                                     prospectRow(p, rank: p.ranking ?? (i + 1)).staggeredEntrance(index: min(i, 10))
                                 }
                             } header: {
-                                prospectSectionHeader(group.title, count: group.items.count)
+                                prospectSectionHeader(draftedItems.isEmpty ? group.title
+                                                      : "\(group.title) · undrafted",
+                                                      count: group.items.count)
                             }
                         }
                     } else {
@@ -646,11 +670,10 @@ struct NewsView: View {
 
     // MARK: - Podium hero (draft board top 3)
 
-    /// The top three of the first Central Scouting list on a gradient stage —
-    /// silver / gold / bronze, gold elevated in the middle.
+    /// The top three on a gradient stage — silver / gold / bronze, gold elevated
+    /// in the middle. Scouting #1–3 before the draft, the actual picks 1–3 after.
     @ViewBuilder
-    private func podiumHero(_ items: [Prospect]) -> some View {
-        let top = Array((draftGroups(items).first?.items.prefix(3)) ?? [])
+    private func podiumHero(_ top: [Prospect]) -> some View {
         if top.count == 3 {
             HStack(alignment: .bottom, spacing: Theme.Spacing.sm) {
                 podiumColumn(top[1], rank: 2, size: 58)
@@ -697,7 +720,7 @@ struct NewsView: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
-                Text(p.position ?? "")
+                Text(p.drafted?.team ?? p.position ?? "")
                     .font(.system(size: 10, weight: .bold))
                     .foregroundStyle(.white.opacity(0.75))
             }
@@ -1103,7 +1126,18 @@ struct NewsView: View {
     private func prospectRow(_ p: Prospect, rank: Int) -> some View {
         PressableButton(action: { detailProspect = p }) {
             HStack(spacing: Theme.Spacing.sm) {
-                rankMedallion(rank, showCrest: p.team)
+                if let d = p.drafted, let overall = d.overall, let drafter = d.team {
+                    // Real draft order: overall pick number + the team that called it.
+                    HStack(spacing: 4) {
+                        Text("\(overall)")
+                            .font(.system(size: overall > 99 ? 10 : 12, weight: .heavy, design: .rounded))
+                            .foregroundStyle(overall <= 3 ? medallionColor(overall) : Theme.Palette.textTertiary)
+                            .frame(width: overall > 99 ? 22 : 16)
+                        CrestView(abbrev: drafter, size: 24)
+                    }
+                } else {
+                    rankMedallion(rank, showCrest: p.team)
+                }
                 ZStack {
                     Circle()
                         .fill(LinearGradient(colors: [Theme.Palette.accent.opacity(0.55), Theme.Palette.accentAlt.opacity(0.3)],
@@ -1127,7 +1161,7 @@ struct NewsView: View {
                             .font(.system(size: 15, weight: .bold, design: .rounded))
                             .foregroundStyle(Theme.Palette.textPrimary)
                             .lineLimit(1)
-                            .minimumScaleFactor(0.8)
+                            .minimumScaleFactor(0.7)
                     }
                     Text(store.pipelineStats[p.name]?.line
                          ?? p.info?.club.flatMap { $0.isEmpty ? nil : $0 }
