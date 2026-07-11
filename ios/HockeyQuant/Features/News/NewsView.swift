@@ -163,14 +163,11 @@ struct NewsView: View {
                 // thread when it realizes stateful children like the pulse card.
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     playCTA
-                    if let first = orderedDigests.first {
-                        digestSection(first)
-                    }
-                    // A market read between digests — a break in the feed, not its focus.
+                    // The league's vitals, right up top — before the day's stories.
                     if let pulse = store.marketPulse {
                         MarketPulseCard(overview: pulse) { showMarketPulse = true }
                     }
-                    ForEach(orderedDigests.dropFirst()) { digest in
+                    ForEach(orderedDigests) { digest in
                         digestSection(digest)
                     }
                 }
