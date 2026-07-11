@@ -16,6 +16,7 @@ struct NewsView: View {
     @State private var summaryItem: DigestItem?
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
+    @State private var showMarketPulse = false // market-desk floating card
     @State private var mockSource: String?     // selected insider mock (nil = first)
     @State private var ripplePoint: CGPoint = .zero    // where the finger landed
     @State private var rippleProgress: CGFloat = 0     // press pulse: 0 = none, 1 = card flooded
@@ -46,6 +47,7 @@ struct NewsView: View {
             // Load the mock draft up front so the "new" badge can pull the user
             // into Prospects even while they're still on the News tab.
             if store.mockDraft == nil { await store.loadMockDraft() }
+            if store.marketPulse == nil { await store.loadMarketPulse() }
         }
         .task(id: tab) {
             // Load every prospect list so swiping between them is instant.
@@ -67,6 +69,11 @@ struct NewsView: View {
         }
         .floatingCard(item: $summaryItem) { item in
             NewsSummarySheet(item: item)
+        }
+        .floatingCard(isPresented: $showMarketPulse) {
+            if let pulse = store.marketPulse {
+                MarketPulseSheet(overview: pulse)
+            }
         }
         .floatingCard(isPresented: $showPaywall) {
             PaywallView()
@@ -151,9 +158,19 @@ struct NewsView: View {
                            message: "The morning roundup and your team's pre/post-game digests will appear here.")
         } else {
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: Theme.Spacing.lg) {
+                // Plain VStack on purpose: the feed is a couple dozen cards, and
+                // LazyVStack's offscreen accessibility pass can wedge the main
+                // thread when it realizes stateful children like the pulse card.
+                VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     playCTA
-                    ForEach(orderedDigests) { digest in
+                    if let first = orderedDigests.first {
+                        digestSection(first)
+                    }
+                    // A market read between digests — a break in the feed, not its focus.
+                    if let pulse = store.marketPulse {
+                        MarketPulseCard(overview: pulse) { showMarketPulse = true }
+                    }
+                    ForEach(orderedDigests.dropFirst()) { digest in
                         digestSection(digest)
                     }
                 }

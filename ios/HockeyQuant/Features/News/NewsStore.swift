@@ -15,6 +15,7 @@ final class NewsStore {
     private(set) var draftClass: [DraftedPick] = []    // favorite team's actual picks
     private(set) var calder: CalderResponse?           // rookie race (dormant offseason)
     private(set) var pipelineStats: [String: PipelineStat] = [:]  // name -> junior line
+    private(set) var marketPulse: MarketOverview?  // FA market temperature for the feed
     private(set) var loading = false
     private(set) var loadingDraft = false
     private(set) var loadingTeam = false
@@ -79,6 +80,10 @@ final class NewsStore {
 
     func loadCalder() async {
         calder = try? await api.calderWatch()
+    }
+
+    func loadMarketPulse() async {
+        marketPulse = try? await api.marketOverview()
     }
 
     func loadPipelineStats(team: String) async {
