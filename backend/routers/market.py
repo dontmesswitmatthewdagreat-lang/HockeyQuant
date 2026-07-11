@@ -167,6 +167,14 @@ def player_detail(name: str):
     }
 
 
+@router.get("/pulse/league")
+def pulse_league():
+    """Dial-style league reads for the News tab's pulse deck: luck meter,
+    race tightness, deadline pulse, playoff pulse (dormant off-window)."""
+    from services.league_pulse import league_pulses
+    return {"pulses": league_pulses()}
+
+
 @router.post("/market/snapshot")
 def snapshot():
     """Cron: store today's values so the index/sparklines accrue history."""
