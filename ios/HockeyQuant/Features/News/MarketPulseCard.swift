@@ -37,20 +37,56 @@ struct MarketTemperature {
 
 // MARK: - Gauge
 
-/// Semicircular fear-&-greed dial: five color segments, a needle, and a big
-/// count-up score. The arc is a fixed-size Canvas so the lazy news feed never
-/// has to negotiate its layout.
-private struct PulseGauge: View {
-    let temp: MarketTemperature
-    let reveal: Bool
-    var diameter: CGFloat = 150
-
-    private var shownScore: Int { reveal ? temp.score : 50 }
-
-    private static let segments: [Color] = [
+/// The deck's shared five-step color ramp (cold → hot) and subline tints.
+enum PulseTone {
+    static let ramp: [Color] = [
         Color(hex: 0x3D8BDD), Color(hex: 0x2FA6A0), Color(hex: 0x8E9AA9),
         Color(hex: 0xE8842A), Color(hex: 0xD64545),
     ]
+
+    static func color(for score: Int) -> Color {
+        switch score {
+        case ..<20: return ramp[0]
+        case ..<42: return ramp[1]
+        case ...58: return ramp[2]
+        case ...80: return ramp[3]
+        default:    return ramp[4]
+        }
+    }
+
+    static func tint(_ name: String?) -> Color {
+        switch name {
+        case "hot":  return Color(hex: 0xE8842A)
+        case "cold": return Color(hex: 0x4FB6E8)
+        default:     return .white
+        }
+    }
+}
+
+/// Semicircular fear-&-greed dial: five color segments, a needle, and a big
+/// count-up score. The arc is a fixed-size Canvas so the news feed never has
+/// to negotiate its layout.
+private struct PulseGauge: View {
+    let score: Int
+    let label: String
+    let color: Color
+    let reveal: Bool
+    var diameter: CGFloat = 150
+
+    init(temp: MarketTemperature, reveal: Bool, diameter: CGFloat = 150) {
+        self.score = temp.score; self.label = temp.label
+        self.color = temp.color; self.reveal = reveal; self.diameter = diameter
+    }
+
+    init(score: Int, label: String, reveal: Bool, diameter: CGFloat = 150) {
+        self.score = score; self.label = label
+        self.color = PulseTone.color(for: score)
+        self.reveal = reveal; self.diameter = diameter
+    }
+
+    private var shownScore: Int { reveal ? score : 50 }
+
+    private static let segments: [Color] = PulseTone.ramp
 
     var body: some View {
         VStack(spacing: 4) {
@@ -86,10 +122,10 @@ private struct PulseGauge: View {
                     .font(.system(size: 32, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
                     .contentTransition(.numericText(value: Double(shownScore)))
-                Text(temp.label)
+                Text(label)
                     .font(.system(size: 10, weight: .heavy))
                     .kerning(1.2)
-                    .foregroundStyle(temp.color)
+                    .foregroundStyle(color)
             }
         }
         .frame(width: diameter)
@@ -147,6 +183,8 @@ struct MarketPulseCard: View {
                     indexSparkline
                 }
 
+                Spacer(minLength: 0)
+
                 Text("HOCKEYQUANT · MARKET DESK")
                     .font(.system(size: 10, weight: .heavy))
                     .kerning(1.2)
@@ -154,6 +192,7 @@ struct MarketPulseCard: View {
                     .frame(maxWidth: .infinity)
             }
             .padding(Theme.Spacing.lg)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .background(Color(hex: 0x10141B))
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
             .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
@@ -227,6 +266,245 @@ struct MarketPulseCard: View {
         guard let first = overview.index.first?.value,
               let last = overview.index.last?.value, first > 0 else { return nil }
         return (last - first) / first * 100
+    }
+}
+
+// MARK: - League pulse card (luck / race / deadline / playoffs)
+
+/// One page of the pulse deck for a league-wide read. Dormant pulses keep
+/// their spot with a note about when they light up instead of disappearing.
+struct LeaguePulseCard: View {
+    let pulse: LeaguePulse
+    let onExpand: () -> Void
+
+    @State private var reveal = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let icons: [String: String] = [
+        "luck": "dice.fill", "race": "flag.checkered",
+        "deadline": "arrow.left.arrow.right", "playoffs": "trophy.fill",
+    ]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+            HStack {
+                Text(pulse.kicker)
+                    .font(.system(size: 12, weight: .heavy))
+                    .kerning(1.4)
+                    .foregroundStyle(.white.opacity(0.6))
+                Spacer()
+                if pulse.active {
+                    HStack(spacing: 3) {
+                        Text("DETAILS")
+                        Image(systemName: "chevron.right")
+                    }
+                    .font(.system(size: 10, weight: .heavy))
+                    .kerning(0.8)
+                    .foregroundStyle(.white.opacity(0.35))
+                } else if let season = pulse.season {
+                    Text(season)
+                        .font(.system(size: 10, weight: .heavy))
+                        .foregroundStyle(.white.opacity(0.35))
+                }
+            }
+
+            if pulse.active, let score = pulse.score, let label = pulse.label {
+                HStack(alignment: .top, spacing: Theme.Spacing.lg) {
+                    PulseGauge(score: score, label: label, reveal: reveal)
+                    VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+                        ForEach(pulse.sublines, id: \.self) { sub in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(sub.label)
+                                    .font(.system(size: 9, weight: .heavy))
+                                    .kerning(0.8)
+                                    .foregroundStyle(.white.opacity(0.45))
+                                Text(sub.value)
+                                    .font(.system(size: 15, weight: .heavy, design: .rounded))
+                                    .foregroundStyle(PulseTone.tint(sub.tint))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.7)
+                            }
+                        }
+                    }
+                    .padding(.top, 2)
+                    Spacer(minLength: 0)
+                }
+                if let note = pulse.note {
+                    Text(note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+            } else {
+                Spacer(minLength: 0)
+                VStack(spacing: Theme.Spacing.sm) {
+                    ZStack {
+                        Circle().fill(.white.opacity(0.08)).frame(width: 56, height: 56)
+                        Image(systemName: Self.icons[pulse.id] ?? "hourglass")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(.white.opacity(0.55))
+                    }
+                    Text(pulse.note ?? "Back soon.")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, Theme.Spacing.md)
+                }
+                .frame(maxWidth: .infinity)
+            }
+
+            Spacer(minLength: 0)
+
+            Text("HOCKEYQUANT · LEAGUE DESK")
+                .font(.system(size: 10, weight: .heavy))
+                .kerning(1.2)
+                .foregroundStyle(.white.opacity(0.35))
+                .frame(maxWidth: .infinity)
+        }
+        .padding(Theme.Spacing.lg)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(hex: 0x10141B))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+        .onTapGesture { if pulse.active { onExpand() } }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(pulse.active ? .isButton : [])
+        .accessibilityLabel(pulse.active && pulse.score != nil
+                            ? "\(pulse.kicker): \(pulse.score!), \(pulse.label ?? ""). Tap for details."
+                            : "\(pulse.kicker): \(pulse.note ?? "dormant")")
+        .task {
+            guard !reveal else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            withAnimation(reduceMotion ? nil : .spring(response: 0.9, dampingFraction: 0.75)) {
+                reveal = true
+            }
+        }
+    }
+}
+
+/// Floating-card detail for a league pulse: dial, explainer, and the ranked
+/// team rows behind the score.
+struct LeaguePulseSheet: View {
+    let pulse: LeaguePulse
+
+    @State private var reveal = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
+                Text(pulse.kicker.capitalized)
+                    .font(.system(size: 20, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+
+                if let score = pulse.score, let label = pulse.label {
+                    VStack(spacing: Theme.Spacing.sm) {
+                        PulseGauge(score: score, label: label, reveal: reveal, diameter: 170)
+                        if let explainer = pulse.explainer {
+                            Text(explainer)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.65))
+                                .multilineTextAlignment(.center)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(Theme.Spacing.md)
+                    .background(Color(hex: 0x10141B))
+                    .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.lg, style: .continuous))
+                }
+
+                if !pulse.rows.isEmpty {
+                    SectionCard("The numbers") {
+                        VStack(spacing: Theme.Spacing.sm) {
+                            ForEach(Array(pulse.rows.enumerated()), id: \.offset) { _, row in
+                                HStack(spacing: Theme.Spacing.sm) {
+                                    if let team = row.team {
+                                        CrestView(abbrev: team, size: 26)
+                                    }
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        Text(row.title)
+                                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                                            .foregroundStyle(Theme.Palette.textPrimary)
+                                            .lineLimit(1)
+                                        if let detail = row.detail {
+                                            Text(detail)
+                                                .font(.system(size: 11))
+                                                .foregroundStyle(Theme.Palette.textSecondary)
+                                        }
+                                    }
+                                    Spacer(minLength: Theme.Spacing.xs)
+                                    Text(row.value)
+                                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                                        .foregroundStyle(row.positive == nil ? Theme.Palette.textPrimary
+                                                         : row.positive! ? Theme.Palette.positive
+                                                         : Theme.Palette.negative)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if let note = pulse.note {
+                    Text(note)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                        .frame(maxWidth: .infinity)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .padding(Theme.Spacing.md)
+        }
+        .frame(maxHeight: 620)
+        .task {
+            guard !reveal else { return }
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            withAnimation(reduceMotion ? nil : .spring(response: 0.9, dampingFraction: 0.75)) {
+                reveal = true
+            }
+        }
+    }
+}
+
+// MARK: - Pulse deck (swipeable)
+
+/// The News tab's vitals: Market Pulse plus the league pulses as swipeable
+/// pages of one fixed-height card, with pager dots underneath.
+struct PulseDeck: View {
+    let overview: MarketOverview?
+    let pulses: [LeaguePulse]
+    let onMarketDetail: () -> Void
+    let onLeagueDetail: (LeaguePulse) -> Void
+
+    @State private var page = 0
+
+    private var pageCount: Int { (overview != nil ? 1 : 0) + pulses.count }
+
+    var body: some View {
+        VStack(spacing: Theme.Spacing.xs) {
+            TabView(selection: $page) {
+                if let overview {
+                    MarketPulseCard(overview: overview, onExpand: onMarketDetail)
+                        .tag(0)
+                }
+                ForEach(Array(pulses.enumerated()), id: \.element.id) { i, pulse in
+                    LeaguePulseCard(pulse: pulse) { onLeagueDetail(pulse) }
+                        .tag(i + (overview != nil ? 1 : 0))
+                }
+            }
+            .tabViewStyle(.page(indexDisplayMode: .never))
+            .frame(height: 312)
+
+            if pageCount > 1 {
+                HStack(spacing: 5) {
+                    ForEach(0..<pageCount, id: \.self) { i in
+                        Capsule()
+                            .fill(i == page ? Theme.Palette.accent : Theme.Palette.textTertiary.opacity(0.4))
+                            .frame(width: i == page ? 16 : 5, height: 5)
+                    }
+                }
+                .frame(maxWidth: .infinity)
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: page)
+            }
+        }
     }
 }
 

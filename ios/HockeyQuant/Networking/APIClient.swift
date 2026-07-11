@@ -134,6 +134,12 @@ struct APIClient: Sendable {
         try await get(apiURL("market").appendingPathComponent("overview"), as: MarketOverview.self)
     }
 
+    /// `GET /api/pulse/league` — dial-style league reads for the pulse deck.
+    func leaguePulses() async throws -> [LeaguePulse] {
+        try await get(apiURL("pulse").appendingPathComponent("league"),
+                      as: LeaguePulseResponse.self).pulses
+    }
+
     /// `GET /api/market/players` — search, or the top of the market.
     func marketPlayers(query: String? = nil, limit: Int = 50) async throws -> [MarketPlayer] {
         var comps = URLComponents(url: apiURL("market").appendingPathComponent("players"),

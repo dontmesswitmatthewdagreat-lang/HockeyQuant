@@ -17,6 +17,7 @@ struct NewsView: View {
     @State private var showPaywall = false
     @State private var detailProspect: Prospect?
     @State private var showMarketPulse = false // market-desk floating card
+    @State private var leaguePulseDetail: LeaguePulse?  // league pulse floating card
     @State private var mockSource: String?     // selected insider mock (nil = first)
     @State private var ripplePoint: CGPoint = .zero    // where the finger landed
     @State private var rippleProgress: CGFloat = 0     // press pulse: 0 = none, 1 = card flooded
@@ -48,6 +49,7 @@ struct NewsView: View {
             // into Prospects even while they're still on the News tab.
             if store.mockDraft == nil { await store.loadMockDraft() }
             if store.marketPulse == nil { await store.loadMarketPulse() }
+            if store.leaguePulses.isEmpty { await store.loadLeaguePulses() }
         }
         .task(id: tab) {
             // Load every prospect list so swiping between them is instant.
@@ -74,6 +76,9 @@ struct NewsView: View {
             if let pulse = store.marketPulse {
                 MarketPulseSheet(overview: pulse)
             }
+        }
+        .floatingCard(item: $leaguePulseDetail) { pulse in
+            LeaguePulseSheet(pulse: pulse)
         }
         .floatingCard(isPresented: $showPaywall) {
             PaywallView()
@@ -164,8 +169,11 @@ struct NewsView: View {
                 VStack(alignment: .leading, spacing: Theme.Spacing.lg) {
                     playCTA
                     // The league's vitals, right up top — before the day's stories.
-                    if let pulse = store.marketPulse {
-                        MarketPulseCard(overview: pulse) { showMarketPulse = true }
+                    if store.marketPulse != nil || !store.leaguePulses.isEmpty {
+                        PulseDeck(overview: store.marketPulse,
+                                  pulses: store.leaguePulses,
+                                  onMarketDetail: { showMarketPulse = true },
+                                  onLeagueDetail: { leaguePulseDetail = $0 })
                     }
                     ForEach(orderedDigests) { digest in
                         digestSection(digest)

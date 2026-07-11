@@ -72,6 +72,39 @@ struct MarketOverview: Decodable {
 
 struct MarketPlayersResponse: Decodable { let players: [MarketPlayer] }
 
+// MARK: - League pulses (the News tab's pulse deck)
+
+struct PulseSubline: Decodable, Hashable {
+    let label: String
+    let value: String
+    let tint: String?    // "hot" | "cold" | nil
+}
+
+struct PulseRow: Decodable, Hashable {
+    let team: String?
+    let title: String
+    let detail: String?
+    let value: String
+    let positive: Bool?
+}
+
+/// One dial-style league read (luck, race, deadline, playoffs). Dormant
+/// pulses keep their spot in the deck with a note about when they light up.
+struct LeaguePulse: Decodable, Identifiable, Hashable {
+    let id: String
+    let kicker: String
+    let active: Bool
+    let score: Int?
+    let label: String?
+    let season: String?
+    let note: String?
+    let explainer: String?
+    let sublines: [PulseSubline]
+    let rows: [PulseRow]
+}
+
+struct LeaguePulseResponse: Decodable { let pulses: [LeaguePulse] }
+
 struct ValueHistoryPoint: Decodable, Identifiable {
     let date: String
     let modelValue: Double
