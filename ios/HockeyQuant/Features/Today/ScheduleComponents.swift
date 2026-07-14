@@ -87,10 +87,12 @@ struct HeroGameCard: View {
                 }
                 SplitBar(leftFraction: pred.awayWinProb / 100,
                          leftColor: away.color, rightColor: home.color, height: 7)
-                Text(callLine)
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if !game.isFinal {
+                    Text(callLine)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
                 if let lines = pred.bettingLines {
                     HStack(spacing: Theme.Spacing.xs) {
                         StatusPill(text: "O/U \(trim(lines.overUnder))", color: Theme.Palette.textSecondary)
@@ -118,22 +120,30 @@ struct HeroGameCard: View {
     }
 
     private var callLine: String {
-        if game.isFinal, let s = game.score {
-            let winner = s.homeScore > s.awayScore ? pred.home.team : pred.away.team
-            let hit = winner.uppercased() == pred.pick.uppercased()
-            return hit ? "Model called \(pred.pick) — got it ✓" : "Model called \(pred.pick) — missed"
-        }
         if game.isLive {
             return "Model: \(pred.pick) · \(Int(pickProb.rounded()))% before puck drop"
         }
         return "Model: \(pred.pick) · \(Int(pickProb.rounded()))% — the strongest call on this slate"
     }
 
+    /// Final games ring the winner's crest in green.
+    private var winnerAbbrev: String? {
+        guard game.isFinal, let s = game.score else { return nil }
+        return (s.homeScore > s.awayScore ? pred.home.team : pred.away.team).uppercased()
+    }
+
     private func heroTeam(_ team: TeamAnalysis, isPick: Bool) -> some View {
         VStack(spacing: 5) {
             CrestView(abbrev: team.team, size: 56)
+                .overlay {
+                    if winnerAbbrev == team.team.uppercased() {
+                        Circle()
+                            .strokeBorder(Theme.Palette.positive, lineWidth: 3)
+                            .frame(width: 66, height: 66)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
-                    if isPick {
+                    if isPick && !game.isFinal {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.system(size: 16))
                             .foregroundStyle(Theme.Palette.accent)
@@ -237,36 +247,44 @@ struct ScheduleRow: View {
         .buttonStyle(.plain)
     }
 
+    /// Final games ring the winner's crest in green.
+    private var winnerAbbrev: String? {
+        guard game.isFinal, let s = game.score else { return nil }
+        return (s.homeScore > s.awayScore ? pred.home.team : pred.away.team).uppercased()
+    }
+
     private var crestPair: some View {
         ZStack {
-            CrestView(abbrev: pred.away.team, size: 30).offset(x: -9)
-            CrestView(abbrev: pred.home.team, size: 30).offset(x: 9)
+            crest(pred.away.team).offset(x: -9)
+            crest(pred.home.team).offset(x: 9)
         }
         .frame(width: 52)
     }
 
+    private func crest(_ abbrev: String) -> some View {
+        CrestView(abbrev: abbrev, size: 30)
+            .overlay {
+                if winnerAbbrev == abbrev.uppercased() {
+                    Circle()
+                        .strokeBorder(Theme.Palette.positive, lineWidth: 2)
+                        .frame(width: 36, height: 36)
+                }
+            }
+    }
+
     private var contextLine: String {
         if game.isLive, let s = game.score { return liveClock(s) }
-        if game.isFinal { return "Model: \(pred.pick)" }
+        if game.isFinal { return game.score?.periodType == "OT" ? "Final / OT" : "Final" }
         let prob = pred.pickIsHome ? pred.homeWinProb : pred.awayWinProb
         return "Model: \(pred.pick) · \(Int(prob.rounded()))% · \(startTime(pred))"
     }
 
     @ViewBuilder private var trailing: some View {
         if let s = game.score, game.isLive || game.isFinal {
-            HStack(spacing: Theme.Spacing.xs) {
-                Text("\(s.awayScore)–\(s.homeScore)")
-                    .font(.system(size: 19, weight: .heavy, design: .rounded))
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                    .contentTransition(.numericText())
-                if game.isFinal {
-                    let winner = s.homeScore > s.awayScore ? pred.home.team : pred.away.team
-                    let hit = winner.uppercased() == pred.pick.uppercased()
-                    Image(systemName: hit ? "checkmark.circle.fill" : "xmark.circle.fill")
-                        .font(.system(size: 17))
-                        .foregroundStyle(hit ? Theme.Palette.positive : Theme.Palette.negative)
-                }
-            }
+            Text("\(s.awayScore)–\(s.homeScore)")
+                .font(.system(size: 19, weight: .heavy, design: .rounded))
+                .foregroundStyle(Theme.Palette.textPrimary)
+                .contentTransition(.numericText())
         } else {
             ConfidenceChip(confidence: pred.confidence)
         }

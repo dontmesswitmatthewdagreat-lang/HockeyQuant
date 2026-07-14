@@ -55,12 +55,26 @@ struct GameTileView: View {
         }
     }
 
+    /// Final games ring the winner's crest in green.
+    private var winnerAbbrev: String? {
+        guard game.isFinal, let s = score else { return nil }
+        return (s.homeScore > s.awayScore ? pred.home.team : pred.away.team).uppercased()
+    }
+
     private func teamColumn(_ team: TeamAnalysis) -> some View {
         let isPick = pred.pick.uppercased() == team.team.uppercased()
+        let isWinner = winnerAbbrev == team.team.uppercased()
         return VStack(spacing: 4) {
             CrestView(abbrev: team.team, size: 40)
+                .overlay {
+                    if isWinner {
+                        Circle()
+                            .strokeBorder(Theme.Palette.positive, lineWidth: 2.5)
+                            .frame(width: 48, height: 48)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
-                    if isPick {
+                    if isPick && !game.isFinal {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.system(size: 13))
                             .foregroundStyle(Theme.Palette.accent)

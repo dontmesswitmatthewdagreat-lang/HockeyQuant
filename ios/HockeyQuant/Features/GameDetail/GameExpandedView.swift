@@ -116,11 +116,24 @@ struct GameExpandedView: View {
         }
     }
 
+    /// Final games ring the winner's crest in green.
+    private var winnerAbbrev: String? {
+        guard game.isFinal, let s = score else { return nil }
+        return (s.homeScore > s.awayScore ? pred.home.team : pred.away.team).uppercased()
+    }
+
     private func teamBadge(_ team: TeamAnalysis, isPick: Bool) -> some View {
         VStack(spacing: Theme.Spacing.xs) {
             CrestView(abbrev: team.team, size: 48)
+                .overlay {
+                    if winnerAbbrev == team.team.uppercased() {
+                        Circle()
+                            .strokeBorder(Theme.Palette.positive, lineWidth: 2.5)
+                            .frame(width: 57, height: 57)
+                    }
+                }
                 .overlay(alignment: .topTrailing) {
-                    if isPick {
+                    if isPick && !game.isFinal {
                         Image(systemName: "checkmark.seal.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(Theme.Palette.accent)
