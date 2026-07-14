@@ -52,6 +52,19 @@ class TableQuery:
         self.params[column] = f"lte.{value}"
         return self
 
+    def gt(self, column: str, value: Any) -> "TableQuery":
+        self.params[column] = f"gt.{value}"
+        return self
+
+    def lt(self, column: str, value: Any) -> "TableQuery":
+        self.params[column] = f"lt.{value}"
+        return self
+
+    def filter(self, column: str, operator: str, value: Any) -> "TableQuery":
+        """Raw PostgREST filter, e.g. filter("fts", "wfts(english)", "kaprizov")."""
+        self.params[column] = f"{operator}.{value}"
+        return self
+
     def is_(self, column: str, value: str) -> "TableQuery":
         self.params[column] = f"is.{value}"
         return self

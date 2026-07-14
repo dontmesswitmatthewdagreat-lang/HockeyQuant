@@ -180,9 +180,10 @@ def archive_items(sb, rows: List[Dict]) -> int:
         if r and r["url_norm"] not in seen:
             seen.add(r["url_norm"])
             fresh.append(r)
+    # merge-duplicates only touches the columns we send, so first_seen_at and
+    # used_in_digest_at survive re-ingestion of a known URL.
     for i in range(0, len(fresh), 200):
-        sb.table("news_items").upsert(
-            fresh[i:i + 200], on_conflict="url_norm", ignore_duplicates=True).execute()
+        sb.table("news_items").upsert(fresh[i:i + 200], on_conflict="url_norm").execute()
     return len(fresh)
 
 
@@ -233,7 +234,7 @@ def run_ingest(sb) -> Dict:
     pruned = 0
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=120)).isoformat()
-        res = sb.table("news_items").delete().lt("first_seen_at", cutoff).execute()
+        res = sb.table("news_items").lt("first_seen_at", cutoff).delete().execute()
         pruned = len(res.data or [])
     except Exception:
         pass

@@ -107,7 +107,11 @@ def _drop_recently_featured(sb, items: list, hours: int = 72) -> list:
     the window — the cross-run dedupe (also saves Groq tokens)."""
     try:
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-        url_norms = [_norm_url(it["url"]) for it in items]
+        # PostgREST in.(...) needs values quoted (URLs can carry commas/parens,
+        # normalized titles carry spaces).
+        def quoted(vals):
+            return [f'"{v}"' for v in vals if v and '"' not in v]
+        url_norms = quoted([_norm_url(it["url"]) for it in items])
         used_urls, used_titles = set(), set()
         for i in range(0, len(url_norms), 100):
             rows = sb.table("news_items").select("url_norm,title_norm") \
@@ -116,7 +120,7 @@ def _drop_recently_featured(sb, items: list, hours: int = 72) -> list:
             for r in rows:
                 used_urls.add(r["url_norm"])
                 used_titles.add(r["title_norm"])
-        title_norms = [_title_norm(it["title"]) for it in items]
+        title_norms = quoted([_title_norm(it["title"]) for it in items])
         for i in range(0, len(title_norms), 100):
             rows = sb.table("news_items").select("title_norm") \
                 .in_("title_norm", title_norms[i:i + 100]) \
