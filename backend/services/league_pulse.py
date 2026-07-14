@@ -84,9 +84,9 @@ def luck_meter(today: datetime.date) -> dict:
             sh = float(t["goalsFor"]) / sog_for
             sv = 1.0 - float(t["goalsAgainst"]) / sog_ag
             rows.append({"team": str(t["team"]), "pdo": (sh + sv) * 100,
+                         "sh": sh, "sv": sv,
                          "nf": sog_for, "na": sog_ag,
-                         "gf": float(t["goalsFor"]),
-                         "over_x": float(t["goalsFor"]) - float(t["xGoalsFor"])})
+                         "gf": float(t["goalsFor"]), "ga": float(t["goalsAgainst"])})
         except (TypeError, ValueError, ZeroDivisionError, KeyError):
             continue
 
@@ -109,6 +109,7 @@ def luck_meter(today: datetime.date) -> dict:
     # observed spread (dial) and shrink each team toward 100 by how little
     # we've seen of them (rows), so October reads on the same scale as March.
     p = sum(r["gf"] for r in rows) / sum(r["nf"] for r in rows)
+    q = 1 - sum(r["ga"] for r in rows) / sum(r["na"] for r in rows)
     pq = p * (1 - p)
     for r in rows:
         r["noise_var"] = 10000 * pq * (1 / r["nf"] + 1 / r["na"])
@@ -123,9 +124,12 @@ def luck_meter(today: datetime.date) -> dict:
     for r in rows:
         k = shrink_var / (shrink_var + r["noise_var"])
         r["adj"] = 100 + (r["pdo"] - 100) * k
+        # PDO decomposed into its two luck sources (they sum to adj − 100),
+        # so every row explains its own rank.
+        r["sh_pts"] = (r["sh"] - p) * 100 * k
+        r["sv_pts"] = (r["sv"] - q) * 100 * k
     rows.sort(key=lambda r: -r["adj"])
     top, bottom = rows[0], rows[-1]
-    shown = rows if len(rows) <= 10 else rows[:5] + rows[-5:]
 
     offseason = today.month in (7, 8, 9)
     season = _season_label(today if not offseason else today.replace(month=1))
@@ -146,9 +150,9 @@ def luck_meter(today: datetime.date) -> dict:
         ],
         "rows": [{
             "team": r["team"], "title": r["team"],
-            "detail": f"{r['over_x']:+.1f} goals vs expected",
+            "detail": f"shooting {r['sh_pts']:+.1f} · goaltending {r['sv_pts']:+.1f}",
             "value": f"{r['adj']:.1f}", "positive": r["adj"] >= 100,
-        } for r in shown],
+        } for r in rows],
     }
 
 
