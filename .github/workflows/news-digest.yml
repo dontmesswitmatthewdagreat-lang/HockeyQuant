@@ -1,10 +1,14 @@
-# HockeyQuant News digest + prospect sync
-# - Morning league digest at ~8 AM ET.
+# HockeyQuant News digest + source ingest + prospect sync
+# - Morning league digest at ~8 AM ET; midday (~noon ET) and afternoon
+#   (~4:30 PM ET) refresh editions (quiet — no push). The 72h featured-story
+#   exclusion means each edition only carries genuinely new stories.
 # - Evening league digest ("nightcap") once all of today's games are final —
 #   hourly attempts 9 PM–3 AM ET; the endpoint gates on the NHL scoreboard and
 #   the (date, kind, scope) unique key makes retries idempotent.
 # - Per-team pre-game / post-game digests during game hours (the endpoint picks
 #   the teams whose windows are open; idempotent).
+# - Source ingest (RSS/Google News/Reddit/Bluesky → news_items archive) runs on
+#   every invocation — cheap and AI-free.
 # - Daily prospect dataset refresh.
 
 name: News Digest
@@ -12,6 +16,9 @@ name: News Digest
 on:
   schedule:
     - cron: '0 12 * * *'        # 12:00 UTC (~8 AM ET) — morning league digest + prospect sync
+    - cron: '0 16 * * *'        # 16:00 UTC (~noon ET) — midday league edition
+    - cron: '30 20 * * *'       # 20:30 UTC (~4:30 PM ET) — afternoon league edition
+    - cron: '30 13-19/2 * * *'  # daytime source ingest top-ups (~9:30 AM–3:30 PM ET)
     - cron: '*/15 21-23 * * *'  # pre/post-game windows (evening ET)
     - cron: '*/15 0-5 * * *'    # pre/post-game windows (late ET)
     - cron: '0 1-7 * * *'       # evening league digest attempts (9 PM–3 AM ET)
@@ -28,6 +35,9 @@ jobs:
       - name: Wake up Render
         run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
 
+      - name: Ingest sources into the archive (every run)
+        run: curl -s --max-time 240 -X POST "https://hockeyquant.onrender.com/api/news/ingest" || true
+
       - name: Morning league digest + prospect sync (8 AM ET only)
         if: github.event.schedule == '0 12 * * *' || github.event_name == 'workflow_dispatch'
         run: |
@@ -36,6 +46,18 @@ jobs:
           curl -s --max-time 120 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/morning"
           echo
           curl -s --max-time 180 -X POST "https://hockeyquant.onrender.com/api/prospects/sync"
+
+      - name: Midday league edition (noon ET only)
+        if: github.event.schedule == '0 16 * * *'
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          curl -s --max-time 120 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/midday"
+
+      - name: Afternoon league edition (4:30 PM ET only)
+        if: github.event.schedule == '30 20 * * *'
+        run: |
+          DATE=${{ steps.date.outputs.today }}
+          curl -s --max-time 120 -X POST "https://hockeyquant.onrender.com/api/news/generate/$DATE/afternoon"
 
       - name: Pre-game + post-game team digests
         run: |

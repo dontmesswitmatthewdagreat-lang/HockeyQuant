@@ -62,6 +62,12 @@ def _norm_url(url: str) -> str:
     return u.lower()
 
 
+def _title_norm(title: str) -> str:
+    """The dedupe key for 'same story, different outlet' — shared by the
+    per-batch dedupe here and the cross-run news_items archive."""
+    return re.sub(r"[^a-z0-9 ]", "", (title or "").lower())[:80]
+
+
 def _entry_image(e) -> Optional[str]:
     """Best image directly available in an RSS entry, if any."""
     for key in ("media_thumbnail", "media_content"):
@@ -152,6 +158,50 @@ def _reddit(subreddit: str, team: Optional[str], limit: int = 12) -> List[Dict]:
     return out
 
 
+def _bluesky(actor: str, source: str, team: Optional[str] = None, limit: int = 10) -> List[Dict]:
+    """Recent posts from a Bluesky account via the public AppView API (no auth).
+    These are insider blurbs, not articles — short text, links to the post."""
+    url = ("https://public.api.bsky.app/xrpc/app.bsky.feed.getAuthorFeed"
+           f"?actor={urllib.parse.quote(actor)}&limit={min(limit * 2, 30)}&filter=posts_no_replies")
+    try:
+        resp = requests.get(url, headers={"User-Agent": UA}, timeout=12)
+        if not resp.ok:
+            return []
+        feed = resp.json().get("feed", [])
+    except Exception:
+        return []
+    out = []
+    for entry in feed:
+        if entry.get("reason"):        # repost of someone else — skip
+            continue
+        post = entry.get("post") or {}
+        record = post.get("record") or {}
+        text = _clean(record.get("text"), 600)
+        uri = post.get("uri") or ""
+        handle = (post.get("author") or {}).get("handle") or actor
+        if not text or "/app.bsky.feed.post/" not in uri:
+            continue
+        rkey = uri.rsplit("/", 1)[-1]
+        image = None
+        embed = post.get("embed") or {}
+        if "images" in (embed.get("$type") or ""):
+            imgs = embed.get("images") or []
+            if imgs:
+                image = imgs[0].get("thumb")
+        out.append({
+            "source": source,
+            "title": text[:200],
+            "snippet": text,
+            "url": f"https://bsky.app/profile/{handle}/post/{rkey}",
+            "published_at": record.get("createdAt"),
+            "team": team,
+            "image": image,
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _og_image(url: str) -> Optional[str]:
     """Fetch a page and extract its og:image / twitter:image."""
     try:
@@ -187,7 +237,7 @@ def _dedupe(items: List[Dict]) -> List[Dict]:
         nu = _norm_url(it["url"])
         if nu in seen_url:
             continue
-        nt = re.sub(r"[^a-z0-9 ]", "", it["title"].lower())[:80]
+        nt = _title_norm(it["title"])
         if nt in by_title:
             # Same story already kept — prefer a non-Yahoo source (Yahoo's og:image
             # is sometimes a generic banner; CBS/ESPN/NHL give real article photos).

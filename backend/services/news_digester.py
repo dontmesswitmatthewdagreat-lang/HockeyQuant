@@ -38,6 +38,11 @@ def _kind_instruction(scope: str, kind: str) -> str:
             return ("Compile a nightcap roundup now that tonight's NHL games have wrapped: "
                     "tonight's results and standout performances first, then any breaking "
                     "trades, signings, injuries, prospect/draft developments, or storylines from today.")
+        if kind in ("midday", "afternoon"):
+            return ("Compile an update edition covering what's developed around the NHL in the "
+                    "last few hours — breaking trades, signings, injuries, rumors, lineup news, "
+                    "and fresh storylines. Everything here is new since the last edition, so "
+                    "treat it all as news the reader hasn't seen yet.")
         return ("Compile a morning roundup of the most notable news from around the NHL "
                 "over the last day — trades, signings, injuries, rumors, storylines, and "
                 "prospect/draft news (the draft, picks, development camps, top prospects). "
