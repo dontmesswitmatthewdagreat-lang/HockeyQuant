@@ -211,6 +211,18 @@ struct APIClient: Sendable {
         return try Self.decode(ModelsListResponse.self, from: data).models
     }
 
+    /// `GET /api/models/game-board/{date}` (auth) — every one of the user's
+    /// models weighing in on a single game.
+    func modelGameBoard(date: String, away: String, home: String, token: String) async throws -> [ModelBoardPick] {
+        var comps = URLComponents(
+            url: apiURL("models").appendingPathComponent("game-board").appendingPathComponent(date),
+            resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "away", value: away),
+                            URLQueryItem(name: "home", value: home)]
+        let data = try await perform("GET", comps.url!, token: token, body: Optional<Int>.none)
+        return try Self.decode(ModelBoardResponse.self, from: data).picks
+    }
+
     /// `POST /api/models` (auth) — create a model.
     func createModel(_ request: CreateModelRequest, token: String) async throws -> UserModel {
         let data = try await perform("POST", apiURL("models"), token: token, body: request)

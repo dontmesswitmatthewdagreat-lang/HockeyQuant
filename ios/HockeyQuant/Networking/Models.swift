@@ -37,14 +37,22 @@ struct GamePrediction: Decodable, Sendable, Identifiable {
 
     var pickIsHome: Bool { pick.uppercased() == home.team.uppercased() }
 
-    /// Win probabilities prefer the Poisson moneyline output; fall back to a
-    /// quality-score split so the bar always renders.
+    /// Win probabilities prefer the Poisson moneyline output. Those are
+    /// *regulation* win chances, so the leftover mass (tied after 60 → OT/SO,
+    /// close to a coin flip) is split evenly — the pair reads as a true
+    /// "who wins" split that sums to 100. Falls back to a quality-score split.
     var awayWinProb: Double {
-        if let p = bettingLines?.mlAwayProb, p > 0 { return p }
+        if let a = bettingLines?.mlAwayProb, a > 0 {
+            let h = max(bettingLines?.mlHomeProb ?? 0, 0)
+            return a + max(0, 100 - a - h) / 2
+        }
         return qualityScoreSplit.away
     }
     var homeWinProb: Double {
-        if let p = bettingLines?.mlHomeProb, p > 0 { return p }
+        if let h = bettingLines?.mlHomeProb, h > 0 {
+            let a = max(bettingLines?.mlAwayProb ?? 0, 0)
+            return h + max(0, 100 - a - h) / 2
+        }
         return qualityScoreSplit.home
     }
 
@@ -413,6 +421,22 @@ struct UserModel: Decodable, Identifiable, Sendable {
     var isML: Bool { modelType == "ml" }
     var mlKindLabel: String { mlKind == "boosted" ? "Boosted" : "Logistic" }
 }
+
+// MARK: - Model board (every model's call on one game)
+
+struct ModelBoardPick: Decodable, Identifiable, Sendable {
+    let modelId: String
+    let name: String
+    let type: String          // "weighted" | "ml"
+    let pick: String
+    let confidence: String?
+    let diff: Double?
+    var id: String { modelId }
+
+    var typeLabel: String { type == "ml" ? "ML MODEL" : "CUSTOM WEIGHTS" }
+}
+
+struct ModelBoardResponse: Decodable { let picks: [ModelBoardPick] }
 
 struct ModelsListResponse: Decodable, Sendable {
     let models: [UserModel]

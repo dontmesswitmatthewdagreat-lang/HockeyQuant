@@ -9,7 +9,11 @@ struct GameExpandedView: View {
     let dateString: String
     let onClose: () -> Void
 
+    @Environment(AuthStore.self) private var auth
     @State private var containerWidth: CGFloat = 0
+    @State private var boardPicks: [ModelBoardPick] = []
+    @State private var boardLoading = false
+    @State private var boardLoaded = false
 
     private var pred: GamePrediction { game.prediction }
     private var away: TeamInfo { pred.away.info }
@@ -28,6 +32,9 @@ struct GameExpandedView: View {
                     ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
                 }
                 SectionCard("The Edge") { EdgeBreakdownView(game: pred) }
+                if boardLoading || !boardPicks.isEmpty {
+                    SectionCard("Model board") { modelBoard }
+                }
                 bettingCard
                 factorsCard
             }
@@ -47,6 +54,70 @@ struct GameExpandedView: View {
         }
         .overlay(alignment: .topTrailing) {
             closeButton.padding(.trailing, Theme.Spacing.md).padding(.top, Theme.Spacing.xs)
+        }
+        .task { await loadBoard() }
+    }
+
+    // MARK: - Model board
+
+    /// The user's own models weighing in next to the official call.
+    private func loadBoard() async {
+        guard !boardLoaded, let token = await auth.accessToken() else { return }
+        boardLoaded = true
+        boardLoading = true
+        defer { boardLoading = false }
+        boardPicks = (try? await APIClient(environment: .production).modelGameBoard(
+            date: dateString, away: pred.away.team, home: pred.home.team, token: token)) ?? []
+    }
+
+    private var modelBoard: some View {
+        VStack(spacing: Theme.Spacing.sm) {
+            boardRow(name: "HockeyQuant Official", typeLabel: "OFFICIAL MODEL",
+                     pick: pred.pick, confidence: pred.confidence)
+            if boardLoading {
+                HStack(spacing: Theme.Spacing.xs) {
+                    ProgressView().controlSize(.small)
+                    Text("Running your models…")
+                        .font(.system(size: 12))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            ForEach(boardPicks) { p in
+                boardRow(name: p.name, typeLabel: p.typeLabel,
+                         pick: p.pick, confidence: p.confidence ?? "CLOSE")
+            }
+        }
+    }
+
+    private func boardRow(name: String, typeLabel: String,
+                          pick: String, confidence: String) -> some View {
+        let hit: Bool? = winnerAbbrev.map { $0 == pick.uppercased() }
+        return HStack(spacing: Theme.Spacing.sm) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(name)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(1)
+                Text(typeLabel)
+                    .font(.system(size: 9, weight: .heavy))
+                    .kerning(0.6)
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            Spacer(minLength: Theme.Spacing.xs)
+            CrestView(abbrev: pick, size: 24)
+                .overlay {
+                    if hit == true {
+                        Circle().strokeBorder(Theme.Palette.positive, lineWidth: 1.5)
+                            .frame(width: 29, height: 29)
+                    }
+                }
+            Text(pick)
+                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                .foregroundStyle(hit == nil ? Theme.Palette.textPrimary
+                                 : hit! ? Theme.Palette.positive : Theme.Palette.textTertiary)
+                .frame(width: 38, alignment: .leading)
+            ConfidenceChip(confidence: confidence)
         }
     }
 

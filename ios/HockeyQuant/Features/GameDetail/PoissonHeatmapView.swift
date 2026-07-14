@@ -65,7 +65,9 @@ struct PoissonHeatmapView: View {
             for h in 0..<m[a].count {
                 let v = m[a][h]
                 if v > mp { mp = v }
-                if v > best.p { best = (a, h, v) }
+                // The diagonal is a regulation tie — a real outcome (it heats the
+                // grid) but never a *final* score, so it can't be the peak.
+                if a != h, v > best.p { best = (a, h, v) }
             }
         }
         return Dist(m: m, maxProb: mp, peak: best)
