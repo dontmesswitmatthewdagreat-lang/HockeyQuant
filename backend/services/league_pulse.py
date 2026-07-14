@@ -41,7 +41,34 @@ def _band(score: int, labels: List[str]) -> str:
     return labels[4]
 
 
-# MARK: - Luck meter (PDO spread)
+# MARK: - Luck meter (PDO spread, sample-adjusted)
+
+def _alive_playoff_teams(today: datetime.date) -> Optional[set]:
+    """Teams still standing in the current playoffs (None if unavailable).
+    A team is out once it has lost a completed series."""
+    start = today.year - 1
+    try:
+        data = requests.get(
+            f"https://api-web.nhle.com/v1/playoff-series/carousel/{start}{start + 1}/",
+            headers=NHL_HEADERS, timeout=15).json()
+    except Exception:
+        return None
+    participants, eliminated = set(), set()
+    for rnd in data.get("rounds", []):
+        for s in rnd.get("series", []):
+            top, bot = s.get("topSeed") or {}, s.get("bottomSeed") or {}
+            ta, ba = top.get("abbrev"), bot.get("abbrev")
+            if not ta or not ba:
+                continue
+            participants |= {ta, ba}
+            need = int(s.get("neededToWin") or 4)
+            tw, bw = int(top.get("wins") or 0), int(bot.get("wins") or 0)
+            if tw >= need:
+                eliminated.add(ba)
+            elif bw >= need:
+                eliminated.add(ta)
+    return (participants - eliminated) or None
+
 
 def luck_meter(today: datetime.date) -> dict:
     from services.data_loader import get_data_loader
@@ -57,40 +84,71 @@ def luck_meter(today: datetime.date) -> dict:
             sh = float(t["goalsFor"]) / sog_for
             sv = 1.0 - float(t["goalsAgainst"]) / sog_ag
             rows.append({"team": str(t["team"]), "pdo": (sh + sv) * 100,
+                         "nf": sog_for, "na": sog_ag,
+                         "gf": float(t["goalsFor"]),
                          "over_x": float(t["goalsFor"]) - float(t["xGoalsFor"])})
         except (TypeError, ValueError, ZeroDivisionError, KeyError):
             continue
-    if len(rows) < 16:
+
+    # Playoffs: the regular-season luck read, but only for teams still alive —
+    # the regression watch that matters for the series being played.
+    in_playoffs = today.month in (5, 6) or (today.month == 4 and today.day >= 15)
+    playoff_note = None
+    if in_playoffs:
+        alive = _alive_playoff_teams(today)
+        pool = [r for r in rows if r["team"] in alive] if alive else []
+        if len(pool) >= 4:
+            rows = pool
+            playoff_note = f"Playoff survivors only — {len(rows)} teams still alive."
+    if len(rows) < (4 if playoff_note else 16):
         return _dormant("luck", "LUCK METER",
                         "Warming up — needs a few weeks of shots to read the bounces.")
 
+    # Sample adjustment: each team's PDO carries binomial noise that dominates
+    # early in the season. Subtract the expected sampling variance from the
+    # observed spread (dial) and shrink each team toward 100 by how little
+    # we've seen of them (rows), so October reads on the same scale as March.
+    p = sum(r["gf"] for r in rows) / sum(r["nf"] for r in rows)
+    pq = p * (1 - p)
+    for r in rows:
+        r["noise_var"] = 10000 * pq * (1 / r["nf"] + 1 / r["na"])
     pdos = [r["pdo"] for r in rows]
     mean = sum(pdos) / len(pdos)
-    std = (sum((p - mean) ** 2 for p in pdos) / len(pdos)) ** 0.5
-    score = max(2, min(98, int(round(std * 45))))
-    rows.sort(key=lambda r: -r["pdo"])
+    obs_var = sum((v - mean) ** 2 for v in pdos) / len(pdos)
+    true_var = max(0.0, obs_var - sum(r["noise_var"] for r in rows) / len(rows))
+    corrected_std = true_var ** 0.5
+    score = max(2, min(98, int(round(corrected_std * 45))))
+    # Floor keeps week-one shrinkage from collapsing every team to exactly 100.
+    shrink_var = max(true_var, 0.36)
+    for r in rows:
+        k = shrink_var / (shrink_var + r["noise_var"])
+        r["adj"] = 100 + (r["pdo"] - 100) * k
+    rows.sort(key=lambda r: -r["adj"])
     top, bottom = rows[0], rows[-1]
+    shown = rows if len(rows) <= 10 else rows[:5] + rows[-5:]
 
     offseason = today.month in (7, 8, 9)
     season = _season_label(today if not offseason else today.replace(month=1))
+    note = playoff_note or (f"Final {season} numbers — resets on opening night." if offseason else None)
     return {
         "id": "luck", "kicker": "LUCK METER", "active": True, "score": score,
         "label": _band(score, ["ALL EARNED", "STEADY", "NORMAL BOUNCES", "BOUNCY", "LUCK-DRIVEN"]),
         "season": season,
-        "note": f"Final {season} numbers — resets on opening night." if offseason else None,
+        "note": note,
         "explainer": "PDO is shooting% plus save% — over time it gravitates to 100. "
                      "Teams far above are riding hot bounces, teams far below are due "
-                     "to cash in. The score is how spread out the league is right now.",
+                     "to cash in. The score is how spread out the league is right now, "
+                     "adjusted for sample size so early-season noise doesn't peg the dial.",
         "sublines": [
-            {"label": "LUCKIEST", "value": f"{top['team']} · {top['pdo']:.1f} PDO", "tint": "hot"},
-            {"label": "SNAKEBIT", "value": f"{bottom['team']} · {bottom['pdo']:.1f} PDO", "tint": "cold"},
-            {"label": "PDO SPREAD", "value": f"±{std:.1f}", "tint": None},
+            {"label": "LUCKIEST", "value": f"{top['team']} · {top['adj']:.1f} PDO", "tint": "hot"},
+            {"label": "SNAKEBIT", "value": f"{bottom['team']} · {bottom['adj']:.1f} PDO", "tint": "cold"},
+            {"label": "TRUE SPREAD", "value": f"±{corrected_std:.1f}", "tint": None},
         ],
         "rows": [{
             "team": r["team"], "title": r["team"],
             "detail": f"{r['over_x']:+.1f} goals vs expected",
-            "value": f"{r['pdo']:.1f}", "positive": r["pdo"] >= 100,
-        } for r in rows[:5] + rows[-5:]],
+            "value": f"{r['adj']:.1f}", "positive": r["adj"] >= 100,
+        } for r in shown],
     }
 
 
