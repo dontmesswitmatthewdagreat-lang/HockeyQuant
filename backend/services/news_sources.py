@@ -253,8 +253,9 @@ def _dedupe(items: List[Dict]) -> List[Dict]:
     return out
 
 
-def fetch_league_items(limit: int = 80) -> List[Dict]:
-    """League-wide news: RSS feeds + Google News (general + prospects/draft) + Reddit."""
+def fetch_league_items(limit: int = 96) -> List[Dict]:
+    """League-wide news: RSS feeds + Google News (general + prospects/draft) +
+    Reddit + the registry's in-depth sources (PHR, DFO, The Athletic, …)."""
     items: List[Dict] = []
     for source, url in LEAGUE_RSS:
         items += _rss_items(source, url)
@@ -265,6 +266,11 @@ def fetch_league_items(limit: int = 80) -> List[Dict]:
     items += _google_news("NHL draft", "Google News", None, limit=14)
     items += _reddit("hockey", None, limit=20)
     items += _reddit("nhl_draft", None, limit=12)
+    try:
+        from services.news_registry import extra_league_articles
+        items += extra_league_articles()
+    except Exception:
+        pass
     return _dedupe(items)[:limit]
 
 

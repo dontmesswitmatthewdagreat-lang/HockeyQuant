@@ -186,6 +186,29 @@ def archive_items(sb, rows: List[Dict]) -> int:
     return len(fresh)
 
 
+# The registry's in-depth league article sources also feed digest builds —
+# without them, digests lean on the handful of legacy feeds that Render's IP
+# can still reach (some days that's two usable stories).
+_EXTRA_LEAGUE_IDS = ("phr", "dfo", "spectors", "athletic", "hockey_tactics", "tsn")
+
+
+def extra_league_articles(limit_per: int = 8) -> List[Dict]:
+    """Raw items (digester input shape) from the new league article sources."""
+    entries = [e for e in SOURCE_REGISTRY if e["id"] in _EXTRA_LEAGUE_IDS]
+
+    def fetch(entry):
+        try:
+            return _fetch_entry({**entry, "limit": min(entry.get("limit", limit_per), limit_per)})
+        except Exception:
+            return []
+
+    out: List[Dict] = []
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        for rows in pool.map(fetch, entries):
+            out += rows
+    return out
+
+
 def run_ingest(sb) -> Dict:
     """Fetch every registered source in parallel and archive the results.
     One dead source never breaks the run."""
