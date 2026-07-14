@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict
 from datetime import datetime, timedelta, timezone
 import json
+import time
 
 from services import NHLAnalyzer, get_data_loader
 from services.supabase_client import get_supabase
@@ -624,6 +625,75 @@ def _ml_model_predictions(model: dict, model_id: str, date_str: str, supabase) -
         "games_count": len(predictions),
         "predictions": predictions,
     }
+
+
+# Full-date predictions per model are expensive for weighted models (an
+# analyzer pass each), so the game board keeps them briefly. Keyed on
+# updated_at so editing a model invalidates its entry.
+_board_cache: dict = {}
+_BOARD_TTL = 900
+
+
+def _board_date_predictions(model: dict, date_str: str, supabase) -> list:
+    """All of one model's picks for a date, cached ~15 minutes."""
+    key = (model["id"], model.get("updated_at"), date_str)
+    hit = _board_cache.get(key)
+    if hit and time.time() - hit[0] < _BOARD_TTL:
+        return hit[1]
+
+    if model.get("model_type") == "ml":
+        preds = _ml_model_predictions(model, model["id"], date_str, supabase)["predictions"]
+    else:
+        mult = _row_to_multipliers(model)
+        results = get_analyzer().analyze_date(
+            date_str,
+            custom_weights=_row_to_weights(model).model_dump(),
+            multiplier_weights={"fatigue": mult.fatigue, "streak": mult.streak,
+                                "special_teams": mult.special_teams,
+                                "injuries": mult.injuries, "h2h": mult.h2h}) or []
+        preds = [{
+            "away": r["away"], "home": r["home"], "pick": r["pick"],
+            "diff": round(r["diff"], 2),
+            "confidence": "STRONG" if r["diff"] >= 10 else ("MODERATE" if r["diff"] >= 5 else "CLOSE"),
+        } for r in results]
+
+    _board_cache[key] = (time.time(), preds)
+    return preds
+
+
+@router.get("/models/game-board/{date_str}")
+async def model_game_board(date_str: str, away: str, home: str,
+                           authorization: str = Header(None)):
+    """Every one of the user's models weighing in on a single game — powers
+    the model board on the expanded game card."""
+    user_id = get_user_id_from_token(authorization)
+    try:
+        datetime.strptime(date_str, "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid date format. Use YYYY-MM-DD")
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    rows = supabase.table("user_models").select("*").eq("user_id", user_id) \
+        .eq("is_active", True).order("created_at").execute().data or []
+    away_u, home_u = away.upper(), home.upper()
+    picks = []
+    for model in rows:
+        try:
+            preds = _board_date_predictions(model, date_str, supabase)
+        except Exception:
+            continue
+        for g in preds:
+            ga = ((g.get("away") or {}).get("team") or "").upper()
+            gh = ((g.get("home") or {}).get("team") or "").upper()
+            if ga == away_u and gh == home_u:
+                picks.append({"modelId": model["id"], "name": model["name"],
+                              "type": model.get("model_type") or "weighted",
+                              "pick": g["pick"], "confidence": g.get("confidence"),
+                              "diff": g.get("diff")})
+                break
+    return {"picks": picks}
 
 
 @router.get("/models/{model_id}/predictions/{date_str}")
