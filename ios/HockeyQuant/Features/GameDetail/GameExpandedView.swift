@@ -25,6 +25,9 @@ struct GameExpandedView: View {
         ScrollView {
             VStack(spacing: Theme.Spacing.md) {
                 headerBar
+                if boardLoading || !boardPicks.isEmpty {
+                    SectionCard("Model board") { modelBoard }
+                }
                 if pred.bettingLines != nil {
                     SectionCard("Scoreline grid") { scorelineGrid }
                 }
@@ -32,9 +35,6 @@ struct GameExpandedView: View {
                     ShotMapView(date: dateString, away: pred.away.team, home: pred.home.team)
                 }
                 SectionCard("The Edge") { EdgeBreakdownView(game: pred) }
-                if boardLoading || !boardPicks.isEmpty {
-                    SectionCard("Model board") { modelBoard }
-                }
                 bettingCard
                 factorsCard
             }
