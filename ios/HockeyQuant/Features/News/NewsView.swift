@@ -181,7 +181,13 @@ struct NewsView: View {
                 }
                 .padding(Theme.Spacing.md)
             }
-            .refreshable { await store.loadLatest(team: auth.favoriteTeam) }
+            .refreshable {
+                // Refresh the pulse deck along with the stories.
+                async let latest: Void = store.loadLatest(team: auth.favoriteTeam)
+                async let market: Void = store.loadMarketPulse()
+                async let league: Void = store.loadLeaguePulses()
+                _ = await (latest, market, league)
+            }
         }
     }
 
