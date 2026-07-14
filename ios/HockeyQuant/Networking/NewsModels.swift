@@ -61,6 +61,65 @@ struct NewsDigest: Codable, Identifiable, Hashable {
 
 struct NewsLatestResponse: Codable { let digests: [NewsDigest] }
 
+// MARK: - The Wire (flat archive stream: articles + insider blurbs)
+
+struct NewsFeedItem: Codable, Identifiable, Hashable {
+    let id: Int
+    let headline: String
+    let blurb: String
+    let tag: String
+    let source: String
+    let url: String
+    let publishedAt: String?
+    let imageUrl: String?
+    let kind: String            // article | blurb
+    let team: String?
+    let firstSeenAt: String?
+
+    var image: URL? {
+        guard let s = imageUrl, !s.isEmpty else { return nil }
+        return URL(string: s, encodingInvalidCharacters: true)
+    }
+
+    var isBlurb: Bool { kind == "blurb" }
+
+    /// What a blurb card shows — insider posts carry their content in the blurb.
+    var displayText: String {
+        isBlurb && blurb.count > headline.count ? blurb : headline
+    }
+
+    /// "2h ago" style age from published time (falling back to first-seen).
+    var relativeTime: String? {
+        guard let raw = publishedAt ?? firstSeenAt,
+              let date = Self.iso.date(from: raw) ?? Self.isoFrac.date(from: raw) else { return nil }
+        let f = RelativeDateTimeFormatter()
+        f.unitsStyle = .abbreviated
+        return f.localizedString(for: date, relativeTo: .now)
+    }
+
+    /// Bridge into the shared open/summarize helpers.
+    var asDigestItem: DigestItem {
+        DigestItem(headline: headline, blurb: blurb, tag: tag, source: source,
+                   url: url, publishedAt: publishedAt, imageUrl: imageUrl)
+    }
+
+    // ISO8601DateFormatter is documented thread-safe; the annotation just
+    // tells Swift 6 we know it isn't formally Sendable.
+    nonisolated(unsafe) private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime]; return f
+    }()
+    nonisolated(unsafe) private static let isoFrac: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+}
+
+struct NewsFeedResponse: Codable {
+    let items: [NewsFeedItem]
+    let nextCursor: String?
+}
+
 struct NewsSearchResponse: Codable {
     let answer: String
     let sources: [DigestItem]

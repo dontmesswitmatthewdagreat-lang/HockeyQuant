@@ -1,13 +1,32 @@
 import SwiftUI
 
-/// The daily recap as a story deck, rebuilt in the app's card language: each
-/// slide is a floating rounded card over drifting team-color blobs. A cover
-/// slide leads with the day's key points, then one card per top story with a
-/// center-cropped photo (slow Ken Burns drift), headline, and blurb.
+/// Per-story watched tracking for the recap deck (shared with the News feed's
+/// "N new stories" counter). JSON-encoded array in AppStorage — URLs can
+/// contain commas, so no joined-string tricks. FIFO-capped.
+enum WatchedStories {
+    static let key = "watchedStoryItemURLs"
+
+    static func decode(_ raw: String) -> [String] {
+        (try? JSONDecoder().decode([String].self, from: Data(raw.utf8))) ?? []
+    }
+
+    static func encode(_ urls: [String]) -> String {
+        let capped = Array(urls.suffix(300))
+        guard let data = try? JSONEncoder().encode(capped) else { return "[]" }
+        return String(data: data, encoding: .utf8) ?? "[]"
+    }
+}
+
+/// The recap as a story deck, rebuilt in the app's card language: one floating
+/// rounded card per story over drifting team-color blobs, with a center-cropped
+/// photo (slow Ken Burns drift), headline, and blurb.
+///
+/// The deck only plays stories the user hasn't watched — each slide is marked
+/// watched the moment it appears, so a half-watched deck never replays. When
+/// everything is watched it replays the whole current set (rewatch mode).
 ///
 /// Gestures: tap right/left thirds = next/previous · long-press = AI summary
 /// (pauses the deck, same ring animation as the feed) · drag down = dismiss.
-/// Completing the deck marks the digest watched (the News-tab ring goes away).
 struct NewsStoryView: View {
     let digests: [NewsDigest]
 
@@ -15,8 +34,9 @@ struct NewsStoryView: View {
     @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(PremiumStore.self) private var premium
-    @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
+    @AppStorage(WatchedStories.key) private var watchedRaw = "[]"
 
+    @State private var deck: [DigestItem] = []   // frozen on appear (filtering live would yank slides)
     @State private var index = 0
     @State private var progress = 0.0
     @State private var pressing = false          // long-press in flight → paused
@@ -30,39 +50,26 @@ struct NewsStoryView: View {
 
     private let timer = Timer.publish(every: 0.04, on: .main, in: .common).autoconnect()
 
-    // MARK: - Slides
+    // MARK: - Deck
 
-    private enum Slide: Identifiable {
-        case cover(title: String, points: [String], asOf: String?)
-        case item(DigestItem)
-        var id: String {
-            switch self {
-            case .cover(let t, _, _): return "cover-\(t)"
-            case .item(let it): return it.url
-            }
-        }
-    }
-
-    private var slides: [Slide] {
-        var s: [Slide] = []
-        if let first = digests.first, let kp = first.keyPoints, !kp.isEmpty {
-            s.append(.cover(title: first.title, points: kp, asOf: first.asOf))
-        }
+    /// Unique unwatched stories across the digests, newest edition first;
+    /// all stories when everything has been seen (rewatch mode).
+    private func buildDeck() -> [DigestItem] {
         var seen = Set<String>()
+        var all: [DigestItem] = []
         for d in digests {
             for it in d.items where seen.insert(it.url).inserted {
-                s.append(.item(it))
+                all.append(it)
             }
         }
-        return s
+        let watched = Set(WatchedStories.decode(watchedRaw))
+        let fresh = all.filter { !watched.contains($0.url) }
+        return Array((fresh.isEmpty ? all : fresh).prefix(20))
     }
 
     /// Adaptive per-slide duration: longer blurbs get more reading time.
-    private func duration(_ slide: Slide) -> Double {
-        switch slide {
-        case .cover: return 9
-        case .item(let it): return 8 + min(4, Double(it.blurb.count) / 60.0)
-        }
+    private func duration(_ it: DigestItem) -> Double {
+        8 + min(4, Double(it.blurb.count) / 60.0)
     }
 
     private var paused: Bool {
@@ -84,21 +91,20 @@ struct NewsStoryView: View {
     }
 
     var body: some View {
-        let slides = self.slides
         GeometryReader { geo in
             ZStack {
                 ambientBackground
                     .ignoresSafeArea()
 
                 VStack(spacing: 0) {
-                    chrome(count: slides.count)
+                    chrome(count: deck.count)
                         .padding(.horizontal, Theme.Spacing.md)
                         .padding(.top, Theme.Spacing.xs)
 
                     ZStack {
-                        if slides.indices.contains(index) {
-                            slideCard(slides[index], size: geo.size)
-                                .id(slides[index].id)
+                        if deck.indices.contains(index) {
+                            slideCard(deck[index], size: geo.size)
+                                .id(deck[index].url)
                                 .transition(slideTransition)
                         }
                     }
@@ -115,9 +121,9 @@ struct NewsStoryView: View {
             .scaleEffect(shown ? (closing ? 0.95 : 1) : 0.94)
         }
         .statusBarHidden()
-        .onReceive(timer) { _ in tick(slides) }
+        .onReceive(timer) { _ in tick() }
         .onChange(of: index) { _, newValue in
-            if newValue >= slides.count - 1 { markWatched() }
+            markWatched(at: newValue)
             restartKenBurns()
         }
         .onAppear {
@@ -128,8 +134,9 @@ struct NewsStoryView: View {
             direction = 1
             shown = false
             closing = false
-            if slides.isEmpty { dismiss() }
-            if slides.count == 1 { markWatched() }
+            deck = buildDeck()
+            if deck.isEmpty { dismiss() }
+            markWatched(at: 0)
             if #available(iOS 18.0, *) {
                 shown = true                    // zoom transition owns the entrance
             } else {
@@ -226,172 +233,66 @@ struct NewsStoryView: View {
 
     // MARK: - Slide card
 
-    @ViewBuilder
-    private func slideCard(_ slide: Slide, size: CGSize) -> some View {
-        Group {
-            switch slide {
-            case .cover(let title, let points, let asOf):
-                coverSlide(title: title, points: points, asOf: asOf)
-            case .item(let it):
-                itemSlide(it)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 32, style: .continuous)
-                .strokeBorder(.white.opacity(0.10), lineWidth: 1)
-        )
-        .overlay {
-            if pressing, isSummarizable(slide) {
-                AnimatedGradientRing(cornerRadius: 32)
-                Label("Hold for AI summary", systemImage: "sparkles")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12).padding(.vertical, 7)
-                    .background(.black.opacity(0.55))
-                    .clipShape(Capsule())
-                    .allowsHitTesting(false)
-            }
-        }
-        .shadow(color: .black.opacity(0.45), radius: 26, y: 12)
-        .scaleEffect(pressing ? 0.97 : 1)
-        .offset(y: dragOffset)
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: pressing)
-        // Long-press = AI summary (pauses the deck while pressed).
-        .onLongPressGesture(minimumDuration: 0.55, maximumDistance: 40) {
-            fireSummary(slide)
-        } onPressingChanged: { pressing = $0 }
-        // Quick tap: right two-thirds advances, left third rewinds.
-        .gesture(
-            SpatialTapGesture().onEnded { value in
-                if value.location.x < size.width * 0.33 { prev() } else { next() }
-            }
-        )
-        // Drag down to dismiss, with rubber-banding.
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 16)
-                .onChanged { v in
-                    dragOffset = v.translation.height > 0
-                        ? v.translation.height
-                        : v.translation.height / 6
+    private func slideCard(_ it: DigestItem, size: CGSize) -> some View {
+        itemSlide(it)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 32, style: .continuous)
+                    .strokeBorder(.white.opacity(0.10), lineWidth: 1)
+            )
+            .overlay {
+                if pressing {
+                    AnimatedGradientRing(cornerRadius: 32)
+                    Label("Hold for AI summary", systemImage: "sparkles")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(.black.opacity(0.55))
+                        .clipShape(Capsule())
+                        .allowsHitTesting(false)
                 }
-                .onEnded { v in
-                    if v.translation.height > 120 {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            dragOffset = 0
-                        }
-                        collapse()
-                    } else {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                            dragOffset = 0
+            }
+            .shadow(color: .black.opacity(0.45), radius: 26, y: 12)
+            .scaleEffect(pressing ? 0.97 : 1)
+            .offset(y: dragOffset)
+            .animation(.spring(response: 0.35, dampingFraction: 0.8), value: pressing)
+            // Long-press = AI summary (pauses the deck while pressed).
+            .onLongPressGesture(minimumDuration: 0.55, maximumDistance: 40) {
+                fireSummary(it)
+            } onPressingChanged: { pressing = $0 }
+            // Quick tap: right two-thirds advances, left third rewinds.
+            .gesture(
+                SpatialTapGesture().onEnded { value in
+                    if value.location.x < size.width * 0.33 { prev() } else { next() }
+                }
+            )
+            // Drag down to dismiss, with rubber-banding.
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 16)
+                    .onChanged { v in
+                        dragOffset = v.translation.height > 0
+                            ? v.translation.height
+                            : v.translation.height / 6
+                    }
+                    .onEnded { v in
+                        if v.translation.height > 120 {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                dragOffset = 0
+                            }
+                            collapse()
+                        } else {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                dragOffset = 0
+                            }
                         }
                     }
-                }
-        )
+            )
     }
 
-    private func isSummarizable(_ slide: Slide) -> Bool {
-        if case .item = slide { return true }
-        return false
-    }
-
-    private func fireSummary(_ slide: Slide) {
-        guard case .item(let it) = slide else { return }
+    private func fireSummary(_ it: DigestItem) {
         Haptics.tap()
         if premium.isPremium { summaryItem = it } else { showPaywall = true }
-    }
-
-    // MARK: - Cover slide
-
-    private func coverSlide(title: String, points: [String], asOf: String?) -> some View {
-        ZStack {
-            LinearGradient(colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
-                           startPoint: .topLeading, endPoint: .bottomTrailing)
-            if !reduceMotion {
-                TimelineView(.animation(minimumInterval: 1.0 / 20.0)) { ctx in
-                    let t = ctx.date.timeIntervalSinceReferenceDate
-                    RadialGradient(colors: [.white.opacity(0.16), .clear],
-                                   center: UnitPoint(x: 0.5 + 0.35 * cos(t / 6),
-                                                     y: 0.28 + 0.22 * sin(t / 4)),
-                                   startRadius: 20, endRadius: 340)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: Theme.Spacing.md) {
-                HStack(spacing: Theme.Spacing.xs) {
-                    ZStack {
-                        Circle().fill(.white.opacity(0.18))
-                        Image(systemName: "hockey.puck.fill")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                    .frame(width: 30, height: 30)
-                    Text(title.uppercased())
-                        .font(.system(size: 12, weight: .heavy))
-                        .kerning(1.4)
-                        .foregroundStyle(.white.opacity(0.9))
-                    Spacer()
-                }
-                .staggeredEntrance(index: 0)
-
-                Text("Today's\nTop Stories")
-                    .font(.system(size: 40, weight: .heavy, design: .rounded))
-                    // Never let a tall key-point list squash the headline —
-                    // the list below drops entries instead.
-                    .fixedSize(horizontal: false, vertical: true)
-                    .foregroundStyle(.white)
-                    .staggeredEntrance(index: 1)
-
-                if let asOf {
-                    BandPill(text: "As of \(asOf)", systemImage: "clock")
-                        .staggeredEntrance(index: 2)
-                }
-
-                // Show as many key points as genuinely fit under the headline.
-                ViewThatFits(in: .vertical) {
-                    keyPointList(points, showing: 5)
-                    keyPointList(points, showing: 4)
-                    keyPointList(points, showing: 3)
-                }
-                .padding(.top, Theme.Spacing.xs)
-
-                Spacer(minLength: 0)
-
-                HStack(spacing: 5) {
-                    Text("Tap to read the stories")
-                    Image(systemName: "chevron.right")
-                }
-                .font(.system(size: 12, weight: .bold))
-                .foregroundStyle(.white.opacity(0.8))
-                .frame(maxWidth: .infinity)
-                .staggeredEntrance(index: 6)
-            }
-            .padding(Theme.Spacing.lg)
-        }
-    }
-
-    private func keyPointList(_ points: [String], showing count: Int) -> some View {
-        VStack(alignment: .leading, spacing: Theme.Spacing.xs) {
-            ForEach(Array(points.prefix(count).enumerated()), id: \.offset) { i, p in
-                HStack(alignment: .firstTextBaseline, spacing: Theme.Spacing.sm) {
-                    Text("\(i + 1)")
-                        .font(.system(size: 12, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Theme.Palette.accent)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(.white))
-                    Text(p)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                .padding(Theme.Spacing.sm)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.13))
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .staggeredEntrance(index: min(i + 3, 9))
-            }
-        }
     }
 
     // MARK: - Item slide
@@ -501,21 +402,19 @@ struct NewsStoryView: View {
 
     // MARK: - Advance
 
-    private func tick(_ slides: [Slide]) {
-        guard !slides.isEmpty, !paused, slides.indices.contains(index) else { return }
-        progress += 0.04 / duration(slides[index])
+    private func tick() {
+        guard !deck.isEmpty, !paused, deck.indices.contains(index) else { return }
+        progress += 0.04 / duration(deck[index])
         if progress >= 1 { next() }
     }
 
     private func next() {
-        let slides = self.slides
-        if index < slides.count - 1 {
+        if index < deck.count - 1 {
             Haptics.tap()
             direction = 1
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { index += 1 }
             progress = 0
         } else {
-            markWatched()
             collapse()
         }
     }
@@ -566,12 +465,15 @@ struct NewsStoryView: View {
         }
     }
 
-    private func markWatched() {
-        guard let id = digests.first?.id else { return }
-        var ids = watchedIds.split(separator: ",").map(String.init)
-        if !ids.contains(id) {
-            ids.append(id)
-            watchedIds = ids.suffix(20).joined(separator: ",")
+    /// A slide counts as watched the moment it appears — a half-watched deck
+    /// never replays the stories the user already saw.
+    private func markWatched(at i: Int) {
+        guard deck.indices.contains(i) else { return }
+        var urls = WatchedStories.decode(watchedRaw)
+        let url = deck[i].url
+        if !urls.contains(url) {
+            urls.append(url)
+            watchedRaw = WatchedStories.encode(urls)
         }
     }
 }

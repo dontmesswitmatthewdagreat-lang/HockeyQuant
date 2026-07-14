@@ -841,6 +841,20 @@ extension APIClient {
         return try Self.decode(NewsLatestResponse.self, from: data).digests
     }
 
+    /// `GET /api/news/feed` — The Wire: the flat archive stream (articles +
+    /// insider blurbs), keyset-paginated for scrolling back through history.
+    func newsFeed(team: String?, cursor: String? = nil, limit: Int = 30) async throws -> NewsFeedResponse {
+        var comps = URLComponents(
+            url: apiURL("news").appendingPathComponent("feed"), resolvingAgainstBaseURL: false
+        )!
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let team, !team.isEmpty { query.append(URLQueryItem(name: "team", value: team)) }
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
+        comps.queryItems = query
+        let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
+        return try Self.decode(NewsFeedResponse.self, from: data)
+    }
+
     /// `GET /api/news/search` — AI answer from live news + matches from past digests.
     func newsSearch(query: String) async throws -> NewsSearchResponse {
         var comps = URLComponents(url: apiURL("news").appendingPathComponent("search"), resolvingAgainstBaseURL: false)!

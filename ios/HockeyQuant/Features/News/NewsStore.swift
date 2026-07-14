@@ -17,6 +17,9 @@ final class NewsStore {
     private(set) var pipelineStats: [String: PipelineStat] = [:]  // name -> junior line
     private(set) var marketPulse: MarketOverview?  // FA market temperature for the feed
     private(set) var leaguePulses: [LeaguePulse] = []  // luck / race / deadline / playoffs
+    private(set) var feedItems: [NewsFeedItem] = []    // The Wire (archive stream)
+    private(set) var feedCursor: String?
+    private(set) var feedLoadingOlder = false
     private(set) var loading = false
     private(set) var loadingDraft = false
     private(set) var loadingTeam = false
@@ -89,6 +92,22 @@ final class NewsStore {
 
     func loadLeaguePulses() async {
         leaguePulses = (try? await api.leaguePulses()) ?? []
+    }
+
+    func loadFeed(team: String?) async {
+        guard let resp = try? await api.newsFeed(team: team) else { return }
+        feedItems = resp.items
+        feedCursor = resp.nextCursor
+    }
+
+    func loadOlderFeed(team: String?) async {
+        guard let cursor = feedCursor, !feedLoadingOlder else { return }
+        feedLoadingOlder = true
+        defer { feedLoadingOlder = false }
+        guard let resp = try? await api.newsFeed(team: team, cursor: cursor) else { return }
+        let known = Set(feedItems.map(\.id))
+        feedItems += resp.items.filter { !known.contains($0.id) }
+        feedCursor = resp.nextCursor
     }
 
     func loadPipelineStats(team: String) async {

@@ -22,7 +22,7 @@ struct NewsView: View {
     @State private var ripplePoint: CGPoint = .zero    // where the finger landed
     @State private var rippleProgress: CGFloat = 0     // press pulse: 0 = none, 1 = card flooded
     @Namespace private var storyZoomNS                 // App Store-style zoom anchor
-    @AppStorage("watchedStoryDigestIds") private var watchedIds = ""
+    @AppStorage(WatchedStories.key) private var watchedRaw = "[]"
     @AppStorage("seenMockEdition") private var seenMockEdition = ""
     @Namespace private var underlineNS
 
@@ -50,6 +50,7 @@ struct NewsView: View {
             if store.mockDraft == nil { await store.loadMockDraft() }
             if store.marketPulse == nil { await store.loadMarketPulse() }
             if store.leaguePulses.isEmpty { await store.loadLeaguePulses() }
+            if store.feedItems.isEmpty { await store.loadFeed(team: auth.favoriteTeam) }
         }
         .task(id: tab) {
             // Load every prospect list so swiping between them is instant.
@@ -178,27 +179,176 @@ struct NewsView: View {
                     ForEach(orderedDigests) { digest in
                         digestSection(digest)
                     }
+                    if !store.feedItems.isEmpty {
+                        wireSection
+                    }
                 }
                 .padding(Theme.Spacing.md)
             }
             .refreshable {
-                // Refresh the pulse deck along with the stories.
+                // Refresh the pulse deck and The Wire along with the stories.
                 async let latest: Void = store.loadLatest(team: auth.favoriteTeam)
                 async let market: Void = store.loadMarketPulse()
                 async let league: Void = store.loadLeaguePulses()
-                _ = await (latest, market, league)
+                async let wire: Void = store.loadFeed(team: auth.favoriteTeam)
+                _ = await (latest, market, league, wire)
             }
         }
     }
 
-    /// Feed order: the favorite team's digests lead, league news follows.
-    private var orderedDigests: [NewsDigest] {
-        store.digests.filter { !$0.isLeague } + store.digests.filter(\.isLeague)
+    // MARK: - The Wire (chronological archive: articles + insider blurbs)
+
+    /// URLs already shown in the digest sections above — the wire skips them.
+    private var digestShownURLs: Set<String> {
+        Set(orderedDigests.flatMap { $0.items.map(\.url) })
     }
 
-    private var watchedCurrent: Bool {
-        guard let id = store.digests.first?.id else { return false }
-        return watchedIds.split(separator: ",").map(String.init).contains(id)
+    private var wireSection: some View {
+        VStack(alignment: .leading, spacing: Theme.Spacing.sm) {
+            HStack(spacing: Theme.Spacing.xs) {
+                Text("The Wire").font(Theme.Font.title()).foregroundStyle(Theme.Palette.textPrimary)
+                Spacer()
+                kindBadge("Every source")
+            }
+            let shown = digestShownURLs
+            ForEach(store.feedItems.filter { !shown.contains($0.url) }) { item in
+                if item.isBlurb {
+                    blurbRow(item)
+                } else {
+                    wireArticleRow(item)
+                }
+            }
+            if store.feedCursor != nil {
+                loadOlderButton
+            }
+        }
+    }
+
+    /// Tweet-sized insider card: tag + source + age, then the post text.
+    private func blurbRow(_ item: NewsFeedItem) -> some View {
+        Card {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: Theme.Spacing.xs) {
+                    tagChip(item.tag)
+                    Text(item.source)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1)
+                    if let t = item.relativeTime {
+                        Text("· \(t)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.textTertiary)
+                    }
+                    Spacer()
+                    Image(systemName: "quote.bubble")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                }
+                Text(item.displayText)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Theme.Palette.textPrimary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open(item.asDigestItem) }
+        .accessibilityAddTraits(.isButton)
+    }
+
+    /// Slim archive article row: small thumbnail + headline + source · age.
+    private func wireArticleRow(_ item: NewsFeedItem) -> some View {
+        Card {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    LinearGradient(colors: [Theme.Palette.accent.opacity(0.5),
+                                            Theme.Palette.accentAlt.opacity(0.3)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)
+                    if let url = item.image {
+                        AsyncImage(url: url) { phase in
+                            if let img = phase.image {
+                                img.resizable().scaledToFill()
+                            } else {
+                                Image(systemName: "newspaper")
+                                    .foregroundStyle(.white.opacity(0.6))
+                            }
+                        }
+                    } else {
+                        Image(systemName: "newspaper")
+                            .foregroundStyle(.white.opacity(0.6))
+                    }
+                }
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.headline)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        tagChip(item.tag)
+                        Text(item.source)
+                            .font(.system(size: 11))
+                            .foregroundStyle(Theme.Palette.textSecondary)
+                            .lineLimit(1)
+                        if let t = item.relativeTime {
+                            Text("· \(t)")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.Palette.textTertiary)
+                        }
+                    }
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { open(item.asDigestItem) }
+        .modifier(HoldToSummarize { requestSummary(item.asDigestItem) })
+        .accessibilityAddTraits(.isButton)
+    }
+
+    private var loadOlderButton: some View {
+        Button {
+            Task { await store.loadOlderFeed(team: auth.favoriteTeam) }
+        } label: {
+            HStack(spacing: 6) {
+                if store.feedLoadingOlder { ProgressView().controlSize(.small) }
+                Text(store.feedLoadingOlder ? "Loading…" : "Load older stories")
+            }
+            .font(.system(size: 14, weight: .bold, design: .rounded))
+            .foregroundStyle(Theme.Palette.accent)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(Theme.Palette.surface)
+            .clipShape(Capsule())
+            .overlay(Capsule().strokeBorder(Theme.Palette.border, lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Feed order: the favorite team's digests lead, league news follows.
+    /// Feed sections: the favorite team's digests, then only the newest league
+    /// edition (the deck consumes all of them; The Wire holds the history).
+    private var orderedDigests: [NewsDigest] {
+        store.digests.filter { !$0.isLeague }
+            + Array(store.digests.filter(\.isLeague).prefix(1))
+    }
+
+    /// Stories across the loaded digests the user hasn't watched in the deck.
+    private var unwatchedCount: Int {
+        let watched = Set(WatchedStories.decode(watchedRaw))
+        var seen = Set<String>()
+        var n = 0
+        for d in store.digests {
+            for it in d.items where seen.insert(it.url).inserted {
+                if !watched.contains(it.url) { n += 1 }
+            }
+        }
+        return n
     }
 
     /// Headline photos used as the panning collage behind the play CTA.
@@ -207,8 +357,8 @@ struct NewsView: View {
     }
 
     private var playCTA: some View {
-        let count = Set(store.digests.flatMap { $0.items.map(\.url) }).count
-        let watched = watchedCurrent
+        let count = unwatchedCount
+        let watched = count == 0
         let urls = collageURLs
         let onPhoto = !watched && !urls.isEmpty   // text sits on the dark collage
         return HStack(spacing: Theme.Spacing.md) {
@@ -244,7 +394,7 @@ struct NewsView: View {
                         .foregroundStyle(onPhoto ? .white : Theme.Palette.textPrimary)
                         .shadow(color: onPhoto ? .black.opacity(0.5) : .clear, radius: 3, y: 1)
                     Text(watched ? "Tap to rewatch the stories"
-                         : (count > 0 ? "\(count) top stories · tap to play" : "Tap to play"))
+                         : "\(count) new \(count == 1 ? "story" : "stories") · tap to play")
                         .font(Theme.Font.caption())
                         .foregroundStyle(onPhoto ? .white.opacity(0.9) : Theme.Palette.textSecondary)
                         .shadow(color: onPhoto ? .black.opacity(0.5) : .clear, radius: 2, y: 1)
