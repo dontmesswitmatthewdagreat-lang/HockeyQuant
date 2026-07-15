@@ -190,6 +190,44 @@ def fetch_signings() -> List[dict]:
     return out
 
 
+_TRADES_URL = "https://www.spotrac.com/nhl/transactions/"
+_TRADE_ROW = re.compile(
+    r'/nhl/player/_/id/\d+/[^"]+"[^>]*>([^<]+)</a>\s*<small[^>]*>(.*?)</small>', re.S)
+_TRADE_DESC = re.compile(r"Traded to .+?\(([A-Z]{2,3})\)\s*from .+?\(([A-Z]{2,3})\)")
+
+
+def fetch_trades() -> List[dict]:
+    """This offseason's trades from Spotrac's transactions feed: each traded
+    player with the team that acquired him (`to_team`) and dealt him
+    (`from_team`). Picks/prospects in the return are not parsed — the report
+    card values the contract that changed hands, not the whole package."""
+    entry = _cache.get("trades")
+    if entry and time.time() - entry["ts"] < _TTL:
+        return entry["data"]
+    out, seen = [], set()
+    try:
+        from services.offseason_data import _get
+        html = _get(_TRADES_URL)
+        for name_raw, desc in _TRADE_ROW.findall(html):
+            text = re.sub(r"<[^>]+>", "", desc)
+            if "traded to" not in text.lower():
+                continue
+            m = _TRADE_DESC.search(text)
+            if not m:
+                continue
+            name = re.sub(r"\s*\([^)]*\)\s*$", "", name_raw).strip()   # drop trailing " (C)"
+            key = (name.lower(), m.group(1), m.group(2))
+            if not name or key in seen:
+                continue
+            seen.add(key)
+            out.append({"name": name, "to_team": m.group(1).upper(),
+                        "from_team": m.group(2).upper()})
+    except Exception:
+        return entry["data"] if entry else []
+    _cache["trades"] = {"ts": time.time(), "data": out}
+    return out
+
+
 # MARK: - Valuation model
 
 def _ridge(X: np.ndarray, y: np.ndarray, lam: float = 1.0):
@@ -469,37 +507,79 @@ def offseason_report_card(team: str) -> dict:
     def nt(t):
         return _norm_abbrev(t or "")
 
+    players = market["players"]
     additions = [s for s in signings if nt(s.get("team")) == team]
     arrivals = [s for s in additions if nt(s.get("from_team")) != team]
     resigned = [s for s in additions if nt(s.get("from_team")) == team]
     departures = [s for s in signings
                   if nt(s.get("from_team")) == team and nt(s.get("team")) != team]
 
-    committed = sum(s["aav"] for s in additions)
-    # Only meaningful signings define value discipline. Below the verdict
-    # threshold every warm body books fake "surplus" (the model values even a
-    # league-minimum depth player above his AAV), which used to drown out real
-    # overpays and hand out A+ for filling a roster.
-    GRADED_MIN = 1_500_000
-    graded_adds = [s for s in additions if s.get("fair_value") and s["aav"] >= GRADED_MIN]
-    paid_over = sum(s["aav"] - s["fair_value"] for s in graded_adds)      # + = overpaid
-    spend_graded = sum(s["aav"] for s in graded_adds)
-    surplus = -paid_over                                                  # + = under model
-    prem_ratio = (paid_over / spend_graded) if spend_graded else None     # dollar-weighted
+    # Trades: an acquired player brings his existing contract. Taking on a bad
+    # contract (or shedding one) is a value decision, graded like a signing —
+    # this is how the Korpisalo/Nurse-type deals reach the report card, which
+    # the free-agent feed alone never sees. Picks/prospects aren't valued.
+    trades = fetch_trades()
 
-    # League baseline: the model systematically values players above their AAV
-    # (contracts are team-friendly in ways raw production misses), so almost
-    # every deal looks like a "bargain". Grade against the market — the league
-    # average premium — not the model's absolute zero, or everyone gets an A.
-    lg = [s for s in signings if s.get("fair_value") and s["aav"] >= GRADED_MIN]
-    lg_spend = sum(s["aav"] for s in lg)
-    league_prem = (sum(s["aav"] - s["fair_value"] for s in lg) / lg_spend) if lg_spend else 0.0
+    def trade_move(t, other_key):
+        p = players.get(_norm(t["name"]))
+        if not p or not p.get("aav"):
+            return None
+        aav, fair = float(p["aav"]), p["model_value"]
+        prem = (aav - fair) / fair if fair else 0.0
+        return {"name": t["name"], "position": p.get("position", "?"),
+                "aav": aav, "years": None, "fair_value": fair,
+                "verdict": "steal" if prem < -0.15 else ("overpay" if prem > 0.15 else "fair"),
+                "other_team": nt(t[other_key])}
+
+    trades_in = [m for m in (trade_move(t, "from_team") for t in trades
+                             if nt(t["to_team"]) == team) if m]
+    trades_out = [m for m in (trade_move(t, "to_team") for t in trades
+                              if nt(t["from_team"]) == team) if m]
+
+    committed = sum(s["aav"] for s in additions) + sum(m["aav"] for m in trades_in)
+
+    # Value discipline runs over every contract the team chose to add — graded
+    # signings plus trade acquisitions. Below the threshold, the model values
+    # even a league-minimum body above his AAV, booking fake "surplus".
+    GRADED_MIN = 1_500_000
+
+    def _prem(aav, fair):
+        # Per-contract premium, clamped: the model wildly over-values cheap
+        # young players (a $1.75M kid "worth" $4M), and one such contract
+        # shouldn't swing a grade. Overpays have more room than "steals".
+        if aav <= 0 or not fair:
+            return None
+        return max(-0.35, min(0.55, (aav - fair) / aav))
+
+    def graded_stats(sig_adds, tr_adds):
+        rows = [(s["aav"], s["fair_value"]) for s in sig_adds
+                if s.get("fair_value") and s["aav"] >= GRADED_MIN]
+        rows += [(m["aav"], m["fair_value"]) for m in tr_adds if m["aav"] >= GRADED_MIN]
+        spend = paid = 0.0
+        for aav, fair in rows:
+            p = _prem(aav, fair)
+            if p is None:
+                continue
+            spend += aav
+            paid += p * aav                               # clamped $ over model
+        return len(rows), spend, paid
+
+    n_graded, spend_graded, paid_over = graded_stats(additions, trades_in)
+    surplus = -paid_over                                  # + = under model
+    prem_ratio = (paid_over / spend_graded) if spend_graded else None
+
+    # League baseline: the same contract pool across every team (the model
+    # values players above their AAV, so grade against the market, not zero).
+    all_tr = [m for m in (trade_move(t, "from_team") for t in trades) if m]
+    _, lg_spend, lg_paid = graded_stats(signings, all_tr)
+    league_prem = (lg_paid / lg_spend) if lg_spend else 0.0
     rel_prem = (prem_ratio - league_prem) if prem_ratio is not None else None  # + = worse than market
 
     matched_deps = [s for s in departures if s.get("fair_value")]
     dodged = sum(max(0.0, s["aav"] - s["fair_value"]) for s in matched_deps)
-    lost_value = sum(s["fair_value"] for s in matched_deps)
-    gained_value = sum(s["fair_value"] for s in arrivals if s.get("fair_value"))
+    lost_value = sum(s["fair_value"] for s in matched_deps) + sum(m["fair_value"] for m in trades_out)
+    gained_value = sum(s["fair_value"] for s in arrivals if s.get("fair_value")) \
+        + sum(m["fair_value"] for m in trades_in)
     net_talent = gained_value - lost_value
 
     # Draft desk (this year's class; before the draft, last year's).
@@ -520,47 +600,53 @@ def offseason_report_card(team: str) -> dict:
     # Grade: value discipline on the significant signings is the spine; the
     # draft desk, exits, and net talent are small capped nudges. Centered so an
     # average summer lands C+/B- and a clear overpay drops into the D's.
-    moves = len(additions) + len(departures)
+    moves = len(additions) + len(departures) + len(trades_in) + len(trades_out)
     score = None
     if moves:
         if rel_prem is not None:
             # Relative to the market: paying above the league-average premium
             # bites hard; beating it helps but gently (a "steal" is often just
             # the model over-valuing a decliner, so the upside is capped).
-            val = -rel_prem * (150 if rel_prem >= 0 else 85)
-            raw = 77.0 + max(-34.0, min(11.0, val))
+            val = -rel_prem * (150 if rel_prem >= 0 else 80)
+            raw = 72.0 + max(-30.0, min(13.0, val))
         else:
-            raw = 73.0                                        # no significant signings
-        raw += max(-1.5, min(1.5, dodged / 1e6 * 0.7))       # exits: weak signal
-        raw += max(-2.5, min(2.5, net_talent / 1e6 * 0.35))  # fair value in vs out
-        raw += min(2.5, elc * 0.9 + (1.0 if first and first["overall"] <= 10 else 0.0))
-        score = round(max(35.0, min(94.0, raw)))
+            raw = 70.0                                        # only depth moves
+        raw += max(-2.0, min(2.0, net_talent / 1e6 * 0.3))   # fair value in vs out
+        # Draft desk centered on an ordinary class — only a genuinely strong
+        # one (ELCs under contract, a top-5 pick) is a net positive.
+        draft_pts = elc * 0.6 + (1.0 if first and first["overall"] <= 5 else 0.0) - 0.8
+        raw += max(-1.0, min(2.0, draft_pts))
+        score = round(max(35.0, min(93.0, raw)))
 
     grade = _letter(score) if score is not None else "INC"
 
     if not moves:
-        headline = "A quiet summer so far — no signings in or out."
+        headline = "A quiet summer so far — no moves in or out."
     elif prem_ratio is not None and prem_ratio >= 0.12:
-        headline = f"Paid about {round(prem_ratio * 100)}% over model on the summer's real signings."
-    elif surplus >= 1_500_000:
-        headline = f"Banked {_mm(surplus)} of surplus value on {len(graded_adds)} graded signings."
+        headline = f"Took on about {round(prem_ratio * 100)}% over model on the contracts it added."
+    elif surplus >= 800_000:
+        headline = f"Banked {_mm(surplus)} of surplus value across {n_graded} graded moves."
+    elif net_talent <= -3_000_000:
+        headline = f"More talent left than arrived ({_mm(-net_talent)} of fair value)."
     elif dodged >= 2_000_000:
         headline = f"Let rivals overpay the departures by {_mm(dodged)}."
-    elif net_talent <= -3_000_000:
-        headline = f"More talent walked out than arrived ({_mm(-net_talent)} of fair value)."
-    elif not graded_adds:
-        headline = "A quiet summer of depth signings so far."
+    elif not n_graded:
+        headline = "A quiet summer of depth moves so far."
     else:
-        headline = "A measured summer — close-to-fair deals on both sides."
+        headline = "A measured summer — close-to-fair value on both sides."
 
     factors = []
-    if graded_adds:
+    if n_graded:
+        n_sig = sum(1 for s in additions if s.get("fair_value") and s["aav"] >= GRADED_MIN)
+        n_trade = sum(1 for m in trades_in if m["aav"] >= GRADED_MIN)
+        kinds = ([f"{n_sig} signing{'s' if n_sig != 1 else ''}"] if n_sig else []) \
+            + ([f"{n_trade} trade{'s' if n_trade != 1 else ''}"] if n_trade else [])
         factors.append({
             "label": "VALUE DISCIPLINE",
-            "detail": f"{'+' if surplus >= 0 else '−'}{_mm(abs(surplus))} vs model on "
-                      f"{len(graded_adds)} graded signing{'s' if len(graded_adds) != 1 else ''}",
+            "detail": f"{'+' if surplus >= 0 else '−'}{_mm(abs(surplus))} vs model across "
+                      + " + ".join(kinds),
             "positive": surplus >= 0})
-    if arrivals or matched_deps:
+    if arrivals or trades_in or matched_deps or trades_out:
         factors.append({
             "label": "TALENT FLOW",
             "detail": f"{_mm(gained_value)} of fair value in · {_mm(lost_value)} out",
@@ -594,6 +680,9 @@ def offseason_report_card(team: str) -> dict:
                 "verdict": s.get("verdict"),
                 "other_team": nt(s.get(other_key)) or None}
 
+    def trow(m):   # trade rows already carry other_team from trade_move
+        return {**m, "fair_value": round(m["fair_value"]) if m.get("fair_value") else None}
+
     return {
         "team": team, "grade": grade, "score": score, "headline": headline,
         "committed": round(committed), "surplus": round(surplus),
@@ -601,6 +690,8 @@ def offseason_report_card(team: str) -> dict:
         "arrivals": [row(s, "from_team") for s in sorted(arrivals, key=lambda s: -s["aav"])],
         "resigned": [row(s, "from_team") for s in sorted(resigned, key=lambda s: -s["aav"])],
         "departures": [row(s, "team") for s in sorted(departures, key=lambda s: -s["aav"])],
+        "trades_in": [trow(m) for m in sorted(trades_in, key=lambda m: -m["aav"])],
+        "trades_out": [trow(m) for m in sorted(trades_out, key=lambda m: -m["aav"])],
         "draft": {"picks": len(picks),
                   "first_overall": first["overall"] if first else None,
                   "first_player": first["player"] if first else None,
