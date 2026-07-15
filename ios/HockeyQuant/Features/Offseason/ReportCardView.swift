@@ -58,8 +58,10 @@ struct ReportCardSheet: View {
                 if !card.factors.isEmpty {
                     SectionCard("How the grade was earned") { factorList }
                 }
-                movesCard("Arrivals", card.arrivals, otherLabel: "from")
-                movesCard("Re-signings", card.resigned, otherLabel: nil)
+                movesCard("Signed", card.arrivals, otherLabel: "from")
+                movesCard("Re-signed", card.resigned, otherLabel: nil)
+                movesCard("Trades in", card.tradesIn, otherLabel: "from")
+                movesCard("Trades out", card.tradesOut, otherLabel: "to")
                 movesCard("Departures", card.departures, otherLabel: "to")
                 draftCard
                 shareButton

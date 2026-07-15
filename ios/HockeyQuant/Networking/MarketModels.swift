@@ -159,7 +159,8 @@ struct ReportCardMove: Decodable, Hashable, Identifiable {
 
     var termLine: String {
         let money = String(format: "$%.1fM", aav / 1_000_000)
-        return years.map { "\(money) × \($0) yr" } ?? money
+        // Signings carry a term; a trade brings an inherited cap hit.
+        return years.map { "\(money) × \($0) yr" } ?? "\(money) cap hit"
     }
 }
 
@@ -181,6 +182,8 @@ struct OffseasonReportCard: Decodable {
     let arrivals: [ReportCardMove]
     let resigned: [ReportCardMove]
     let departures: [ReportCardMove]
+    let tradesIn: [ReportCardMove]
+    let tradesOut: [ReportCardMove]
     let draft: ReportCardDraft
     let capSpace: Double?
 
