@@ -167,6 +167,17 @@ def player_detail(name: str):
     }
 
 
+@router.get("/market/report-card/{team}")
+def report_card(team: str):
+    """The team's real offseason, graded: signings vs model value, talent
+    in/out, what rivals paid the departures, and the draft desk."""
+    from services.player_market import offseason_report_card
+    try:
+        return offseason_report_card(team.upper())
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Report card unavailable: {e}")
+
+
 @router.get("/pulse/league")
 def pulse_league():
     """Dial-style league reads for the News tab's pulse deck: luck meter,

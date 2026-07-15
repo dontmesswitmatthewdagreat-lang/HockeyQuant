@@ -181,7 +181,9 @@ def fetch_signings() -> List[dict]:
             except Exception:
                 years = None
             out.append({"name": cells[3], "position": cells[4][:2].upper(),
-                        "team": cells[2].strip().upper(), "years": years, "aav": aav})
+                        "team": cells[2].strip().upper(),
+                        "from_team": cells[0].strip().upper(),
+                        "years": years, "aav": aav})
     except Exception:
         return entry["data"] if entry else []
     _cache["signings"] = {"ts": time.time(), "data": out}
@@ -433,3 +435,148 @@ def comparables(key: str, market: dict, limit: int = 5) -> List[dict]:
             if k != key and _group(p["position"]) == g and p["gp"] >= floor]
     pool.sort(key=lambda p: abs(p["market_value"] - me["market_value"]))
     return pool[:limit]
+
+
+# MARK: - Offseason report card
+
+def _letter(score: float) -> str:
+    for cutoff, letter in ((97, "A+"), (93, "A"), (90, "A-"), (87, "B+"), (83, "B"),
+                           (80, "B-"), (77, "C+"), (73, "C"), (70, "C-"),
+                           (65, "D+"), (60, "D")):
+        if score >= cutoff:
+            return letter
+    return "F"
+
+
+def _mm(v: float) -> str:
+    return f"${v / 1e6:.1f}M"
+
+
+def offseason_report_card(team: str) -> dict:
+    """Grade a team's real offseason: signings vs model value, talent in/out,
+    what rivals paid the departures, and the draft desk. Fully deterministic —
+    every point on the grade traces to a factor row."""
+    import datetime
+    from services.offseason_data import fetch_team_caps, fetch_roster, _norm_abbrev
+    from services.draft_results import team_picks
+
+    team = _norm_abbrev(team)
+    market = build_market()
+    signings = market["signings"]
+
+    def nt(t):
+        return _norm_abbrev(t or "")
+
+    additions = [s for s in signings if nt(s.get("team")) == team]
+    arrivals = [s for s in additions if nt(s.get("from_team")) != team]
+    resigned = [s for s in additions if nt(s.get("from_team")) == team]
+    departures = [s for s in signings
+                  if nt(s.get("from_team")) == team and nt(s.get("team")) != team]
+
+    committed = sum(s["aav"] for s in additions)
+    matched_adds = [s for s in additions if s.get("fair_value")]
+    surplus = sum(s["fair_value"] - s["aav"] for s in matched_adds)
+    spend_matched = sum(s["aav"] for s in matched_adds)
+    prem_ratio = (-surplus / spend_matched) if spend_matched else 0.0   # + = overpaying
+
+    matched_deps = [s for s in departures if s.get("fair_value")]
+    dodged = sum(max(0.0, s["aav"] - s["fair_value"]) for s in matched_deps)
+    lost_value = sum(s["fair_value"] for s in matched_deps)
+    gained_value = sum(s["fair_value"] for s in arrivals if s.get("fair_value"))
+    net_talent = gained_value - lost_value
+
+    # Draft desk (this year's class; before the draft, last year's).
+    year = datetime.date.today().year
+    picks = team_picks(year, team) or team_picks(year - 1, team)
+    first = min(picks, key=lambda p: p["overall"]) if picks else None
+    elc = 0
+    if picks:
+        try:
+            roster = fetch_roster(team)
+            names = {_norm(p["name"]) for p in roster}
+            fuzzy = {_fuzzy_key(p["name"]) for p in roster}
+            elc = sum(1 for p in picks
+                      if _norm(p["player"]) in names or _fuzzy_key(p["player"]) in fuzzy)
+        except Exception:
+            elc = 0
+
+    # The grade: start at C+/B- water level, move for provable value.
+    moves = len(additions) + len(departures)
+    score = None
+    if moves:
+        raw = 78.0
+        raw -= prem_ratio * 120                            # value discipline
+        raw += min(dodged / 1e6 * 1.5, 8)                  # rivals overpaid the leavers
+        raw += max(-10.0, min(net_talent / 1e6 * 0.8, 10)) # fair value in vs out
+        raw += min(elc * 1.5, 4.5)                         # draft class under contract
+        score = round(max(50.0, min(99.0, raw)))
+
+    grade = _letter(score) if score is not None else "INC"
+
+    if not moves:
+        headline = "A quiet summer so far — no signings in or out."
+    elif surplus >= 1_500_000:
+        headline = f"Banked {_mm(surplus)} of surplus value on {len(matched_adds)} graded signings."
+    elif prem_ratio > 0.08:
+        headline = f"Paying about {round(prem_ratio * 100)}% over model across the summer's deals."
+    elif dodged >= 2_000_000:
+        headline = f"Let rivals overpay the departures by {_mm(dodged)}."
+    elif net_talent <= -3_000_000:
+        headline = f"More talent walked out than arrived ({_mm(-net_talent)} of fair value)."
+    else:
+        headline = "A measured summer — close-to-fair deals on both sides."
+
+    factors = []
+    if matched_adds:
+        factors.append({
+            "label": "VALUE DISCIPLINE",
+            "detail": f"{'+' if surplus >= 0 else '−'}{_mm(abs(surplus))} vs model on "
+                      f"{len(matched_adds)} signing{'s' if len(matched_adds) != 1 else ''}",
+            "positive": surplus >= 0})
+    if arrivals or matched_deps:
+        factors.append({
+            "label": "TALENT FLOW",
+            "detail": f"{_mm(gained_value)} of fair value in · {_mm(lost_value)} out",
+            "positive": net_talent >= 0})
+    if matched_deps:
+        factors.append({
+            "label": "EXITS",
+            "detail": (f"Rivals paid {_mm(dodged)} over model for the departures"
+                       if dodged > 500_000 else "Departures signed near model value elsewhere"),
+            "positive": dodged > 500_000})
+    elif not departures:
+        factors.append({"label": "EXITS", "detail": "No notable departures", "positive": True})
+    if picks:
+        factors.append({
+            "label": "DRAFT DESK",
+            "detail": f"{len(picks)} picks · first at #{first['overall']} ({first['player']}) · "
+                      f"{elc} ELC{'s' if elc != 1 else ''} signed",
+            "positive": elc > 0 or len(picks) >= 6})
+
+    cap_space = None
+    try:
+        cap_space = next((c["cap_space"] for c in fetch_team_caps()
+                          if _norm_abbrev(c["abbrev"]) == team), None)
+    except Exception:
+        pass
+
+    def row(s, other_key):
+        return {"name": s["name"], "position": s["position"], "aav": s["aav"],
+                "years": s.get("years"),
+                "fair_value": round(s["fair_value"]) if s.get("fair_value") else None,
+                "verdict": s.get("verdict"),
+                "other_team": nt(s.get(other_key)) or None}
+
+    return {
+        "team": team, "grade": grade, "score": score, "headline": headline,
+        "committed": round(committed), "surplus": round(surplus),
+        "factors": factors,
+        "arrivals": [row(s, "from_team") for s in sorted(arrivals, key=lambda s: -s["aav"])],
+        "resigned": [row(s, "from_team") for s in sorted(resigned, key=lambda s: -s["aav"])],
+        "departures": [row(s, "team") for s in sorted(departures, key=lambda s: -s["aav"])],
+        "draft": {"picks": len(picks),
+                  "first_overall": first["overall"] if first else None,
+                  "first_player": first["player"] if first else None,
+                  "elc_signed": elc},
+        "cap_space": round(cap_space) if cap_space else None,
+    }
