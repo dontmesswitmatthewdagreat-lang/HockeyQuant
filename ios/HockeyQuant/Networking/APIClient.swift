@@ -140,6 +140,13 @@ struct APIClient: Sendable {
                       as: LeaguePulseResponse.self).pulses
     }
 
+    /// `GET /api/market/report-card/{team}` — a team's graded offseason.
+    func reportCard(team: String) async throws -> OffseasonReportCard {
+        try await get(apiURL("market").appendingPathComponent("report-card")
+                        .appendingPathComponent(team.uppercased()),
+                      as: OffseasonReportCard.self)
+    }
+
     /// `GET /api/market/players` — search, or the top of the market.
     func marketPlayers(query: String? = nil, limit: Int = 50) async throws -> [MarketPlayer] {
         var comps = URLComponents(url: apiURL("market").appendingPathComponent("players"),

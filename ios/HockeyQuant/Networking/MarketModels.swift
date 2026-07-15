@@ -137,3 +137,61 @@ extension String {
         }
     }
 }
+
+// MARK: - Offseason report card
+
+struct ReportCardFactor: Decodable, Hashable, Identifiable {
+    let label: String
+    let detail: String
+    let positive: Bool
+    var id: String { label }
+}
+
+struct ReportCardMove: Decodable, Hashable, Identifiable {
+    let name: String
+    let position: String
+    let aav: Double
+    let years: Int?
+    let fairValue: Double?
+    let verdict: String?
+    let otherTeam: String?
+    var id: String { name }
+
+    var termLine: String {
+        let money = String(format: "$%.1fM", aav / 1_000_000)
+        return years.map { "\(money) × \($0) yr" } ?? money
+    }
+}
+
+struct ReportCardDraft: Decodable, Hashable {
+    let picks: Int
+    let firstOverall: Int?
+    let firstPlayer: String?
+    let elcSigned: Int
+}
+
+struct OffseasonReportCard: Decodable {
+    let team: String
+    let grade: String
+    let score: Int?
+    let headline: String
+    let committed: Double
+    let surplus: Double
+    let factors: [ReportCardFactor]
+    let arrivals: [ReportCardMove]
+    let resigned: [ReportCardMove]
+    let departures: [ReportCardMove]
+    let draft: ReportCardDraft
+    let capSpace: Double?
+
+    /// Green (A) → accent (B) → amber (C) → red (D/F).
+    var gradeHex: UInt32 {
+        switch grade.first {
+        case "A": return 0x1F8A5B
+        case "B": return 0x2F80C8
+        case "C": return 0xE8842A
+        case "D": return 0xD46A2A
+        default:  return 0xD64545
+        }
+    }
+}

@@ -4,9 +4,14 @@ import SwiftUI
 /// free agents, build trades, and share the moves timeline as an image.
 struct OffseasonView: View {
     @Environment(PremiumStore.self) private var premium
+    @Environment(AuthStore.self) private var auth
     @State private var store = OffseasonStore()
     @State private var segment = 0
     @State private var showPaywall = false
+
+    // Offseason report card (favorite team)
+    @State private var reportCard: OffseasonReportCard?
+    @State private var showReportCard = false
 
     // Market segment state
     @State private var search = ""
@@ -28,6 +33,14 @@ struct OffseasonView: View {
         }
         .toolbar(.hidden, for: .navigationBar)
         .task { await store.load() }
+        .task(id: auth.favoriteTeam) {
+            if let team = auth.favoriteTeam, !team.isEmpty {
+                reportCard = try? await APIClient().reportCard(team: team)
+            }
+        }
+        .floatingCard(isPresented: $showReportCard) {
+            if let card = reportCard { ReportCardSheet(card: card) }
+        }
         .floatingCard(item: $signingAgent) { agent in
             SignPlayerSheet(store: store, agent: agent)
         }
@@ -83,6 +96,9 @@ struct OffseasonView: View {
             VStack(spacing: 0) {
                 heroBand
                 VStack(spacing: Theme.Spacing.md) {
+                    if let card = reportCard {
+                        ReportCardBanner(card: card) { showReportCard = true }
+                    }
                     BigSegment(selection: $segment, options: ["Market", "Teams", "Moves"])
                     ZStack {
                         switch segment {
