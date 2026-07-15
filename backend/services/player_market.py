@@ -603,25 +603,33 @@ def offseason_report_card(team: str) -> dict:
     moves = len(additions) + len(departures) + len(trades_in) + len(trades_out)
     score = None
     if moves:
+        raw = 68.0   # neutral base (C)
+        # Two co-equal lenses — "did you get better?" and "did you pay well?"
+        # Talent added (net fair value in vs out) is a major term: paying a
+        # little over market for real talent is still a good summer. A pure
+        # value audit used to punish every win-now team.
+        talent = max(-14.0, min(19.0, net_talent / 1e6 * 1.3))
+        raw += talent
         if rel_prem is not None:
-            # Relative to the market: paying above the league-average premium
-            # bites hard; beating it helps but gently (a "steal" is often just
-            # the model over-valuing a decliner, so the upside is capped).
-            val = -rel_prem * (150 if rel_prem >= 0 else 80)
-            raw = 72.0 + max(-30.0, min(13.0, val))
-        else:
-            raw = 70.0                                        # only depth moves
-        raw += max(-2.0, min(2.0, net_talent / 1e6 * 0.3))   # fair value in vs out
+            # Value discipline still bites for a genuine overpay, but no longer
+            # defines the grade on its own.
+            val = -rel_prem * (78 if rel_prem >= 0 else 52)
+            raw += max(-15.0, min(10.0, val))
         # Draft desk centered on an ordinary class — only a genuinely strong
         # one (ELCs under contract, a top-5 pick) is a net positive.
         draft_pts = elc * 0.6 + (1.0 if first and first["overall"] <= 5 else 0.0) - 0.8
-        raw += max(-1.0, min(2.0, draft_pts))
-        score = round(max(35.0, min(93.0, raw)))
+        raw += max(-1.0, min(2.5, draft_pts))
+        score = round(max(35.0, min(94.0, raw)))
 
     grade = _letter(score) if score is not None else "INC"
 
+    STRONG_TALENT = 6_000_000
     if not moves:
         headline = "A quiet summer so far — no moves in or out."
+    elif net_talent >= STRONG_TALENT and prem_ratio is not None and prem_ratio >= 0.10:
+        headline = f"Added real talent ({_mm(net_talent)} of fair value), but paid over market to do it."
+    elif net_talent >= STRONG_TALENT:
+        headline = f"Got meaningfully better — {_mm(net_talent)} of fair value added, at a fair price."
     elif prem_ratio is not None and prem_ratio >= 0.12:
         headline = f"Took on about {round(prem_ratio * 100)}% over model on the contracts it added."
     elif surplus >= 800_000:
