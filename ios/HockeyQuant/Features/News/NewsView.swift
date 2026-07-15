@@ -44,15 +44,22 @@ struct NewsView: View {
             .toolbar(.hidden, for: .navigationBar)
         }
         .task(id: auth.favoriteTeam) {
-            await store.loadLatest(team: auth.favoriteTeam)
-            // Load the mock draft up front so the "new" badge can pull the user
-            // into Prospects even while they're still on the News tab.
-            if store.mockDraft == nil { await store.loadMockDraft() }
-            if store.marketPulse == nil { await store.loadMarketPulse() }
-            if store.leaguePulses.isEmpty { await store.loadLeaguePulses() }
-            if store.feedItems.isEmpty { await store.loadFeed(team: auth.favoriteTeam) }
+            // Everything in parallel — the pulse deck used to wait behind the
+            // digests and time out silently right after a backend deploy
+            // (cold caches), leaving the deck hidden all session.
+            async let latest: Void = store.loadLatest(team: auth.favoriteTeam)
+            async let mock: Void = loadMockIfNeeded()
+            async let pulses: Void = loadPulsesIfNeeded()
+            async let wire: Void = loadWireIfNeeded()
+            _ = await (latest, mock, pulses, wire)
         }
         .task(id: tab) {
+            // Returning to the News tab retries anything that failed earlier.
+            if tab == 0 {
+                async let pulses: Void = loadPulsesIfNeeded()
+                async let wire: Void = loadWireIfNeeded()
+                _ = await (pulses, wire)
+            }
             // Load every prospect list so swiping between them is instant.
             guard tab == 1 else { return }
             if let fav = auth.favoriteTeam {
@@ -194,6 +201,26 @@ struct NewsView: View {
                 _ = await (latest, market, league, wire)
             }
         }
+    }
+
+    // MARK: - Loaders (idempotent — safe to fire from several triggers)
+
+    private func loadMockIfNeeded() async {
+        // Load the mock draft up front so the "new" badge can pull the user
+        // into Prospects even while they're still on the News tab.
+        if store.mockDraft == nil { await store.loadMockDraft() }
+    }
+
+    private func loadPulsesIfNeeded() async {
+        async let market: Void = store.marketPulse == nil
+            ? store.loadMarketPulse() : ()
+        async let league: Void = store.leaguePulses.isEmpty
+            ? store.loadLeaguePulses() : ()
+        _ = await (market, league)
+    }
+
+    private func loadWireIfNeeded() async {
+        if store.feedItems.isEmpty { await store.loadFeed(team: auth.favoriteTeam) }
     }
 
     // MARK: - The Wire (chronological archive: articles + insider blurbs)
