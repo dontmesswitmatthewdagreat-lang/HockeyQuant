@@ -440,9 +440,11 @@ def comparables(key: str, market: dict, limit: int = 5) -> List[dict]:
 # MARK: - Offseason report card
 
 def _letter(score: float) -> str:
-    for cutoff, letter in ((97, "A+"), (93, "A"), (90, "A-"), (87, "B+"), (83, "B"),
-                           (80, "B-"), (77, "C+"), (73, "C"), (70, "C-"),
-                           (65, "D+"), (60, "D")):
+    # Bands fit the report card's 35–95 range: an average summer lands C+/B-,
+    # a clear overpay in the D's, only a genuine value coup reaches A.
+    for cutoff, letter in ((92, "A+"), (88, "A"), (85, "A-"), (82, "B+"), (78, "B"),
+                           (75, "B-"), (72, "C+"), (68, "C"), (64, "C-"),
+                           (60, "D+"), (56, "D"), (52, "D-")):
         if score >= cutoff:
             return letter
     return "F"
@@ -474,10 +476,25 @@ def offseason_report_card(team: str) -> dict:
                   if nt(s.get("from_team")) == team and nt(s.get("team")) != team]
 
     committed = sum(s["aav"] for s in additions)
-    matched_adds = [s for s in additions if s.get("fair_value")]
-    surplus = sum(s["fair_value"] - s["aav"] for s in matched_adds)
-    spend_matched = sum(s["aav"] for s in matched_adds)
-    prem_ratio = (-surplus / spend_matched) if spend_matched else 0.0   # + = overpaying
+    # Only meaningful signings define value discipline. Below the verdict
+    # threshold every warm body books fake "surplus" (the model values even a
+    # league-minimum depth player above his AAV), which used to drown out real
+    # overpays and hand out A+ for filling a roster.
+    GRADED_MIN = 1_500_000
+    graded_adds = [s for s in additions if s.get("fair_value") and s["aav"] >= GRADED_MIN]
+    paid_over = sum(s["aav"] - s["fair_value"] for s in graded_adds)      # + = overpaid
+    spend_graded = sum(s["aav"] for s in graded_adds)
+    surplus = -paid_over                                                  # + = under model
+    prem_ratio = (paid_over / spend_graded) if spend_graded else None     # dollar-weighted
+
+    # League baseline: the model systematically values players above their AAV
+    # (contracts are team-friendly in ways raw production misses), so almost
+    # every deal looks like a "bargain". Grade against the market — the league
+    # average premium — not the model's absolute zero, or everyone gets an A.
+    lg = [s for s in signings if s.get("fair_value") and s["aav"] >= GRADED_MIN]
+    lg_spend = sum(s["aav"] for s in lg)
+    league_prem = (sum(s["aav"] - s["fair_value"] for s in lg) / lg_spend) if lg_spend else 0.0
+    rel_prem = (prem_ratio - league_prem) if prem_ratio is not None else None  # + = worse than market
 
     matched_deps = [s for s in departures if s.get("fair_value")]
     dodged = sum(max(0.0, s["aav"] - s["fair_value"]) for s in matched_deps)
@@ -500,38 +517,48 @@ def offseason_report_card(team: str) -> dict:
         except Exception:
             elc = 0
 
-    # The grade: start at C+/B- water level, move for provable value.
+    # Grade: value discipline on the significant signings is the spine; the
+    # draft desk, exits, and net talent are small capped nudges. Centered so an
+    # average summer lands C+/B- and a clear overpay drops into the D's.
     moves = len(additions) + len(departures)
     score = None
     if moves:
-        raw = 78.0
-        raw -= prem_ratio * 120                            # value discipline
-        raw += min(dodged / 1e6 * 1.5, 8)                  # rivals overpaid the leavers
-        raw += max(-10.0, min(net_talent / 1e6 * 0.8, 10)) # fair value in vs out
-        raw += min(elc * 1.5, 4.5)                         # draft class under contract
-        score = round(max(50.0, min(99.0, raw)))
+        if rel_prem is not None:
+            # Relative to the market: paying above the league-average premium
+            # bites hard; beating it helps but gently (a "steal" is often just
+            # the model over-valuing a decliner, so the upside is capped).
+            val = -rel_prem * (150 if rel_prem >= 0 else 85)
+            raw = 77.0 + max(-34.0, min(11.0, val))
+        else:
+            raw = 73.0                                        # no significant signings
+        raw += max(-1.5, min(1.5, dodged / 1e6 * 0.7))       # exits: weak signal
+        raw += max(-2.5, min(2.5, net_talent / 1e6 * 0.35))  # fair value in vs out
+        raw += min(2.5, elc * 0.9 + (1.0 if first and first["overall"] <= 10 else 0.0))
+        score = round(max(35.0, min(94.0, raw)))
 
     grade = _letter(score) if score is not None else "INC"
 
     if not moves:
         headline = "A quiet summer so far — no signings in or out."
+    elif prem_ratio is not None and prem_ratio >= 0.12:
+        headline = f"Paid about {round(prem_ratio * 100)}% over model on the summer's real signings."
     elif surplus >= 1_500_000:
-        headline = f"Banked {_mm(surplus)} of surplus value on {len(matched_adds)} graded signings."
-    elif prem_ratio > 0.08:
-        headline = f"Paying about {round(prem_ratio * 100)}% over model across the summer's deals."
+        headline = f"Banked {_mm(surplus)} of surplus value on {len(graded_adds)} graded signings."
     elif dodged >= 2_000_000:
         headline = f"Let rivals overpay the departures by {_mm(dodged)}."
     elif net_talent <= -3_000_000:
         headline = f"More talent walked out than arrived ({_mm(-net_talent)} of fair value)."
+    elif not graded_adds:
+        headline = "A quiet summer of depth signings so far."
     else:
         headline = "A measured summer — close-to-fair deals on both sides."
 
     factors = []
-    if matched_adds:
+    if graded_adds:
         factors.append({
             "label": "VALUE DISCIPLINE",
             "detail": f"{'+' if surplus >= 0 else '−'}{_mm(abs(surplus))} vs model on "
-                      f"{len(matched_adds)} signing{'s' if len(matched_adds) != 1 else ''}",
+                      f"{len(graded_adds)} graded signing{'s' if len(graded_adds) != 1 else ''}",
             "positive": surplus >= 0})
     if arrivals or matched_deps:
         factors.append({
