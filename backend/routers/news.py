@@ -241,11 +241,16 @@ def feed(team: Optional[str] = None, kind: Optional[str] = None,
         else:
             q = q.eq("scope", "league")
         if cursor:
-            try:
-                q = q.lt("id", int(cursor))
-            except ValueError:
-                pass
-        rows = q.order("id", desc=True).limit(limit).execute().data
+            # Composite keyset cursor: "<published_at>|<id>".
+            ts, _, iid = cursor.partition("|")
+            if ts and iid.isdigit():
+                q = q.or_(f'published_at.lt."{ts}",'
+                          f'and(published_at.eq."{ts}",id.lt.{iid})')
+        # True publish-time order — insertion order lies for backfilled sources
+        # (a whole RSS feed arrives newest-first, so ids run backwards within
+        # it). Rows with no parseable date sink to the bottom.
+        rows = q.order("published_at.desc.nullslast,id", desc=True) \
+            .limit(limit).execute().data
     except Exception:
         rows = []
     items = [{
@@ -255,7 +260,9 @@ def feed(team: Optional[str] = None, kind: Optional[str] = None,
         "kind": r.get("kind") or "article", "team": r.get("team"),
         "first_seen_at": r.get("first_seen_at"),
     } for r in rows]
-    next_cursor = str(rows[-1]["id"]) if len(rows) == limit else None
+    next_cursor = None
+    if len(rows) == limit and rows[-1].get("published_at"):
+        next_cursor = f"{rows[-1]['published_at']}|{rows[-1]['id']}"
     return {"items": items, "next_cursor": next_cursor}
 
 
