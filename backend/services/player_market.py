@@ -624,14 +624,22 @@ def offseason_report_card(team: str) -> dict:
     grade = _letter(score) if score is not None else "INC"
 
     STRONG_TALENT = 6_000_000
+    over = prem_ratio if prem_ratio is not None else 0.0
+    # A weak grade leads with what dragged it down; the forgiving "added talent,
+    # paid over" framing is reserved for summers that actually graded out well.
+    weak = score is not None and score < 68
     if not moves:
         headline = "A quiet summer so far — no moves in or out."
-    elif net_talent >= STRONG_TALENT and prem_ratio is not None and prem_ratio >= 0.10:
+    elif weak and over >= 0.12:
+        headline = f"Overpaid this summer — about {round(over * 100)}% above model on the contracts it added."
+    elif weak and net_talent <= -3_000_000:
+        headline = f"More talent left than arrived ({_mm(-net_talent)} of fair value)."
+    elif net_talent >= STRONG_TALENT and over >= 0.10:
         headline = f"Added real talent ({_mm(net_talent)} of fair value), but paid over market to do it."
     elif net_talent >= STRONG_TALENT:
         headline = f"Got meaningfully better — {_mm(net_talent)} of fair value added, at a fair price."
-    elif prem_ratio is not None and prem_ratio >= 0.12:
-        headline = f"Took on about {round(prem_ratio * 100)}% over model on the contracts it added."
+    elif over >= 0.12:
+        headline = f"Took on about {round(over * 100)}% over model on the contracts it added."
     elif surplus >= 800_000:
         headline = f"Banked {_mm(surplus)} of surplus value across {n_graded} graded moves."
     elif net_talent <= -3_000_000:
