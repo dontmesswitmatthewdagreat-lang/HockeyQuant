@@ -194,38 +194,91 @@ _TRADES_URL = "https://www.spotrac.com/nhl/transactions/"
 _TRADE_ROW = re.compile(
     r'/nhl/player/_/id/\d+/[^"]+"[^>]*>([^<]+)</a>\s*<small[^>]*>(.*?)</small>', re.S)
 _TRADE_DESC = re.compile(r"Traded to .+?\(([A-Z]{2,3})\)\s*from .+?\(([A-Z]{2,3})\)")
+_PICK = re.compile(r"(conditional\s+)?(\d{4})\s+(\d)(?:st|nd|rd|th)\s+round\s+pick", re.I)
 
 
-def fetch_trades() -> List[dict]:
-    """This offseason's trades from Spotrac's transactions feed: each traded
-    player with the team that acquired him (`to_team`) and dealt him
-    (`from_team`). Picks/prospects in the return are not parsed — the report
-    card values the contract that changed hands, not the whole package."""
+def _parse_trade_page(html: str, players: list, seen: set, picks: dict) -> None:
+    for name_raw, desc in _TRADE_ROW.findall(html):
+        text = re.sub(r"<[^>]+>", "", desc)
+        if "traded to" not in text.lower():
+            continue
+        m = _TRADE_DESC.search(text)
+        if not m:
+            continue
+        to, frm = m.group(1).upper(), m.group(2).upper()
+        name = re.sub(r"\s*\([^)]*\)\s*$", "", name_raw).strip()   # drop trailing " (C)"
+        key = (name.lower(), to, frm)
+        if name and key not in seen:
+            seen.add(key)
+            players.append({"name": name, "to_team": to, "from_team": frm})
+        # Picks: "with" clause moves with the player (frm→to); "for" return (to→frm).
+        after = text.split(" from ", 1)[-1]
+        with_part, _, for_part = after.partition(" for ")
+        for cond, yr, rd in _PICK.findall(with_part):
+            picks[(frm, to, yr, rd)] = bool(cond.strip())
+        for cond, yr, rd in _PICK.findall(for_part):
+            picks[(to, frm, yr, rd)] = bool(cond.strip())
+
+
+def fetch_trades(max_pages: int = 15) -> dict:
+    """This offseason's trades from Spotrac's transactions feed.
+
+    Returns {"players": [...], "picks": [...]}: each traded player with the
+    team that acquired him (`to_team`) and dealt him (`from_team`), plus the
+    draft picks that changed hands (deduped by from/to/year/round — the same
+    pick appears in every player-row of its trade). A pick in the "with" clause
+    travels with the player (from→to); one in the "for" return goes the other
+    way (to→from).
+
+    The feed is chronological, so as summer signings pile up the offseason's
+    trades get pushed onto later pages — we walk `/_/page/N` to recover them."""
     entry = _cache.get("trades")
     if entry and time.time() - entry["ts"] < _TTL:
         return entry["data"]
-    out, seen = [], set()
+    players, seen, picks = [], set(), {}
     try:
+        from concurrent.futures import ThreadPoolExecutor
         from services.offseason_data import _get
-        html = _get(_TRADES_URL)
-        for name_raw, desc in _TRADE_ROW.findall(html):
-            text = re.sub(r"<[^>]+>", "", desc)
-            if "traded to" not in text.lower():
-                continue
-            m = _TRADE_DESC.search(text)
-            if not m:
-                continue
-            name = re.sub(r"\s*\([^)]*\)\s*$", "", name_raw).strip()   # drop trailing " (C)"
-            key = (name.lower(), m.group(1), m.group(2))
-            if not name or key in seen:
-                continue
-            seen.add(key)
-            out.append({"name": name, "to_team": m.group(1).upper(),
-                        "from_team": m.group(2).upper()})
+
+        def page(n):
+            url = _TRADES_URL if n == 1 else f"{_TRADES_URL}_/page/{n}"
+            try:
+                return _get(url)
+            except Exception:
+                return ""
+
+        with ThreadPoolExecutor(max_workers=5) as pool:
+            pages = list(pool.map(page, range(1, max_pages + 1)))
+        for html in pages:
+            if html:
+                _parse_trade_page(html, players, seen, picks)
     except Exception:
-        return entry["data"] if entry else []
-    _cache["trades"] = {"ts": time.time(), "data": out}
-    return out
+        return entry["data"] if entry else {"players": [], "picks": []}
+    data = {"players": players,
+            "picks": [{"from": f, "to": t, "year": int(y), "round": int(r), "conditional": c}
+                      for (f, t, y, r), c in picks.items()]}
+    _cache["trades"] = {"ts": time.time(), "data": data}
+    return data
+
+
+# Rough asset value of a draft pick in fair-value dollars (surplus a pick
+# tends to return), discounted for "conditional". Used to value the pick side
+# of a trade — the report card's futures ledger.
+_PICK_VALUE = {1: 3_000_000, 2: 1_200_000, 3: 600_000, 4: 350_000,
+               5: 200_000, 6: 120_000, 7: 80_000}
+
+
+def _pick_value(rd: int, conditional: bool) -> float:
+    return _PICK_VALUE.get(rd, 100_000) * (0.6 if conditional else 1.0)
+
+
+def _pick_summary(pl: list) -> str:
+    from collections import Counter
+    names = {1: "first", 2: "second", 3: "third", 4: "fourth",
+             5: "fifth", 6: "sixth", 7: "seventh"}
+    c = Counter(p["round"] for p in pl)
+    return ", ".join(f"{c[r]} {names.get(r, f'{r}th')}{'s' if c[r] > 1 else ''}"
+                     for r in sorted(c))
 
 
 # MARK: - Valuation model
@@ -518,7 +571,8 @@ def offseason_report_card(team: str) -> dict:
     # contract (or shedding one) is a value decision, graded like a signing —
     # this is how the Korpisalo/Nurse-type deals reach the report card, which
     # the free-agent feed alone never sees. Picks/prospects aren't valued.
-    trades = fetch_trades()
+    trade_data = fetch_trades()
+    trade_players, pick_moves = trade_data["players"], trade_data["picks"]
 
     def trade_move(t, other_key):
         p = players.get(_norm(t["name"]))
@@ -531,10 +585,17 @@ def offseason_report_card(team: str) -> dict:
                 "verdict": "steal" if prem < -0.15 else ("overpay" if prem > 0.15 else "fair"),
                 "other_team": nt(t[other_key])}
 
-    trades_in = [m for m in (trade_move(t, "from_team") for t in trades
+    trades_in = [m for m in (trade_move(t, "from_team") for t in trade_players
                              if nt(t["to_team"]) == team) if m]
-    trades_out = [m for m in (trade_move(t, "to_team") for t in trades
+    trades_out = [m for m in (trade_move(t, "to_team") for t in trade_players
                               if nt(t["from_team"]) == team) if m]
+
+    # Draft-pick capital that changed hands in trades — a futures ledger.
+    picks_in = [p for p in pick_moves if nt(p["to"]) == team]
+    picks_out = [p for p in pick_moves if nt(p["from"]) == team]
+    pick_gain = sum(_pick_value(p["round"], p["conditional"]) for p in picks_in)
+    pick_cost = sum(_pick_value(p["round"], p["conditional"]) for p in picks_out)
+    net_picks = pick_gain - pick_cost
 
     committed = sum(s["aav"] for s in additions) + sum(m["aav"] for m in trades_in)
 
@@ -570,7 +631,7 @@ def offseason_report_card(team: str) -> dict:
 
     # League baseline: the same contract pool across every team (the model
     # values players above their AAV, so grade against the market, not zero).
-    all_tr = [m for m in (trade_move(t, "from_team") for t in trades) if m]
+    all_tr = [m for m in (trade_move(t, "from_team") for t in trade_players) if m]
     _, lg_spend, lg_paid = graded_stats(signings, all_tr)
     league_prem = (lg_paid / lg_spend) if lg_spend else 0.0
     rel_prem = (prem_ratio - league_prem) if prem_ratio is not None else None  # + = worse than market
@@ -600,7 +661,8 @@ def offseason_report_card(team: str) -> dict:
     # Grade: value discipline on the significant signings is the spine; the
     # draft desk, exits, and net talent are small capped nudges. Centered so an
     # average summer lands C+/B- and a clear overpay drops into the D's.
-    moves = len(additions) + len(departures) + len(trades_in) + len(trades_out)
+    moves = (len(additions) + len(departures) + len(trades_in) + len(trades_out)
+             + len(picks_in) + len(picks_out))
     score = None
     if moves:
         raw = 68.0   # neutral base (C)
@@ -615,6 +677,9 @@ def offseason_report_card(team: str) -> dict:
             # defines the grade on its own.
             val = -rel_prem * (78 if rel_prem >= 0 else 52)
             raw += max(-15.0, min(10.0, val))
+        # Futures: pick capital dealt for win-now help is a real cost; selling
+        # veterans for a pick haul is real value. Moderate, capped both ways.
+        raw += max(-8.0, min(8.0, net_picks / 1e6 * 0.9))
         # Draft desk centered on an ordinary class — only a genuinely strong
         # one (ELCs under contract, a top-5 pick) is a net positive.
         draft_pts = elc * 0.6 + (1.0 if first and first["overall"] <= 5 else 0.0) - 0.8
@@ -675,6 +740,14 @@ def offseason_report_card(team: str) -> dict:
             "positive": dodged > 500_000})
     elif not departures:
         factors.append({"label": "EXITS", "detail": "No notable departures", "positive": True})
+    if picks_in or picks_out:
+        parts = []
+        if picks_out:
+            parts.append(f"Dealt {_pick_summary(picks_out)}")
+        if picks_in:
+            parts.append(f"added {_pick_summary(picks_in)}")
+        factors.append({"label": "FUTURES", "detail": " · ".join(parts),
+                        "positive": net_picks >= 0})
     if picks:
         factors.append({
             "label": "DRAFT DESK",
