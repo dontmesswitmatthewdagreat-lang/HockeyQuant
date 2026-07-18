@@ -268,17 +268,106 @@ _PICK_VALUE = {1: 3_000_000, 2: 1_200_000, 3: 600_000, 4: 350_000,
                5: 200_000, 6: 120_000, 7: 80_000}
 
 
-def _pick_value(rd: int, conditional: bool) -> float:
-    return _PICK_VALUE.get(rd, 100_000) * (0.6 if conditional else 1.0)
+_GRADE_LADDER = ["F", "D-", "D", "D+", "C-", "C", "C+", "B-", "B", "B+", "A-", "A", "A+"]
+
+
+def _ai_context_adjust(team: str, grade: str, score: int, headline: str,
+                       factors: list, picks_in: list, picks_out: list,
+                       cap_space: Optional[float]) -> Optional[dict]:
+    """Bounded AI pass over the deterministic card: a measured analyst may
+    nudge the grade up to two notches for context the numbers can't see —
+    the team's competitive window (a contender spending futures for win-now
+    help is normal; a rebuilder doing it is malpractice), how far out the
+    dealt picks are, roster fit. Returns {steps, note} or None; the
+    deterministic grade always survives a failure."""
+    key = f"rc_ai_{team}"
+    entry = _cache.get(key)
+    if entry and time.time() - entry["ts"] < _TTL:
+        return entry["data"]
+    result = None
+    try:
+        import json as _json
+        from services.llm import groq_chat
+
+        # Competitive window, computed here so the model can't misread it.
+        window = ""
+        try:
+            r = requests.get("https://api-web.nhle.com/v1/standings/now",
+                             headers=NHL_HEADERS, timeout=10).json()
+            rows = sorted(r.get("standings", []),
+                          key=lambda s: -int(s.get("points", 0) or 0))
+            for i, s in enumerate(rows):
+                if (s.get("teamAbbrev") or {}).get("default") == team:
+                    rank = i + 1
+                    label = ("contender" if rank <= 10
+                             else "playoff bubble team" if rank <= 20 else "rebuilding team")
+                    window = (f"Competitive window: {label} "
+                              f"(#{rank} of {len(rows)} in points last season, {s.get('points')} pts).")
+                    break
+        except Exception:
+            pass
+
+        facts = "\n".join(f"- {f['label']}: {f['detail']}" for f in factors)
+        picks_txt = (f"Picks dealt away: {_pick_summary(picks_out) or 'none'}. "
+                     f"Picks acquired: {_pick_summary(picks_in) or 'none'}.")
+        cap_txt = f"Cap space now: ${cap_space / 1e6:.1f}M." if cap_space is not None else ""
+        prompt = (
+            f"Team: {team}. Quantitative offseason grade: {grade} (score {score}).\n"
+            f"Headline: {headline}\n{facts}\n{picks_txt} {cap_txt}\n{window}\n\n"
+            'Respond ONLY with JSON: {"steps": <int -2..2, one grade notch each>, '
+            '"note": "<one concise sentence: the contextual reason, or why no change>"}'
+        )
+        raw = groq_chat(
+            [{"role": "system", "content":
+                "You are a measured NHL analyst. The quantitative card has ALREADY "
+                "fully priced contract value (over/underpays), talent in vs out, and "
+                "pick capital into the grade — never re-penalize or re-reward those "
+                "(citing 'cap flexibility' against an overpay the card counted is "
+                "double-counting; steps=0 instead). Adjust ONLY for context the "
+                "numbers cannot see:\n"
+                "1. Window fit — a contender or bubble team paying up / spending "
+                "picks for real talent leans UP (the cost is already charged); a "
+                "rebuilding team doing that leans DOWN; a rebuilder stockpiling "
+                "futures leans UP.\n"
+                "2. Pick timing — dealt picks 3+ drafts out are heavily uncertain; "
+                "if the FUTURES factor reads negative but the dealt picks are mostly "
+                "far-future, lean UP one notch.\n"
+                "Most teams get 0; only clear contextual reasons move a notch or two."},
+             {"role": "user", "content": prompt}],
+            max_tokens=400, temperature=0.1)
+        m = re.search(r"\{.*\}", raw, re.S)
+        data = _json.loads(m.group(0)) if m else {}
+        steps = max(-2, min(2, int(data.get("steps", 0))))
+        note = str(data.get("note", "")).strip()[:220]
+        if note:
+            result = {"steps": steps, "note": note}
+    except Exception:
+        result = None
+    _cache[key] = {"ts": time.time(), "data": result}
+    return result
+
+
+def _pick_value(rd: int, conditional: bool, year: Optional[int] = None) -> float:
+    v = _PICK_VALUE.get(rd, 100_000)
+    if year:
+        # Future picks are discounted ~15%/yr — a 2030 first is a lottery
+        # ticket, not a 2026 first.
+        import datetime
+        horizon = max(0, int(year) - datetime.date.today().year)
+        v *= 0.85 ** horizon
+    return v * (0.6 if conditional else 1.0)
 
 
 def _pick_summary(pl: list) -> str:
-    from collections import Counter
-    names = {1: "first", 2: "second", 3: "third", 4: "fourth",
-             5: "fifth", 6: "sixth", 7: "seventh"}
-    c = Counter(p["round"] for p in pl)
-    return ", ".join(f"{c[r]} {names.get(r, f'{r}th')}{'s' if c[r] > 1 else ''}"
-                     for r in sorted(c))
+    """Compact pick list with YEARS visible — '2026 1st, 2028 1st, 2030 1st
+    (cond)' — so far-future picks read as what they are."""
+    ords = {1: "1st", 2: "2nd", 3: "3rd"}
+
+    def lab(p):
+        o = ords.get(p["round"], f"{p['round']}th")
+        return f"{p['year']} {o}" + (" (cond)" if p["conditional"] else "")
+
+    return ", ".join(lab(p) for p in sorted(pl, key=lambda p: (p["round"], p["year"])))
 
 
 # MARK: - Valuation model
@@ -593,8 +682,8 @@ def offseason_report_card(team: str) -> dict:
     # Draft-pick capital that changed hands in trades — a futures ledger.
     picks_in = [p for p in pick_moves if nt(p["to"]) == team]
     picks_out = [p for p in pick_moves if nt(p["from"]) == team]
-    pick_gain = sum(_pick_value(p["round"], p["conditional"]) for p in picks_in)
-    pick_cost = sum(_pick_value(p["round"], p["conditional"]) for p in picks_out)
+    pick_gain = sum(_pick_value(p["round"], p["conditional"], p["year"]) for p in picks_in)
+    pick_cost = sum(_pick_value(p["round"], p["conditional"], p["year"]) for p in picks_out)
     net_picks = pick_gain - pick_cost
 
     committed = sum(s["aav"] for s in additions) + sum(m["aav"] for m in trades_in)
@@ -762,6 +851,21 @@ def offseason_report_card(team: str) -> dict:
     except Exception:
         pass
 
+    # AI context layer: the deterministic card stays the explainable spine;
+    # a bounded model pass may nudge the letter for situation the numbers
+    # can't see (contender vs rebuild, far-future picks, fit) and must say why.
+    model_grade = grade
+    adjustment_note = None
+    if score is not None:
+        adj = _ai_context_adjust(team, grade, score, headline, factors,
+                                 picks_in, picks_out, cap_space)
+        if adj:
+            adjustment_note = adj["note"] or None
+            if adj["steps"] and grade in _GRADE_LADDER:
+                i = _GRADE_LADDER.index(grade)
+                grade = _GRADE_LADDER[max(0, min(len(_GRADE_LADDER) - 1, i + adj["steps"]))]
+                score = int(max(35, min(96, score + 3 * adj["steps"])))
+
     def row(s, other_key):
         return {"name": s["name"], "position": s["position"], "aav": s["aav"],
                 "years": s.get("years"),
@@ -774,6 +878,7 @@ def offseason_report_card(team: str) -> dict:
 
     return {
         "team": team, "grade": grade, "score": score, "headline": headline,
+        "model_grade": model_grade, "adjustment_note": adjustment_note,
         "committed": round(committed), "surplus": round(surplus),
         "factors": factors,
         "arrivals": [row(s, "from_team") for s in sorted(arrivals, key=lambda s: -s["aav"])],
