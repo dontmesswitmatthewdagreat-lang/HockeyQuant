@@ -55,6 +55,9 @@ struct ReportCardSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: Theme.Spacing.md) {
                 header
+                if let note = card.adjustmentNote {
+                    contextRow(note)
+                }
                 if !card.factors.isEmpty {
                     SectionCard("How the grade was earned") { factorList }
                 }
@@ -65,7 +68,7 @@ struct ReportCardSheet: View {
                 movesCard("Departures", card.departures, otherLabel: "to")
                 draftCard
                 shareButton
-                Text("Grades weigh signings against the player market's fair value, talent in vs out, what rivals paid the players who left, and the draft desk. Deterministic — every point traces to a row above.")
+                Text("Grades weigh signings and trades against the player market's fair value, talent in vs out, pick capital (future picks discounted), and the draft desk — then an AI analyst pass may nudge the letter for the team's competitive window.")
                     .font(.system(size: 11))
                     .foregroundStyle(Theme.Palette.textTertiary)
                     .frame(maxWidth: .infinity)
@@ -104,6 +107,38 @@ struct ReportCardSheet: View {
                 .padding(.top, 2)
             }
         }
+    }
+
+    /// The AI analyst-context line: why the letter moved off (or stayed at)
+    /// the quantitative grade.
+    private func contextRow(_ note: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.Spacing.sm) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.Palette.accent)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text("ANALYST CONTEXT")
+                        .font(.system(size: 9, weight: .heavy))
+                        .kerning(0.6)
+                        .foregroundStyle(Theme.Palette.textTertiary)
+                    if let mg = card.modelGrade, mg != card.grade {
+                        Text("\(mg) → \(card.grade)")
+                            .font(.system(size: 9, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.accent)
+                    }
+                }
+                Text(note)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Theme.Palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(Theme.Spacing.sm)
+        .background(Theme.Palette.surfaceRaised)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
     }
 
     private func statChip(_ label: String, _ value: String, _ tint: Color?) -> some View {

@@ -176,6 +176,10 @@ struct OffseasonReportCard: Decodable {
     let grade: String
     let score: Int?
     let headline: String
+    /// The deterministic grade before the AI context pass (nil pre-deploy).
+    let modelGrade: String?
+    /// One-sentence analyst-context rationale from the AI pass.
+    let adjustmentNote: String?
     let committed: Double
     let surplus: Double
     let factors: [ReportCardFactor]
