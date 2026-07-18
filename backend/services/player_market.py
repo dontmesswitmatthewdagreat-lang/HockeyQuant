@@ -191,8 +191,8 @@ def fetch_signings() -> List[dict]:
 
 
 _TRADES_URL = "https://www.spotrac.com/nhl/transactions/"
-_TRADE_ROW = re.compile(
-    r'/nhl/player/_/id/\d+/[^"]+"[^>]*>([^<]+)</a>\s*<small[^>]*>(.*?)</small>', re.S)
+_TRADE_ROW = re.compile(  # tolerate wrapper spans between the player link and its <small> desc
+    r'/nhl/player/_/id/\d+/[^"]+"[^>]*>([^<]+)</a>(?:\s*</span>)*\s*<small[^>]*>(.*?)</small>', re.S)
 _TRADE_DESC = re.compile(r"Traded to .+?\(([A-Z]{2,3})\)\s*from .+?\(([A-Z]{2,3})\)")
 _PICK = re.compile(r"(conditional\s+)?(\d{4})\s+(\d)(?:st|nd|rd|th)\s+round\s+pick", re.I)
 
@@ -220,7 +220,7 @@ def _parse_trade_page(html: str, players: list, seen: set, picks: dict) -> None:
             picks[(to, frm, yr, rd)] = bool(cond.strip())
 
 
-def fetch_trades(max_pages: int = 15) -> dict:
+def fetch_trades(max_pages: int = 20) -> dict:
     """This offseason's trades from Spotrac's transactions feed.
 
     Returns {"players": [...], "picks": [...]}: each traded player with the
@@ -247,7 +247,8 @@ def fetch_trades(max_pages: int = 15) -> dict:
             except Exception:
                 return ""
 
-        with ThreadPoolExecutor(max_workers=5) as pool:
+        # Gentle parallelism — a hard burst gets the whole batch rate-limited.
+        with ThreadPoolExecutor(max_workers=3) as pool:
             pages = list(pool.map(page, range(1, max_pages + 1)))
         for html in pages:
             if html:
@@ -257,8 +258,13 @@ def fetch_trades(max_pages: int = 15) -> dict:
     data = {"players": players,
             "picks": [{"from": f, "to": t, "year": int(y), "round": int(r), "conditional": c}
                       for (f, t, y, r), c in picks.items()]}
-    _cache["trades"] = {"ts": time.time(), "data": data}
-    return data
+    # Never cache an empty scrape — a rate-limited batch would otherwise blank
+    # every trade from the report card for six hours. Serve the last good
+    # result (even expired) instead.
+    if players:
+        _cache["trades"] = {"ts": time.time(), "data": data}
+        return data
+    return entry["data"] if entry else data
 
 
 # Rough asset value of a draft pick in fair-value dollars (surplus a pick
