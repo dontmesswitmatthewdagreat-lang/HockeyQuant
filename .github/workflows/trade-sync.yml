@@ -1,0 +1,23 @@
+# HockeyQuant — Trade ledger sync
+# Spotrac's transactions feed is a rolling window: ~7 pages deep, and it purges
+# at the league-year rollover. During free-agency frenzy or the deadline those
+# pages can cover only a few days, so a trade we never synced is a trade the
+# report card loses forever. Syncing every 6 hours keeps the ledger ahead of
+# the window. The endpoint is additive — an empty scrape is a no-op, not a wipe.
+
+name: Trade Ledger Sync
+
+on:
+  schedule:
+    - cron: '0 */6 * * *'   # every 6 hours
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Sync trades
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/market/sync-trades"

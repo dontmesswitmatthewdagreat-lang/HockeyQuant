@@ -186,6 +186,30 @@ def pulse_league():
     return {"pulses": league_pulses()}
 
 
+@router.post("/market/sync-trades")
+def sync_trades_route():
+    """Cron: merge the live transactions feed into the durable trade ledger.
+
+    Spotrac's feed rolls over and drops history, so the report card reads the
+    ledger — this is what keeps it filled. Additive: an empty scrape is a no-op,
+    never a wipe."""
+    from services.trade_store import sync_trades
+    try:
+        return sync_trades()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Trade sync failed: {e}")
+
+
+@router.get("/market/trades")
+def trades_route(year: Optional[int] = None):
+    """The stored trade ledger for a league year (defaults to the current one)."""
+    from services.trade_store import load_trades, league_year
+    y = year or league_year()
+    data = load_trades(y)
+    return {"league_year": y, **data,
+            "counts": {"players": len(data["players"]), "picks": len(data["picks"])}}
+
+
 @router.post("/market/snapshot")
 def snapshot():
     """Cron: store today's values so the index/sparklines accrue history."""

@@ -195,29 +195,49 @@ _TRADE_ROW = re.compile(  # tolerate wrapper spans between the player link and i
     r'/nhl/player/_/id/\d+/[^"]+"[^>]*>([^<]+)</a>(?:\s*</span>)*\s*<small[^>]*>(.*?)</small>', re.S)
 _TRADE_DESC = re.compile(r"Traded to .+?\(([A-Z]{2,3})\)\s*from .+?\(([A-Z]{2,3})\)")
 _PICK = re.compile(r"(conditional\s+)?(\d{4})\s+(\d)(?:st|nd|rd|th)\s+round\s+pick", re.I)
+# Each transaction is one `transaction-row` list item that opens with its date.
+# Scoping the player/desc match to a single row also pairs them exactly, rather
+# than trusting that the nearest <small> in the document belongs to the link.
+_TRADE_BLOCK = re.compile(r"transaction-row(.*?)(?=transaction-row|\Z)", re.S)
+_TRADE_DATE = re.compile(r'transaction-date"[^>]*>\s*([A-Z][a-z]{2}\s+\d{1,2},\s+\d{4})')
+
+
+def _row_date(block: str) -> Optional[str]:
+    import datetime
+
+    m = _TRADE_DATE.search(block)
+    if not m:
+        return None
+    try:
+        return datetime.datetime.strptime(m.group(1), "%b %d, %Y").date().isoformat()
+    except ValueError:
+        return None
 
 
 def _parse_trade_page(html: str, players: list, seen: set, picks: dict) -> None:
-    for name_raw, desc in _TRADE_ROW.findall(html):
-        text = re.sub(r"<[^>]+>", "", desc)
-        if "traded to" not in text.lower():
-            continue
-        m = _TRADE_DESC.search(text)
-        if not m:
-            continue
-        to, frm = m.group(1).upper(), m.group(2).upper()
-        name = re.sub(r"\s*\([^)]*\)\s*$", "", name_raw).strip()   # drop trailing " (C)"
-        key = (name.lower(), to, frm)
-        if name and key not in seen:
-            seen.add(key)
-            players.append({"name": name, "to_team": to, "from_team": frm})
-        # Picks: "with" clause moves with the player (frm→to); "for" return (to→frm).
-        after = text.split(" from ", 1)[-1]
-        with_part, _, for_part = after.partition(" for ")
-        for cond, yr, rd in _PICK.findall(with_part):
-            picks[(frm, to, yr, rd)] = bool(cond.strip())
-        for cond, yr, rd in _PICK.findall(for_part):
-            picks[(to, frm, yr, rd)] = bool(cond.strip())
+    for block in _TRADE_BLOCK.findall(html):
+        on = _row_date(block)
+        for name_raw, desc in _TRADE_ROW.findall(block):
+            text = re.sub(r"<[^>]+>", "", desc)
+            if "traded to" not in text.lower():
+                continue
+            m = _TRADE_DESC.search(text)
+            if not m:
+                continue
+            to, frm = m.group(1).upper(), m.group(2).upper()
+            name = re.sub(r"\s*\([^)]*\)\s*$", "", name_raw).strip()   # drop trailing " (C)"
+            key = (name.lower(), to, frm)
+            if name and key not in seen:
+                seen.add(key)
+                players.append({"name": name, "to_team": to, "from_team": frm,
+                                "traded_on": on})
+            # Picks: "with" clause moves with the player (frm→to); "for" return (to→frm).
+            after = text.split(" from ", 1)[-1]
+            with_part, _, for_part = after.partition(" for ")
+            for cond, yr, rd in _PICK.findall(with_part):
+                picks[(frm, to, yr, rd)] = {"conditional": bool(cond.strip()), "traded_on": on}
+            for cond, yr, rd in _PICK.findall(for_part):
+                picks[(to, frm, yr, rd)] = {"conditional": bool(cond.strip()), "traded_on": on}
 
 
 def fetch_trades(max_pages: int = 20) -> dict:
@@ -256,8 +276,9 @@ def fetch_trades(max_pages: int = 20) -> dict:
     except Exception:
         return entry["data"] if entry else {"players": [], "picks": []}
     data = {"players": players,
-            "picks": [{"from": f, "to": t, "year": int(y), "round": int(r), "conditional": c}
-                      for (f, t, y, r), c in picks.items()]}
+            "picks": [{"from": f, "to": t, "year": int(y), "round": int(r),
+                       "conditional": v["conditional"], "traded_on": v["traded_on"]}
+                      for (f, t, y, r), v in picks.items()]}
     # Never cache an empty scrape — a rate-limited batch would otherwise blank
     # every trade from the report card for six hours. Serve the last good
     # result (even expired) instead.
@@ -666,7 +687,9 @@ def offseason_report_card(team: str) -> dict:
     # contract (or shedding one) is a value decision, graded like a signing —
     # this is how the Korpisalo/Nurse-type deals reach the report card, which
     # the free-agent feed alone never sees. Picks/prospects aren't valued.
-    trade_data = fetch_trades()
+    from services.trade_store import get_trades
+
+    trade_data = get_trades()
     trade_players, pick_moves = trade_data["players"], trade_data["picks"]
 
     def trade_move(t, other_key):
