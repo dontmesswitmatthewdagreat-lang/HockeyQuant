@@ -202,10 +202,18 @@ def sync_trades_route():
 
 @router.get("/market/trades")
 def trades_route(year: Optional[int] = None):
-    """The stored trade ledger for a league year (defaults to the current one)."""
+    """The stored trade ledger for a league year (defaults to the current one).
+
+    Reports an empty ledger rather than failing when the tables aren't there
+    yet — the report card runs off the live feed in that state, so this is a
+    diagnostic, not an outage."""
     from services.trade_store import load_trades, league_year
     y = year or league_year()
-    data = load_trades(y)
+    try:
+        data = load_trades(y)
+    except Exception as e:
+        return {"league_year": y, "players": [], "picks": [],
+                "counts": {"players": 0, "picks": 0}, "ledger_error": str(e)[:200]}
     return {"league_year": y, **data,
             "counts": {"players": len(data["players"]), "picks": len(data["picks"])}}
 
