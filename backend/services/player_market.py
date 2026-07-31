@@ -240,7 +240,7 @@ def _parse_trade_page(html: str, players: list, seen: set, picks: dict) -> None:
                 picks[(to, frm, yr, rd)] = {"conditional": bool(cond.strip()), "traded_on": on}
 
 
-def fetch_trades(max_pages: int = 20) -> dict:
+def fetch_trades(max_pages: int = 20, force: bool = False) -> dict:
     """This offseason's trades from Spotrac's transactions feed.
 
     Returns {"players": [...], "picks": [...]}: each traded player with the
@@ -251,9 +251,18 @@ def fetch_trades(max_pages: int = 20) -> dict:
     way (to→from).
 
     The feed is chronological, so as summer signings pile up the offseason's
-    trades get pushed onto later pages — we walk `/_/page/N` to recover them."""
+    trades get pushed onto later pages — we walk `/_/page/N` to recover them.
+    Spotrac clamps out-of-range page numbers to the last page rather than
+    returning empty, so the tail of the walk is harmless duplicates that dedupe
+    absorbs. We deliberately don't try to stop early: the obvious signals both
+    lie. "No new trades on this page" truncates the walk because free-agency day
+    fills entire pages with nothing but signings, and "same page content" never
+    fires because clamped pages differ by ad/token noise. A wrong stop silently
+    drops trades, which is the exact failure the ledger exists to prevent — a
+    dozen redundant requests is the cheaper mistake. `force` bypasses the cache;
+    the sync job wants the feed as it is now, not as it was six hours ago."""
     entry = _cache.get("trades")
-    if entry and time.time() - entry["ts"] < _TTL:
+    if entry and not force and time.time() - entry["ts"] < _TTL:
         return entry["data"]
     players, seen, picks = [], set(), {}
     try:

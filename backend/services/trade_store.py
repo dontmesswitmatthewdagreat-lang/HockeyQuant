@@ -54,7 +54,9 @@ def sync_trades() -> dict:
     if sb is None:
         return {"error": "supabase not configured"}
 
-    scraped = fetch_trades()
+    # Force a live read: a cron that syncs a six-hour-old cache would keep
+    # re-storing the same snapshot and miss everything traded since.
+    scraped = fetch_trades(force=True)
     players, picks = scraped["players"], scraped["picks"]
     if not players and not picks:
         # A broken or rate-limited scrape must never be mistaken for "no trades
