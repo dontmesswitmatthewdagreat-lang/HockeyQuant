@@ -9,6 +9,7 @@ struct CrestView: View {
 
     private var info: TeamInfo { TeamInfo.lookup(abbrev) }
     private var glyph: String? { TeamGlyph.symbol(for: abbrev) }
+    private var sprite: TeamSprite? { TeamSprite.sprite(for: abbrev) }
 
     var body: some View {
         ZStack {
@@ -34,9 +35,12 @@ struct CrestView: View {
             // Hairline ring.
             Circle().stroke(Color.white.opacity(0.30), lineWidth: max(1, size * 0.035))
 
-            // Emblem in the secondary color (contrast-safe): the team's glyph
-            // where we have one and there's room to read it, monogram otherwise.
-            if let glyph, size >= TeamGlyph.minimumLegibleSize {
+            // Emblem in the secondary color (contrast-safe): hand-drawn pixel
+            // sprite where one exists, else the team's glyph, else the monogram.
+            if let sprite, size >= TeamGlyph.minimumLegibleSize {
+                PixelSpriteView(sprite: sprite, ink: info.crestMonogram, cut: info.primary)
+                    .frame(width: size * 0.78, height: size * 0.78)
+            } else if let glyph, size >= TeamGlyph.minimumLegibleSize {
                 Image(systemName: glyph)
                     .font(.system(size: size * 0.44, weight: .bold))
                     .foregroundStyle(info.crestMonogram)
