@@ -8,6 +8,7 @@ struct CrestView: View {
     var size: CGFloat = 48
 
     private var info: TeamInfo { TeamInfo.lookup(abbrev) }
+    private var glyph: String? { TeamGlyph.symbol(for: abbrev) }
 
     var body: some View {
         ZStack {
@@ -33,14 +34,22 @@ struct CrestView: View {
             // Hairline ring.
             Circle().stroke(Color.white.opacity(0.30), lineWidth: max(1, size * 0.035))
 
-            // Monogram in the secondary color (contrast-safe).
-            Text(info.abbrev)
-                .font(.system(size: size * 0.34, weight: .black, design: .rounded))
-                .foregroundStyle(info.crestMonogram)
-                .minimumScaleFactor(0.6)
-                .lineLimit(1)
-                .shadow(color: .black.opacity(0.25), radius: size * 0.02, y: size * 0.01)
-                .padding(.horizontal, size * 0.1)
+            // Emblem in the secondary color (contrast-safe): the team's glyph
+            // where we have one and there's room to read it, monogram otherwise.
+            if let glyph, size >= TeamGlyph.minimumLegibleSize {
+                Image(systemName: glyph)
+                    .font(.system(size: size * 0.44, weight: .bold))
+                    .foregroundStyle(info.crestMonogram)
+                    .shadow(color: .black.opacity(0.25), radius: size * 0.02, y: size * 0.01)
+            } else {
+                Text(info.abbrev)
+                    .font(.system(size: size * 0.34, weight: .black, design: .rounded))
+                    .foregroundStyle(info.crestMonogram)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .shadow(color: .black.opacity(0.25), radius: size * 0.02, y: size * 0.01)
+                    .padding(.horizontal, size * 0.1)
+            }
         }
         .frame(width: size, height: size)
         .accessibilityLabel("\(info.name) crest")
