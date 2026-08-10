@@ -28,6 +28,16 @@ struct GlobalLeagueView: View {
             }
         }
         .environment(\.cardSurfaceOverride, Theme.Palette.fantasySurface)
+        .toolbar {
+            // The ranked weekly mode lives beside the season-long league, not
+            // inside it — the two share a home but not a format.
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { DuelDraftView() } label: {
+                    Image(systemName: "person.2.fill")
+                }
+                .accessibilityLabel("Weekly duel")
+            }
+        }
         .navigationTitle("Global League")
         .navigationBarTitleDisplayMode(.inline)
         .task { await load() }

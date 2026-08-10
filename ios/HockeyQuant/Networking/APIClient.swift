@@ -147,6 +147,46 @@ struct APIClient: Sendable {
                       as: OffseasonReportCard.self)
     }
 
+    // MARK: - Global League duels
+
+    /// `GET /api/duels/current` — your live duel, with the board if you're up.
+    func duelCurrent(token: String) async throws -> DuelCurrent {
+        let data = try await perform("GET", apiURL("duels").appendingPathComponent("current"),
+                                     token: token, body: Optional<Int>.none)
+        return try Self.decode(DuelCurrent.self, from: data)
+    }
+
+    /// `POST /api/duels/{id}/pick?nhl_id=` — take a player off your board.
+    func duelPick(duelId: Int, nhlId: Int, token: String) async throws -> DuelPickResult {
+        var comps = URLComponents(url: apiURL("duels").appendingPathComponent("\(duelId)")
+                                    .appendingPathComponent("pick"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "nhl_id", value: String(nhlId))]
+        let data = try await perform("POST", comps.url!, token: token, body: Optional<Int>.none)
+        return try Self.decode(DuelPickResult.self, from: data)
+    }
+
+    /// `POST /api/duels/queue` — enter next week's matchmaking.
+    @discardableResult
+    func duelJoinQueue(token: String) async throws -> Data {
+        try await perform("POST", apiURL("duels").appendingPathComponent("queue"),
+                          token: token, body: Optional<Int>.none)
+    }
+
+    /// `DELETE /api/duels/queue`
+    @discardableResult
+    func duelLeaveQueue(token: String) async throws -> Data {
+        try await perform("DELETE", apiURL("duels").appendingPathComponent("queue"),
+                          token: token, body: Optional<Int>.none)
+    }
+
+    /// `GET /api/duels/rankings`
+    func duelRankings() async throws -> [DuelRanking] {
+        let data = try await perform("GET", apiURL("duels").appendingPathComponent("rankings"),
+                                     token: nil, body: Optional<Int>.none)
+        return try Self.decode(DuelRankingsResponse.self, from: data).rankings
+    }
+
     /// `GET /api/market/players` — search, or the top of the market.
     func marketPlayers(query: String? = nil, limit: Int = 50) async throws -> [MarketPlayer] {
         var comps = URLComponents(url: apiURL("market").appendingPathComponent("players"),
