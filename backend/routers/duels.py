@@ -11,6 +11,18 @@ import services.duels as duels
 
 router = APIRouter()
 
+# How long a drafter has on the clock before the pick is made for them.
+PICK_WINDOW_HOURS = 12
+
+
+def _turn_deadline(duel: dict, picks: list) -> str:
+    """When the current pick expires: the clock restarts on every selection,
+    so a fast opponent never eats into your window."""
+    stamps = [p["picked_at"] for p in picks if p.get("picked_at")]
+    started = max(stamps) if stamps else duel["created_at"]
+    base = datetime.datetime.fromisoformat(str(started).replace("Z", "+00:00"))
+    return (base + datetime.timedelta(hours=PICK_WINDOW_HOURS)).isoformat()
+
 
 def _sb():
     sb = get_supabase()
@@ -55,7 +67,10 @@ def current_duel(authorization: Optional[str] = Header(None)):
     if active["state"] == "drafting" and active["turn_user"] == uid:
         board = duels.offer_pool(sb, active["id"])["offered"]
     return {"duel": active, "picks": picks, "board": board,
-            "on_the_clock": active["turn_user"] == uid}
+            "on_the_clock": active["turn_user"] == uid,
+            "turn_deadline": _turn_deadline(active, picks)
+                             if active["state"] == "drafting" else None,
+            "roster_slots": duels.ROSTER}
 
 
 @router.post("/duels/{duel_id}/pick")
@@ -96,19 +111,25 @@ def run_autopick(max_age_hours: int = 12):
     the clock picks the best remaining option instead of forfeiting.
     """
     sb = _sb()
-    cutoff = (datetime.datetime.now(datetime.timezone.utc)
-              - datetime.timedelta(hours=max_age_hours)).isoformat()
-    stalled = (sb.table("duels").select("id,created_at")
-               .eq("state", "drafting").lt("created_at", cutoff)
-               .limit(200).execute().data)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    drafting = (sb.table("duels").select("id,created_at")
+                .eq("state", "drafting").limit(200).execute().data)
     moved = 0
-    for d in stalled:
+    for d in drafting:
+        picks = (sb.table("duel_picks").select("picked_at")
+                 .eq("duel_id", d["id"]).limit(64).execute().data)
+        # Time the current pick, not the whole draft: a draft that has been
+        # moving along shouldn't get swept just because it started yesterday.
+        deadline = datetime.datetime.fromisoformat(
+            _turn_deadline(d, picks).replace("Z", "+00:00"))
+        if deadline > now:
+            continue
         try:
             duels.autopick(sb, d["id"])
             moved += 1
         except Exception:
             continue
-    return {"advanced": moved, "checked": len(stalled)}
+    return {"advanced": moved, "checked": len(drafting)}
 
 
 @router.post("/duels/grade")

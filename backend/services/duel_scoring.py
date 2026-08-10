@@ -29,7 +29,10 @@ ASSIST = 2.0
 # --- defensive layer ---------------------------------------------------------
 PLUS_MINUS = 1.0          # on-ice goal differential
 SHORTHANDED_POINT = 2.0   # penalty-kill production, on top of the base
-DEFENCEMAN_POINT = 1.0    # a blueliner's point carries an extra weight
+# No defenceman premium: the roster is positionally locked (C, LW, RW, D, D, G),
+# so nobody ever chooses between a forward and a blueliner. Both sides ice two
+# defencemen either way, and a premium would only amplify whoever happened to
+# roll the better D tier.
 
 # --- goaltending -------------------------------------------------------------
 WIN = 3.0
@@ -102,13 +105,8 @@ def score_player(nhl_id: int, position: str, start: datetime.date,
     assists = sum(g.get("assists") or 0 for g in games)
     plus_minus = sum(g.get("plusMinus") or 0 for g in games)
     sh_points = sum(g.get("shorthandedPoints") or 0 for g in games)
-    points = goals + assists
-
     base = goals * GOAL + assists * ASSIST
     bonus = plus_minus * PLUS_MINUS + sh_points * SHORTHANDED_POINT
-    if (position or "").upper().startswith("D"):
-        bonus += points * DEFENCEMAN_POINT
-
     return {"nhl_id": nhl_id, "games": len(games), "base": round(base, 2),
             "bonus": round(bonus, 2),
             "line": {"g": goals, "a": assists, "+/-": plus_minus, "sh": sh_points}}
