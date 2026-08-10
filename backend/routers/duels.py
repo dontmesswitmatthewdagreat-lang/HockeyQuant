@@ -63,6 +63,20 @@ def current_duel(authorization: Optional[str] = Header(None)):
 
     picks = (sb.table("duel_picks").select("*")
              .eq("duel_id", active["id"]).order("pick_no").limit(64).execute().data)
+    # Resolve drafted ids to names — a pick row only stores the id, and a roster
+    # that reads "Picked" instead of the player defeats the point of the screen.
+    chosen = [p["chosen_nhl_id"] for p in picks if p.get("chosen_nhl_id")]
+    if chosen:
+        roster = (sb.table("fantasy_players")
+                  .select("nhl_id,full_name,team,position")
+                  .in_("nhl_id", chosen).limit(64).execute().data)
+        by_id = {r["nhl_id"]: r for r in roster}
+        for p in picks:
+            info = by_id.get(p.get("chosen_nhl_id"))
+            if info:
+                p["chosen_name"] = info["full_name"]
+                p["chosen_team"] = info["team"]
+                p["chosen_position"] = info["position"]
     board = []
     if active["state"] == "drafting" and active["turn_user"] == uid:
         board = duels.offer_pool(sb, active["id"])["offered"]

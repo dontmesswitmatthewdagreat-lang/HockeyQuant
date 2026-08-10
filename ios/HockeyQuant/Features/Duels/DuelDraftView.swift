@@ -149,6 +149,7 @@ struct DuelDraftView: View {
             }
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
         .disabled(picking != nil)
     }
 
@@ -204,13 +205,17 @@ struct DuelDraftView: View {
                     .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textSecondary)
                 ForEach(picks.sorted { $0.pickNo < $1.pickNo }) { pick in
-                    HStack {
+                    HStack(spacing: 8) {
                         Text(pick.slotLabel)
                             .font(Theme.Font.caption())
                             .foregroundStyle(Theme.Palette.textSecondary)
-                            .frame(width: 96, alignment: .leading)
-                        Text(pick.isDone ? "Picked" : "—")
+                            .frame(width: 92, alignment: .leading)
+                        if let team = pick.chosenTeam {
+                            CrestView(abbrev: team, size: 22)
+                        }
+                        Text(pick.chosenName ?? (pick.isDone ? "Picked" : "—"))
                             .font(Theme.Font.body())
+                            .lineLimit(1)
                             .foregroundStyle(pick.isDone
                                              ? Theme.Palette.textPrimary
                                              : Theme.Palette.textSecondary)

@@ -23,6 +23,10 @@ struct DuelPick: Decodable, Identifiable, Hashable {
     let slot: String                 // "1C", "4D", "G2" …
     let chosenNhlId: Int?
     let autoPicked: Bool
+    /// Resolved server-side — the pick row itself only stores the id.
+    let chosenName: String?
+    let chosenTeam: String?
+    let chosenPosition: String?
 
     var isDone: Bool { chosenNhlId != nil }
 
