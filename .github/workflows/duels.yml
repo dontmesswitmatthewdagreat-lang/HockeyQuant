@@ -1,0 +1,27 @@
+# HockeyQuant — Global League weekly duels
+# Monday settles last week and matches the next one; the autopick sweep keeps a
+# stalled draft from costing the opponent their week.
+
+name: Duels
+
+on:
+  schedule:
+    - cron: '0 14 * * 1'    # Mon 14:00 UTC — grade last week, then matchmake
+    - cron: '0 */3 * * *'   # autopick sweep for drafts left on the clock
+  workflow_dispatch:
+
+jobs:
+  duels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wake up Render
+        run: curl -s --max-time 90 "https://hockeyquant.onrender.com/health" || true
+
+      - name: Advance stalled drafts
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/duels/autopick"
+
+      - name: Grade last week and matchmake
+        if: github.event.schedule == '0 14 * * 1' || github.event_name == 'workflow_dispatch'
+        run: |
+          curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/duels/grade"
+          curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/duels/match"

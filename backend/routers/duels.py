@@ -109,3 +109,45 @@ def run_autopick(max_age_hours: int = 12):
         except Exception:
             continue
     return {"advanced": moved, "checked": len(stalled)}
+
+
+@router.post("/duels/grade")
+def grade(week_start: Optional[str] = None):
+    """Cron: score and settle last week's duels, then move the ratings."""
+    from services.duel_scoring import grade_week
+    ws = datetime.date.fromisoformat(week_start) if week_start else None
+    return grade_week(_sb(), ws)
+
+
+@router.get("/duels/{duel_id}/scoreboard")
+def scoreboard(duel_id: int):
+    """Live per-player breakdown for a duel — what each pick has produced."""
+    from services.duel_scoring import score_roster
+    sb = _sb()
+    duel = sb.table("duels").select("*").eq("id", duel_id).execute().data
+    if not duel:
+        raise HTTPException(status_code=404, detail="No such duel")
+    duel = duel[0]
+    picks = (sb.table("duel_picks").select("user_id,chosen_nhl_id,slot")
+             .eq("duel_id", duel_id).limit(64).execute().data)
+    ids = [p["chosen_nhl_id"] for p in picks if p["chosen_nhl_id"]]
+    if not ids:
+        return {"duel": duel, "a": None, "b": None}
+    meta = (sb.table("fantasy_players").select("nhl_id,position,full_name,team")
+            .in_("nhl_id", ids).limit(64).execute().data)
+    info = {m["nhl_id"]: m for m in meta}
+    start = datetime.date.fromisoformat(duel["week_start"])
+    end = datetime.date.fromisoformat(duel["week_end"])
+
+    out = {}
+    for side, uid in (("a", duel["user_a"]), ("b", duel["user_b"])):
+        roster = [{"nhl_id": p["chosen_nhl_id"],
+                   "position": info.get(p["chosen_nhl_id"], {}).get("position", ""),
+                   "slot": p["slot"]}
+                  for p in picks if p["user_id"] == uid and p["chosen_nhl_id"]]
+        scored = score_roster(roster, start, end)
+        for row in scored["players"]:
+            row.update({k: info.get(row["nhl_id"], {}).get(k)
+                        for k in ("full_name", "team", "position")})
+        out[side] = scored
+    return {"duel": duel, **out}
