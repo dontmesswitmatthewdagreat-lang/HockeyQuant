@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 from datetime import date, datetime, timedelta, timezone
 
 from services import NHLAnalyzer, get_data_loader
-from services.supabase_client import get_supabase
+from services.supabase_client import get_supabase, paginate
 from services.results_fetcher import fetch_game_results, get_first_game_time, get_last_game_time
 
 router = APIRouter()
@@ -1064,8 +1064,10 @@ async def get_accuracy_stats(
         # Order by date descending
         query = query.order("game_date", desc=True)
 
-        result = query.execute()
-        predictions = result.data or []
+        # Paginated: `total` below is a len() of this list, so a read truncated
+        # at PostgREST's 1000-row cap would silently understate every accuracy
+        # figure on the Stats tab once history outgrows it.
+        predictions = paginate(query)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Supabase query error: {str(e)}")
 
@@ -1083,7 +1085,7 @@ async def get_accuracy_stats(
         if team:
             t = team.upper()
             all_completed_query = all_completed_query.or_(f"away_team.eq.{t},home_team.eq.{t}")
-        all_preds = all_completed_query.execute().data or []
+        all_preds = paginate(all_completed_query)
     except Exception:
         all_preds = predictions
 

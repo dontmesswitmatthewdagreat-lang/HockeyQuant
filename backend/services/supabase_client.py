@@ -211,6 +211,27 @@ class QueryResult:
         return self
 
 
+def paginate(query: TableQuery, page: int = 1000, cap: int = 200_000) -> List[Dict[str, Any]]:
+    """Read every row a query matches, past PostgREST's per-request cap.
+
+    PostgREST silently truncates at 1000 rows — no error, just a short list — so
+    any aggregate computed off a bare `.execute()` quietly goes wrong the moment
+    the table outgrows that. Walk the pages instead.
+
+    Pass a fully-built query (filters and ordering applied); `limit`/`offset` are
+    set here. `cap` is a runaway guard, not an expected limit.
+    """
+    rows: List[Dict[str, Any]] = []
+    start = 0
+    while start < cap:
+        chunk = query.limit(page).offset(start).execute().data or []
+        rows.extend(chunk)
+        if len(chunk) < page:
+            break
+        start += page
+    return rows
+
+
 # Global client instance
 _client: Optional[SupabaseClient] = None
 

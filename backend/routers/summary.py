@@ -4,14 +4,40 @@ AI-generated game prediction summaries using Groq (free tier)
 """
 
 import os
+import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 
 router = APIRouter()
 
-# In-memory cache: key = "{away}_{home}_{date}", value = summary string
+# In-memory cache: key = "{away}_{home}_{date}" -> (stored_at, summary).
+# Bounded on both axes. Keys are per game per day, so an unbounded dict grows
+# for the life of the process and never sheds yesterday's slate — and keep-warm
+# holds this instance up around the clock, so "it restarts eventually" was
+# never a real ceiling on 512MB.
+_CACHE_TTL = 24 * 3600
+_CACHE_MAX = 500
 _cache: dict = {}
+
+
+def _cache_get(key: str) -> Optional[str]:
+    hit = _cache.get(key)
+    if not hit:
+        return None
+    stored_at, summary = hit
+    if time.time() - stored_at > _CACHE_TTL:
+        _cache.pop(key, None)
+        return None
+    return summary
+
+
+def _cache_put(key: str, summary: str) -> None:
+    if len(_cache) >= _CACHE_MAX:
+        # Shed the oldest quarter in one pass rather than evicting per write.
+        for stale in sorted(_cache, key=lambda k: _cache[k][0])[: _CACHE_MAX // 4]:
+            _cache.pop(stale, None)
+    _cache[key] = (time.time(), summary)
 
 
 class TeamSummaryData(BaseModel):
@@ -43,8 +69,9 @@ async def generate_summary(req: SummaryRequest):
     date_str = req.game_time[:10] if req.game_time else "unknown"
     cache_key = f"{req.away.team}_{req.home.team}_{date_str}"
 
-    if cache_key in _cache:
-        return {"summary": _cache[cache_key]}
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return {"summary": cached}
 
     api_key = os.getenv("GROQ_API_KEY")
     if not api_key:
@@ -85,5 +112,5 @@ async def generate_summary(req: SummaryRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to generate summary: {str(e)}")
 
-    _cache[cache_key] = summary
+    _cache_put(cache_key, summary)
     return {"summary": summary}

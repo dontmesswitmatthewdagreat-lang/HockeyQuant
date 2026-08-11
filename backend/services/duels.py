@@ -61,9 +61,14 @@ def _pool_by_slot(sb) -> dict:
     Tier is a league-wide cut every 32 by cost, so tier 1 at a position is
     about one starter per team.
     """
-    rows = (sb.table("fantasy_players")
-            .select("nhl_id,full_name,team,position,roster_pos,cost,is_goalie,headshot")
-            .eq("active", "true").limit(2000).execute().data)
+    # Paginated: the tier cuts are computed off this whole list, so a read
+    # truncated at PostgREST's 1000-row cap would quietly reshape every draft
+    # board — `limit(2000)` does not raise it, it just gets clamped.
+    from services.supabase_client import paginate
+
+    rows = paginate(sb.table("fantasy_players")
+                    .select("nhl_id,full_name,team,position,roster_pos,cost,is_goalie,headshot")
+                    .eq("active", "true"))
 
     buckets: dict = {}
     for row in rows:

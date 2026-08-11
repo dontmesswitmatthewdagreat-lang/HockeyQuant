@@ -353,18 +353,10 @@ async def get_models_leaderboard():
         profiles_by_id = {p["id"]: p for p in profiles_result.data}
 
         # 3. Fetch all graded model predictions, paginated (PostgREST caps at 1000/req)
-        preds_rows = []
-        start = 0
-        while True:
-            chunk = supabase.table("model_predictions") \
-                .select("model_id,confidence,correct") \
-                .not_is("correct", "null") \
-                .limit(1000).offset(start) \
-                .execute().data
-            preds_rows.extend(chunk)
-            if len(chunk) < 1000:
-                break
-            start += 1000
+        preds_rows = paginate(
+            supabase.table("model_predictions")
+            .select("model_id,confidence,correct")
+            .not_is("correct", "null"))
 
         # 4. Aggregate accuracy per model in Python (avoids N+1 queries)
         from collections import defaultdict

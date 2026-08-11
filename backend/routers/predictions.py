@@ -130,6 +130,10 @@ class PredictionsResponse(BaseModel):
 # Shared analyzer instance
 _analyzer: Optional[NHLAnalyzer] = None
 
+# date_str -> (stored_at, payload) for GET /games/{date}
+_GAMES_CACHE: dict = {}
+_GAMES_TTL = 900
+
 
 def calculate_next_update(first_game_time_str: Optional[str], last_updated_str: Optional[str]) -> Optional[str]:
     """
@@ -346,10 +350,17 @@ async def get_games(date_str: str):
             detail="Invalid date format. Use YYYY-MM-DD"
         )
 
+    # A date's schedule barely moves once published, but every call here was a
+    # fresh NHL API round-trip — including the repeat hits from scrubbing the
+    # date strip in the UI. Short TTL so a postponement still lands same-day.
+    cached = _GAMES_CACHE.get(date_str)
+    if cached and _time.time() - cached[0] < _GAMES_TTL:
+        return cached[1]
+
     analyzer = get_analyzer()
     games = analyzer.get_games_for_date(date_str)
 
-    return {
+    payload = {
         "date": date_str,
         "games_count": len(games),
         "games": [
@@ -357,6 +368,9 @@ async def get_games(date_str: str):
             for g in games
         ]
     }
+    if games:              # never cache an empty slate from a failed fetch
+        _GAMES_CACHE[date_str] = (_time.time(), payload)
+    return payload
 
 
 @router.get("/predictions/status/{date_str}", response_model=PredictionStatus)
