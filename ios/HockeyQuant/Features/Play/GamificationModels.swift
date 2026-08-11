@@ -83,6 +83,38 @@ struct UserPick: Decodable, Identifiable, Sendable {
     }
 }
 
+/// A Puck Freeze that fired. Read back so a save can be announced — a streak
+/// that quietly survives a loss reads as a bug rather than a reward.
+struct ShieldSave: Decodable, Sendable {
+    let gameDate: String
+    let streakKept: Int
+    let usedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case gameDate = "game_date"
+        case streakKept = "streak_kept"
+        case usedAt = "used_at"
+    }
+
+    /// Still worth announcing. A save from three weeks ago is history, not news,
+    /// and a permanent banner would read as a stuck badge.
+    var isRecent: Bool {
+        guard let date = ISO8601DateFormatter.shieldParser.date(from: usedAt ?? "") else {
+            return false
+        }
+        return Date().timeIntervalSince(date) < 3 * 24 * 3600
+    }
+}
+
+extension ISO8601DateFormatter {
+    /// Postgres returns fractional seconds; the default parser rejects them.
+    nonisolated(unsafe) static let shieldParser: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+}
+
 struct LeaderboardEntry: Decodable, Identifiable, Sendable {
     let userId: String
     let username: String?

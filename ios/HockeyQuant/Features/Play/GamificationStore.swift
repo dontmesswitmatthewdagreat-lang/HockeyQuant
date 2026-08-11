@@ -12,6 +12,8 @@ final class GamificationStore {
     private let client = Supa.client
 
     private(set) var stats: UserStats?
+    /// Most recent Puck Freeze save, for the "streak saved" note.
+    private(set) var lastShieldSave: ShieldSave?
     private(set) var picksByGame: [String: UserPick] = [:]   // game_id -> pick
     private(set) var leaderboard: [LeaderboardEntry] = []
     private(set) var seasonStats = SeasonStats()
@@ -53,6 +55,15 @@ final class GamificationStore {
             }
             defaults.set(fresh.capSpace, forKey: capKey)
             stats = fresh
+
+            // Rides along with stats so the save and the streak it rescued
+            // always render from the same read.
+            let saves: [ShieldSave] = try await client.from("streak_shield_uses")
+                .select()
+                .order("used_at", ascending: false)
+                .limit(1)
+                .execute().value
+            lastShieldSave = saves.first
         } catch {
             Log.error("loadStats failed", error)
             lastError = error.localizedDescription

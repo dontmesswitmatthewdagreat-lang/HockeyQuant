@@ -377,6 +377,25 @@ struct PlayView: View {
                         .accessibilityLabel(
                             "\(stats.currentStreak) correct in a row, "
                             + "\(stats.shields) Puck Freeze\(stats.shields == 1 ? "" : "s") banked")
+
+                        // Announce a save while it's still news. Without this a
+                        // shield fires invisibly and the streak just *looks*
+                        // like it should have broken.
+                        if let save = game.lastShieldSave, save.isRecent {
+                            HStack(spacing: 6) {
+                                Image(systemName: "snowflake")
+                                    .font(.system(size: 12, weight: .bold))
+                                Text("A Puck Freeze saved your \(save.streakKept)-pick streak")
+                                    .font(.system(size: 12, weight: .semibold))
+                                Spacer()
+                            }
+                            .foregroundStyle(Theme.Palette.accent)
+                            .padding(.vertical, 6)
+                            .padding(.horizontal, 8)
+                            .background(Theme.Palette.accent.opacity(0.12),
+                                        in: RoundedRectangle(cornerRadius: 8))
+                            .accessibilityElement(children: .combine)
+                        }
                     }
                     Divider().overlay(Theme.Palette.border)
                     HStack(spacing: Theme.Spacing.sm) {
