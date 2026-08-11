@@ -7,6 +7,8 @@ name: Duels
 on:
   schedule:
     - cron: '0 14 * * 1'    # Mon 14:00 UTC — grade last week, then matchmake
+    - cron: '0 21 * * *'    # 21:00 UTC nightly — pair the Flash Slate queue
+                            # before puck drop on the east coast
     - cron: '0 */3 * * *'   # autopick sweep for drafts left on the clock
   workflow_dispatch:
 
@@ -19,6 +21,10 @@ jobs:
 
       - name: Advance stalled drafts
         run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/duels/autopick"
+
+      - name: Matchmake tonight's Flash Slate
+        if: github.event.schedule == '0 21 * * *' || github.event_name == 'workflow_dispatch'
+        run: curl -s --max-time 300 -X POST "https://hockeyquant.onrender.com/api/duels/match?mode=flash"
 
       - name: Grade last week and matchmake
         if: github.event.schedule == '0 14 * * 1' || github.event_name == 'workflow_dispatch'

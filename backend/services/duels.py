@@ -22,9 +22,20 @@ from typing import Optional
 
 from services.supabase_client import get_supabase
 
-# Roster each player drafts. Even total (12 picks) so the snake is symmetric —
-# an odd count would hand one player an extra turn.
+# Roster each player drafts. Even totals so the snake stays symmetric — an odd
+# count hands one player an extra turn.
 ROSTER = ["C", "LW", "RW", "D", "D", "G"]
+
+# Flash Slate is the same engine over a single night, so it gets a shorter
+# roster: a 3-5 game slate can't support six starters without most of a lineup
+# sitting idle, and a nightly contest has to draft in a minute or two.
+FLASH_ROSTER = ["C", "LW", "D", "G"]
+
+WEEKLY, FLASH = "weekly", "flash"
+
+
+def roster_for(mode: str) -> list:
+    return FLASH_ROSTER if mode == FLASH else ROSTER
 
 # Choices offered per depth tier. Elite slots are scarce by design.
 TIER_OPTIONS = {1: 2, 2: 3, 3: 4, 4: 5}
@@ -51,6 +62,16 @@ def next_week_bounds(today: Optional[datetime.date] = None) -> tuple:
     start, _ = week_bounds(today)
     nxt = start + datetime.timedelta(days=7)
     return nxt, nxt + datetime.timedelta(days=6)
+
+
+def night_bounds(today: Optional[datetime.date] = None) -> tuple:
+    """A Flash Slate opens and settles on the same day."""
+    d = today or datetime.date.today()
+    return d, d
+
+
+def bounds_for(mode: str, today: Optional[datetime.date] = None) -> tuple:
+    return night_bounds(today) if mode == FLASH else next_week_bounds(today)
 
 
 # ----------------------------------------------------------------- depth tiers
@@ -116,29 +137,31 @@ def _snake_order(n_picks: int, first: str, second: str) -> list:
     return order[:n_picks]
 
 
-def _slot_schedule() -> list:
+def _slot_schedule(roster: list) -> list:
     """The (slot, tier) each pick will be for, shuffled per duel."""
     schedule = []
-    for slot in ROSTER:
+    for slot in roster:
         tiers = GOALIE_TIERS if slot == "G" else SKATER_TIERS
         schedule.append((slot, random.choice(tiers)))
     random.shuffle(schedule)
     return schedule
 
 
-def create_duel(sb, week_start, week_end, user_a: str, user_b: str) -> dict:
-    """Pair two users and lay out the full pick order for the week."""
+def create_duel(sb, week_start, week_end, user_a: str, user_b: str,
+                mode: str = WEEKLY) -> dict:
+    """Pair two users and lay out the full pick order."""
+    roster = roster_for(mode)
     first, second = (user_a, user_b) if random.random() < 0.5 else (user_b, user_a)
     duel = sb.table("duels").insert([{
         "week_start": str(week_start), "week_end": str(week_end),
-        "user_a": user_a, "user_b": user_b,
+        "user_a": user_a, "user_b": user_b, "mode": mode,
         "state": "drafting", "turn_user": first, "pick_no": 0,
     }]).data[0]
 
     # Each player drafts the same roster shape; tiers are rolled per player so
     # one drafter's 1C roll doesn't dictate the other's.
-    order = _snake_order(len(ROSTER) * 2, first, second)
-    schedules = {first: _slot_schedule(), second: _slot_schedule()}
+    order = _snake_order(len(roster) * 2, first, second)
+    schedules = {first: _slot_schedule(roster), second: _slot_schedule(roster)}
     taken = {first: 0, second: 0}
 
     rows = []
@@ -243,17 +266,21 @@ def autopick(sb, duel_id: int) -> dict:
 
 # ---------------------------------------------------------------- matchmaking
 
-def match_queue(sb, week_start=None) -> dict:
+def match_queue(sb, week_start=None, mode: str = WEEKLY) -> dict:
     """Pair everyone waiting for a week, closest rating first.
 
     Sorting by rating and walking in pairs keeps matchups tight without needing
     a real bracket; the band only matters for the odd one left over.
     """
-    week_start = week_start or next_week_bounds()[0]
-    week_end = week_start + datetime.timedelta(days=6)
+    if week_start is None:
+        week_start, week_end = bounds_for(mode)
+    else:
+        week_end = week_start if mode == FLASH else week_start + datetime.timedelta(days=6)
+    # Scoped by mode as well as date: a player waiting for tonight must never
+    # be pulled into a seven-day duel.
     waiting = (sb.table("duel_queue").select("*")
-               .eq("week_start", str(week_start)).order("rating", desc=True)
-               .limit(1000).execute().data)
+               .eq("week_start", str(week_start)).eq("mode", mode)
+               .order("rating", desc=True).limit(1000).execute().data)
     if len(waiting) < 2:
         return {"matched": 0, "waiting": len(waiting)}
 
@@ -263,24 +290,29 @@ def match_queue(sb, week_start=None) -> dict:
 
     for i in range(0, len(waiting), 2):
         a, b = waiting[i], waiting[i + 1]
-        duel = create_duel(sb, week_start, week_end, a["user_id"], b["user_id"])
+        duel = create_duel(sb, week_start, week_end, a["user_id"], b["user_id"], mode=mode)
         created.append(duel["id"])
         for u in (a, b):
-            sb.table("duel_queue").delete().eq("user_id", u["user_id"]).execute()
+            (sb.table("duel_queue").delete()
+             .eq("user_id", u["user_id"]).eq("mode", mode).execute())
 
-    return {"matched": len(created), "duels": created,
+    return {"matched": len(created), "duels": created, "mode": mode,
             "waiting": 1 if leftover else 0}
 
 
-def join_queue(sb, user_id: str, week_start=None) -> dict:
-    week_start = week_start or next_week_bounds()[0]
+def join_queue(sb, user_id: str, week_start=None, mode: str = WEEKLY) -> dict:
+    week_start = week_start or bounds_for(mode)[0]
     rank = (sb.table("duel_rankings").select("rating")
             .eq("user_id", user_id).execute().data)
     rating = rank[0]["rating"] if rank else 1000
+    # Keyed on (user_id, mode) since 028 — you can wait for tonight and for the
+    # week at the same time.
     sb.table("duel_queue").upsert([{
-        "user_id": user_id, "week_start": str(week_start), "rating": rating,
-    }], on_conflict="user_id")
-    return {"queued": True, "week_start": str(week_start), "rating": rating}
+        "user_id": user_id, "week_start": str(week_start),
+        "rating": rating, "mode": mode,
+    }], on_conflict="user_id,mode")
+    return {"queued": True, "week_start": str(week_start),
+            "rating": rating, "mode": mode}
 
 
 # -------------------------------------------------------------------- scoring

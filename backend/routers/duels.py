@@ -32,17 +32,17 @@ def _sb():
 
 
 @router.post("/duels/queue")
-def join_queue(authorization: Optional[str] = Header(None)):
-    """Enter the pool for next week's matchmaking."""
+def join_queue(mode: str = "weekly", authorization: Optional[str] = Header(None)):
+    """Enter the pool. `mode` is weekly (seven-day) or flash (tonight)."""
     uid = get_user_id_from_token(authorization)
-    return duels.join_queue(_sb(), uid)
+    return duels.join_queue(_sb(), uid, mode=mode)
 
 
 @router.delete("/duels/queue")
-def leave_queue(authorization: Optional[str] = Header(None)):
+def leave_queue(mode: str = "weekly", authorization: Optional[str] = Header(None)):
     uid = get_user_id_from_token(authorization)
-    _sb().table("duel_queue").delete().eq("user_id", uid).execute()
-    return {"queued": False}
+    _sb().table("duel_queue").delete().eq("user_id", uid).eq("mode", mode).execute()
+    return {"queued": False, "mode": mode}
 
 
 @router.get("/duels/current")
@@ -112,9 +112,9 @@ def rankings(limit: int = 50):
 
 
 @router.post("/duels/match")
-def run_matchmaking():
-    """Cron: pair everyone queued for next week."""
-    return duels.match_queue(_sb())
+def run_matchmaking(mode: str = "weekly"):
+    """Cron: pair everyone queued. Weekly runs Monday, flash runs nightly."""
+    return duels.match_queue(_sb(), mode=mode)
 
 
 @router.post("/duels/autopick")
