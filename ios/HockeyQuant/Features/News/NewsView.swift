@@ -1348,8 +1348,10 @@ struct NewsView: View {
                         .fill(LinearGradient(colors: [Theme.Palette.accent.opacity(0.55), Theme.Palette.accentAlt.opacity(0.3)],
                                              startPoint: .topLeading, endPoint: .bottomTrailing))
                     if let url = p.headshotURL {
-                        AsyncImage(url: url) { phase in
-                            if let img = phase.image { img.resizable().scaledToFill() } else { monogram(p) }
+                        HQAsyncImage(url: url, side: 44) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
+                            monogram(p)
                         }
                     } else {
                         monogram(p)

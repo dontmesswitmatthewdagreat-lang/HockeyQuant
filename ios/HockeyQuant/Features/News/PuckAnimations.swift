@@ -148,9 +148,14 @@ struct HeadlineCollage: View {
                 let dx = CGFloat((t * speed).truncatingRemainder(dividingBy: total))
                 HStack(spacing: 0) {
                     ForEach(0..<(count * 2), id: \.self) { i in
-                        AsyncImage(url: urls[i % count]) { phase in
-                            if let img = phase.image { img.resizable().scaledToFill() }
-                            else { Color.black.opacity(0.25) }
+                        // Cached: this sits inside a 30fps TimelineView and draws
+                        // two copies of every url, so an uncached AsyncImage
+                        // refetches the whole strip as tiles recycle.
+                        HQAsyncImage(url: urls[i % count],
+                                     size: CGSize(width: tileW, height: h)) { img in
+                            img.resizable().scaledToFill()
+                        } placeholder: {
+                            Color.black.opacity(0.25)
                         }
                         .frame(width: tileW, height: h)
                         .clipped()
