@@ -13,6 +13,12 @@ struct UserStats: Decodable, Sendable {
     let beatsModel: Int
     let stanleyCups: Int       // trophy ladder — from weekly fantasy head-to-head
     let capSpace: Int          // salary-cap budget earned from correct picks
+    /// Puck Freeze shields in hand. Earned every 7th consecutive correct pick,
+    /// capped at 3; one absorbs a loss instead of resetting the streak.
+    /// Optional so the app keeps decoding against a pre-030 database.
+    let streakShields: Int?
+
+    var shields: Int { streakShields ?? 0 }
 
     enum CodingKeys: String, CodingKey {
         case totalXp = "total_xp"
@@ -24,6 +30,7 @@ struct UserStats: Decodable, Sendable {
         case beatsModel = "beats_model"
         case stanleyCups = "stanley_cups"
         case capSpace = "cap_space"
+        case streakShields = "streak_shields"
     }
 
     // Tolerant decode: a missing column (e.g. before migration 015 is applied)
@@ -39,13 +46,16 @@ struct UserStats: Decodable, Sendable {
         beatsModel    = try c.decodeIfPresent(Int.self, forKey: .beatsModel) ?? 0
         stanleyCups   = try c.decodeIfPresent(Int.self, forKey: .stanleyCups) ?? 0
         capSpace      = try c.decodeIfPresent(Int.self, forKey: .capSpace) ?? 0
+        streakShields = try c.decodeIfPresent(Int.self, forKey: .streakShields)
     }
 
     init(totalXp: Int, level: Int, currentStreak: Int, bestStreak: Int, picksMade: Int,
-         picksCorrect: Int, beatsModel: Int, stanleyCups: Int, capSpace: Int) {
+         picksCorrect: Int, beatsModel: Int, stanleyCups: Int, capSpace: Int,
+         streakShields: Int? = nil) {
         self.totalXp = totalXp; self.level = level; self.currentStreak = currentStreak
         self.bestStreak = bestStreak; self.picksMade = picksMade; self.picksCorrect = picksCorrect
         self.beatsModel = beatsModel; self.stanleyCups = stanleyCups; self.capSpace = capSpace
+        self.streakShields = streakShields
     }
 
     var accuracy: Double { picksMade > 0 ? Double(picksCorrect) / Double(picksMade) * 100 : 0 }
