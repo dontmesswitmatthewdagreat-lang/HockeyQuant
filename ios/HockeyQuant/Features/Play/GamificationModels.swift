@@ -128,6 +128,12 @@ struct PickPayload: Encodable, Sendable {
     let pickType: String
     let pick: String
     let modelPick: String
+    /// Model win probability (0–1) for the picked team, as shown at pick time.
+    /// XP scales by this and the grader cannot look it up afterwards — nothing
+    /// stores per-game probabilities server-side. Capturing it here also means
+    /// you're paid for the risk you took when you took it, rather than for a
+    /// number that moved after a goalie was confirmed.
+    let winProb: Double?
 
     enum CodingKeys: String, CodingKey {
         case userId = "user_id"
@@ -138,5 +144,6 @@ struct PickPayload: Encodable, Sendable {
         case pickType = "pick_type"
         case pick
         case modelPick = "model_pick"
+        case winProb = "win_prob"
     }
 }

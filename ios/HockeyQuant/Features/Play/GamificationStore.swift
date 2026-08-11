@@ -136,6 +136,12 @@ final class GamificationStore {
         submitting.insert(id)
         defer { submitting.remove(id) }
 
+        // Odds for the side being picked, as a 0–1 fraction. These are the
+        // OT-adjusted probabilities the user was actually looking at, which is
+        // the number XP should pay out against.
+        let shown = teamAbbrev == game.home.team ? game.homeWinProb : game.awayWinProb
+        let winProb = shown > 0 ? min(1, shown / 100) : nil
+
         let payload = PickPayload(
             userId: uid,
             gameDate: dateString,
@@ -144,7 +150,8 @@ final class GamificationStore {
             homeTeam: game.home.team,
             pickType: "ML",
             pick: teamAbbrev,
-            modelPick: game.pick
+            modelPick: game.pick,
+            winProb: winProb
         )
 
         do {
