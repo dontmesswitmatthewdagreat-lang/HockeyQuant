@@ -343,6 +343,41 @@ struct PlayView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                    // Streak and the shields guarding it, on one line by design:
+                    // a shield that silently rescues a streak reads as a bug,
+                    // so the thing at risk and the thing protecting it belong
+                    // in the same glance.
+                    if stats.currentStreak > 0 || stats.shields > 0 {
+                        Divider().overlay(Theme.Palette.border)
+                        HStack(spacing: 6) {
+                            if stats.currentStreak > 0 {
+                                Image(systemName: "flame.fill")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(Color(hex: 0xE8842A))
+                                Text("\(stats.currentStreak) in a row")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Theme.Palette.textPrimary)
+                                    .contentTransition(.numericText())
+                            }
+                            Spacer()
+                            if stats.shields > 0 {
+                                HStack(spacing: 2) {
+                                    ForEach(0..<stats.shields, id: \.self) { _ in
+                                        Image(systemName: "snowflake")
+                                            .font(.system(size: 12, weight: .bold))
+                                    }
+                                }
+                                .foregroundStyle(Theme.Palette.accent)
+                                Text(stats.shields == 1 ? "Puck Freeze" : "Puck Freezes")
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundStyle(Theme.Palette.textSecondary)
+                            }
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(
+                            "\(stats.currentStreak) correct in a row, "
+                            + "\(stats.shields) Puck Freeze\(stats.shields == 1 ? "" : "s") banked")
+                    }
                     Divider().overlay(Theme.Palette.border)
                     HStack(spacing: Theme.Spacing.sm) {
                         metric("Record", "\(stats.picksCorrect)–\(max(0, stats.picksMade - stats.picksCorrect))")
