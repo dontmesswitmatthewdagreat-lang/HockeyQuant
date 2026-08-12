@@ -830,3 +830,116 @@ async def get_model_predictions(model_id: str, date_str: str, authorization: str
         "games_count": len(predictions),
         "predictions": predictions
     }
+
+
+# ---------------------------------------------------------------- marketplace
+
+# Columns the fork must NOT inherit: identity, ownership, timestamps, and the
+# publication state of the *source*. Everything else — weights, multipliers,
+# model_type, ml_meta — is exactly what a fork is meant to carry over, so
+# copying by exclusion keeps forks correct when new tuning columns are added.
+_FORK_SKIP = {"id", "user_id", "created_at", "updated_at",
+              "is_public", "published_at", "fork_count", "forked_from"}
+
+
+@router.post("/models/{model_id}/publish")
+def publish_model(model_id: str, public: bool = True, authorization: str = Header(None)):
+    """List a model on the marketplace, or take it back down."""
+    user_id = get_user_id_from_token(authorization)
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    owned = (supabase.table("user_models").select("id")
+             .eq("id", model_id).eq("user_id", user_id).execute().data)
+    if not owned:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    now = datetime.now(timezone.utc).isoformat() if public else None
+    (supabase.table("user_models")
+     .update({"is_public": public, "published_at": now})
+     .eq("id", model_id).execute())
+    return {"id": model_id, "is_public": public, "published_at": now}
+
+
+@router.get("/marketplace/models")
+def public_models(limit: int = 50):
+    """The marketplace: published models, most-forked first.
+
+    Deliberately not /models/public — GET /models/{model_id} is declared
+    earlier and would match "public" as an id, which fails as a 404 that looks
+    like a missing model rather than a routing mistake.
+    """
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    rows = (supabase.table("user_models").select("*")
+            .eq("is_public", "true").order("fork_count", desc=True)
+            .limit(min(limit, 200)).execute().data)
+    if not rows:
+        return {"models": []}
+
+    names = {}
+    try:
+        profiles = (supabase.table("profiles").select("id,username")
+                    .in_("id", [f'"{r["user_id"]}"' for r in rows]).execute().data)
+        names = {p["id"]: p.get("username") for p in profiles}
+    except Exception:
+        pass    # a missing author name shouldn't hide the model
+
+    for r in rows:
+        r["author"] = names.get(r["user_id"]) or "GM"
+    return {"models": rows}
+
+
+@router.post("/models/{model_id}/fork")
+def fork_model(model_id: str, authorization: str = Header(None)):
+    """Clone a published model into your own workspace."""
+    user_id = get_user_id_from_token(authorization)
+    supabase = get_supabase()
+    if not supabase:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    src = supabase.table("user_models").select("*").eq("id", model_id).execute().data
+    if not src:
+        raise HTTPException(status_code=404, detail="Model not found")
+    src = src[0]
+    if not src.get("is_public"):
+        raise HTTPException(status_code=403, detail="That model isn't published")
+    if src["user_id"] == user_id:
+        raise HTTPException(status_code=400, detail="That's already your model")
+
+    payload = {k: v for k, v in src.items() if k not in _FORK_SKIP}
+    payload["user_id"] = user_id
+    payload["forked_from"] = model_id
+    payload["is_active"] = True
+
+    # Model names are unique per user, so a second fork of the same name would
+    # collide with the first.
+    base = f'{src["name"]} (fork)'
+    taken = {m["name"] for m in (supabase.table("user_models").select("name")
+                                 .eq("user_id", user_id).execute().data or [])}
+    name, n = base, 2
+    while name in taken:
+        name, n = f"{base} {n}", n + 1
+    payload["name"] = name
+
+    created = supabase.table("user_models").insert([payload]).data
+    if not created:
+        raise HTTPException(status_code=500, detail="Failed to fork model")
+    new_id = created[0]["id"]
+
+    # Reputation is recomputable from these rows; fork_count is a cache of them.
+    # Unique on (source, user) so one person can't farm a model repeatedly.
+    try:
+        supabase.table("model_forks").insert([{
+            "source_id": model_id, "forked_id": new_id, "user_id": user_id,
+        }])
+        (supabase.table("user_models")
+         .update({"fork_count": (src.get("fork_count") or 0) + 1})
+         .eq("id", model_id).execute())
+    except Exception:
+        pass    # already forked by this user; the clone above still stands
+
+    return {"id": new_id, "name": name, "forked_from": model_id}
