@@ -166,18 +166,23 @@ struct APIClient: Sendable {
         return try Self.decode(DuelPickResult.self, from: data)
     }
 
-    /// `POST /api/duels/queue` — enter next week's matchmaking.
+    /// `POST /api/duels/queue?mode=` — enter matchmaking for a week or a night.
     @discardableResult
-    func duelJoinQueue(token: String) async throws -> Data {
-        try await perform("POST", apiURL("duels").appendingPathComponent("queue"),
-                          token: token, body: Optional<Int>.none)
+    func duelJoinQueue(mode: String = "weekly", token: String) async throws -> Data {
+        try await perform("POST", queueURL(mode: mode), token: token, body: Optional<Int>.none)
     }
 
-    /// `DELETE /api/duels/queue`
+    /// `DELETE /api/duels/queue?mode=`
     @discardableResult
-    func duelLeaveQueue(token: String) async throws -> Data {
-        try await perform("DELETE", apiURL("duels").appendingPathComponent("queue"),
-                          token: token, body: Optional<Int>.none)
+    func duelLeaveQueue(mode: String = "weekly", token: String) async throws -> Data {
+        try await perform("DELETE", queueURL(mode: mode), token: token, body: Optional<Int>.none)
+    }
+
+    private func queueURL(mode: String) -> URL {
+        var comps = URLComponents(url: apiURL("duels").appendingPathComponent("queue"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "mode", value: mode)]
+        return comps.url!
     }
 
     /// `GET /api/duels/rankings`

@@ -62,13 +62,14 @@ struct DuelDraftView: View {
     private func header(_ duel: Duel) -> some View {
         Card {
             VStack(spacing: 6) {
-                Text("WEEK OF \(duel.weekStart)")
+                Text(duel.isFlash ? "TONIGHT · \(duel.weekStart)"
+                                  : "WEEK OF \(duel.weekStart)")
                     .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textSecondary)
-                Text(duel.isDrafting ? "Drafting" : "Live")
+                Text(duel.isDrafting ? "Drafting \(duel.modeLabel)" : duel.modeLabel)
                     .font(Theme.Font.headlineHeavy())
                     .foregroundStyle(Theme.Palette.textPrimary)
-                Text("Pick \(min(duel.pickNo + 1, 12)) of 12")
+                Text("Pick \(min(duel.pickNo + 1, duel.totalPicks)) of \(duel.totalPicks)")
                     .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textSecondary)
             }
@@ -246,11 +247,33 @@ struct DuelDraftView: View {
                     .font(Theme.Font.caption())
                     .foregroundStyle(Theme.Palette.textSecondary)
                     .multilineTextAlignment(.center)
-                Button(current?.queued == true ? "Leave queue" : "Join queue") {
-                    Task { await toggleQueue() }
+                // Two formats, queued independently — 028 keys the queue on
+                // (user, mode) precisely so waiting for tonight doesn't cancel
+                // your week.
+                VStack(spacing: 8) {
+                    Button {
+                        Task { await toggleQueue(mode: "flash") }
+                    } label: {
+                        Label("Tonight's Flash Slate", systemImage: "bolt.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Theme.Palette.accent)
+
+                    Button {
+                        Task { await toggleQueue(mode: "weekly") }
+                    } label: {
+                        Label("This week's duel", systemImage: "calendar")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(Theme.Palette.accent)
+
+                    Text("Flash is one night and four picks a side. Weekly runs Monday to Sunday with six.")
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .multilineTextAlignment(.center)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(Theme.Palette.accent)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
@@ -296,13 +319,13 @@ struct DuelDraftView: View {
         }
     }
 
-    private func toggleQueue() async {
+    private func toggleQueue(mode: String) async {
         guard let token = await auth.accessToken() else { return }
         do {
             if current?.queued == true {
-                try await APIClient().duelLeaveQueue(token: token)
+                try await APIClient().duelLeaveQueue(mode: mode, token: token)
             } else {
-                try await APIClient().duelJoinQueue(token: token)
+                try await APIClient().duelJoinQueue(mode: mode, token: token)
             }
             await load()
         } catch {

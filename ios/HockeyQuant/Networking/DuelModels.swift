@@ -48,6 +48,9 @@ struct Duel: Decodable, Identifiable, Hashable {
     let userA: String
     let userB: String
     let state: String                // drafting | live | final
+    /// "weekly" or "flash". Optional so the app keeps decoding against a
+    /// backend that predates the mode column.
+    let mode: String?
     let turnUser: String?
     let pickNo: Int
     let scoreA: Double?
@@ -57,6 +60,11 @@ struct Duel: Decodable, Identifiable, Hashable {
     let winner: String?
 
     var isDrafting: Bool { state == "drafting" }
+    var isFlash: Bool { mode == "flash" }
+    /// Six picks a side over a week, four over a single night.
+    var rosterSize: Int { isFlash ? 4 : 6 }
+    var totalPicks: Int { rosterSize * 2 }
+    var modeLabel: String { isFlash ? "Flash Slate" : "Weekly Duel" }
 }
 
 /// `GET /api/duels/current`
