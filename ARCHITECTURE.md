@@ -244,3 +244,110 @@ Secrets live in `backend/.env`: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`,
 - LLM output is always bounded and always optional: the deterministic result
   must survive the model failing or returning nonsense.
 - Comments explain constraints and non-obvious "why", not what the code does.
+
+---
+
+## 12. Ranked play: duels, XP, and shields (added 2026-08)
+
+### Where grading actually happens
+**Pick XP is awarded by a plpgsql function, not Python.**
+`grade_user_picks_for_game` (created in `001_gamification.sql`, replaced by 029
+and 030) does the whole job: marks picks correct, awards XP, moves the streak,
+spends and grants shields, then calls `award_achievements`. Changing any of that
+is a migration, not a code change. Nothing in `routers/` writes `user_stats`
+except the franchise XP credit at `routers/franchise.py:104`.
+
+Picks are written **client-side straight to Supabase** (`GamificationStore.submitPick`),
+not through the backend. The only backend reference to `user_picks` is a read.
+
+### Odds-weighted XP
+`XP = 10 × (1/P)^0.6 × (1 + 0.03 × min(streak,10))`, `P` clamped to [0.10, 0.95],
+odds multiplier capped at 3.0, `+15` for beating the model, flat `2` for a miss.
+Roughly: 0.95 → 10 XP, 0.50 → 15, 0.10 → 30.
+
+`P` comes from **`user_picks.win_prob`, captured when the pick is placed** — it is
+*not* available at grading time. `predictions` has no probability column at all;
+`ml_home_prob` exists only inside the `daily_predictions` JSON and the live API
+response. Recording it on the pick is also the fairer reading: the user is paid
+for the risk taken at decision time, not for odds that moved afterwards. A null
+`win_prob` (pre-029 picks) scores exactly as the old flat award did.
+
+The streak term is deliberately linear, not a second exponential — stacked on the
+odds multiplier it runs away on a hot week.
+
+### Puck Freeze shields
+Earned every 7th consecutive correct pick, capped at 3 (`030`). One absorbs a loss
+instead of resetting the streak, at most one save per slate.
+
+Every save writes a `streak_shield_uses` row. That table exists because **a
+mechanic the player can't see reads as a bug** — a streak that quietly survives a
+loss looks like broken grading, not a reward. The same reasoning drives the UI:
+`PlayView` shows the streak and shield pips together, and announces a save for
+three days after it fires.
+
+The cap is load-bearing. Without it a long run banks enough shields to make the
+streak effectively unbreakable, which removes the tension the streak creates.
+
+### Duels (weekly + Flash Slate)
+One engine, `services/duels.py`, discriminated by `duels.mode`:
+
+- **weekly** — Monday→Sunday, roster `C, LW, RW, D, D, G` (12 picks)
+- **flash** — a single night, roster `C, LW, D, G` (8 picks)
+
+Two mechanics carry the design:
+
+**Depth slots are league-wide tiers.** Rank every player at a position by
+`fantasy_players.cost` and cut every 32, so "2C" means roughly the second-line
+centre of an average team and means the same to both drafters. That read is
+paginated — a truncated player list silently reshapes every draft board.
+
+**Scarcity buys away agency.** `TIER_OPTIONS = {1:2, 2:3, 3:4, 4:5}` — a 1C hands
+you a star with almost no decision; a 4C is where reading matchups wins the week.
+
+Pools are drawn at pick time, not duel creation, so they exclude everyone already
+taken. The pool actually shown is stored on the pick so a draft can be replayed.
+The pick clock restarts on each selection (`routers/duels.py:_turn_deadline`), and
+a stalled draft autopicks rather than forfeits — a no-show would otherwise cost
+the *opponent* their week.
+
+Queue rows are keyed `(user_id, mode)`: you can wait for tonight and the week at
+once, and queueing for one must not cancel the other.
+
+Weekly scoring (`duel_scoring.py`) is skater points as the base plus a bonus of
+plus/minus and shorthanded production, with goalies on wins/saves/GA/shutouts.
+**Hits, blocks and takeaways are not available** — the NHL per-game log doesn't
+carry them; they exist only in per-game boxscores.
+
+### Model marketplace
+`is_public` / `published_at` / `forked_from` / `fork_count` on `user_models`, plus
+`model_forks` (unique on `(source_id, user_id)`).
+
+Forks **copy by exclusion** — everything except identity, ownership, timestamps and
+the source's publication state. The model schema has already gained columns twice
+(multipliers, then `ml_meta`), and an explicit copy list silently drops them.
+
+`fork_count` is only a cache of `model_forks`; reputation must stay recomputable
+rather than being a counter that can only increase.
+
+Listed at **`/api/marketplace/models`**, not `/models/public` — `GET
+/models/{model_id}` is declared earlier and would match `"public"` as an id.
+
+## 13. Working but unreachable
+
+Backends that are complete and verified, with no UI calling them. Worth knowing
+before building anything new, since these are the cheapest wins available:
+
+- **Model marketplace** — publish / browse / fork all work; nothing in the Models
+  tab calls them.
+- **Duel scoreboard** — `GET /api/duels/{id}/scoreboard` returns a per-player
+  weekly breakdown; nothing renders it.
+- **Ranked leaderboard** — `GET /api/duels/rankings` returns Elo standings;
+  no screen exists.
+
+Also outstanding: nine `AsyncImage` sites still bypass `HQAsyncImage`
+(`NewsView` ×4, `NewsStoryView`, `ProspectDetailSheet`, `PlayerMarketView` ×2,
+`CardView`), and several `async def` handlers still call the blocking Supabase
+client, which stalls the event loop — `routers/market.py`'s plain `def` is the
+correct pattern there.
+
+Migrations applied through **030**.
