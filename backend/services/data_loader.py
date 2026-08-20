@@ -70,6 +70,10 @@ class DataLoader:
     def SKATER_DATA_URL(self) -> str:
         return self._MP_BASE.format(year=self._moneypuck_season(), kind="skaters")
 
+    @property
+    def LINES_DATA_URL(self) -> str:
+        return self._MP_BASE.format(year=self._moneypuck_season(), kind="lines")
+
     # Headers to avoid 403 Forbidden from MoneyPuck
     HEADERS = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -84,15 +88,24 @@ class DataLoader:
         self._skater_data = None
         self._pp_data = None
         self._pk_data = None
+        # Strength-state slices for the advanced-metrics surfaces. These come
+        # out of dataframes already downloaded and otherwise discarded, so they
+        # cost nothing extra to keep.
+        self._team_5on5 = None
+        self._team_other = None
+        self._skater_5on5 = None
+        # lines.csv is loaded separately — see the `lines_data` property.
+        self._lines_data = None
+        self._lines_last_load = None
         self._injury_cache = {}
         self._confirmed_starters_cache = {}
         self._last_load_time = None
 
-    def _fetch_csv(self, url: str) -> pd.DataFrame:
+    def _fetch_csv(self, url: str, dtype: Optional[Dict] = None) -> pd.DataFrame:
         """Fetch CSV from URL with proper headers to avoid 403 errors"""
         response = requests.get(url, headers=self.HEADERS, timeout=30)
         response.raise_for_status()
-        return pd.read_csv(io.StringIO(response.text))
+        return pd.read_csv(io.StringIO(response.text), dtype=dtype)
 
     def load_all_data(self, force_refresh: bool = False) -> Dict:
         """Load all data from MoneyPuck"""
@@ -107,6 +120,11 @@ class DataLoader:
             self._team_data = team_data_full[team_data_full['situation'] == 'all']
             self._pp_data = team_data_full[team_data_full['situation'] == '5on4']
             self._pk_data = team_data_full[team_data_full['situation'] == '4on5']
+            # 'other' is 3-on-3 OT, 4-on-4 and empty net. Small but not
+            # negligible — worth +14 goals to EDM in 2025-26 — and the goal
+            # differential decomposition is only exact with it included.
+            self._team_5on5 = team_data_full[team_data_full['situation'] == '5on5']
+            self._team_other = team_data_full[team_data_full['situation'] == 'other']
 
             # Load goalie data
             goalie_data_full = self._fetch_csv(self.GOALIE_DATA_URL)
@@ -115,6 +133,7 @@ class DataLoader:
             # Load skater data
             skater_data_full = self._fetch_csv(self.SKATER_DATA_URL)
             self._skater_data = skater_data_full[skater_data_full['situation'] == 'all']
+            self._skater_5on5 = skater_data_full[skater_data_full['situation'] == '5on5']
 
             self._last_load_time = datetime.now()
 
@@ -131,6 +150,9 @@ class DataLoader:
             'skater_data': self._skater_data,
             'pp_data': self._pp_data,
             'pk_data': self._pk_data,
+            'team_5on5': self._team_5on5,
+            'team_other': self._team_other,
+            'skater_5on5': self._skater_5on5,
         }
 
     def scrape_injuries(self) -> Dict[str, List[str]]:
@@ -362,6 +384,69 @@ class DataLoader:
         if self._pk_data is None:
             self.load_all_data()
         return self._pk_data
+
+    @property
+    def team_5on5(self):
+        if self._team_5on5 is None:
+            self.load_all_data()
+        return self._team_5on5
+
+    @property
+    def team_other(self):
+        if self._team_other is None:
+            self.load_all_data()
+        return self._team_other
+
+    @property
+    def skater_5on5(self):
+        if self._skater_5on5 is None:
+            self.load_all_data()
+        return self._skater_5on5
+
+    @property
+    def lines_data(self):
+        """5-on-5 forward lines and defence pairs, or None.
+
+        Deliberately NOT part of `load_all_data`. That method re-raises on any
+        failure, so folding this in would mean a lines.csv outage — plausible in
+        the autumn before MoneyPuck posts the new season's file — taking down
+        every prediction in the app. Only the advanced-metrics surfaces read it,
+        and they degrade to "unavailable" on their own.
+
+        A failed fetch serves the last good frame rather than None, and an empty
+        result is never cached (ARCHITECTURE §8).
+        """
+        fresh = (self._lines_last_load
+                 and datetime.now() - self._lines_last_load < timedelta(hours=6))
+        if self._lines_data is not None and fresh:
+            return self._lines_data
+        try:
+            # lineId is a 21-digit concatenation that overflows int64, and
+            # MoneyPuck wraps it in quotes — read it as text and strip.
+            df = self._fetch_csv(self.LINES_DATA_URL, dtype={"lineId": str})
+            if df is not None and not df.empty:
+                df = df.copy()
+                df["lineId"] = df["lineId"].astype(str).str.strip("'\" ")
+                self._lines_data = df
+                self._lines_last_load = datetime.now()
+        except Exception:
+            pass    # keep whatever we had; never blank out good data
+        return self._lines_data
+
+
+def line_player_ids(line_id) -> List[int]:
+    """Split a MoneyPuck lineId into its player ids.
+
+    The id is a plain concatenation of 7-digit NHL player ids — 3 for a forward
+    line, 2 for a defence pair. Verified against the whole file: every id parsed
+    this way resolves in skaters.csv. Anything that isn't a clean multiple of 7
+    means the format changed upstream, so the row is skipped rather than turned
+    into garbage joins.
+    """
+    s = str(line_id).strip("'\" ")
+    if not s.isdigit() or len(s) % 7:
+        return []
+    return [int(s[i:i + 7]) for i in range(0, len(s), 7)]
 
 
 # Global data loader instance
