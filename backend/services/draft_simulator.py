@@ -12,6 +12,7 @@ Runs weekly via cron (idempotent per ISO week); stored in `mock_drafts`.
 import datetime
 import json
 import re
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -444,6 +445,144 @@ def _prospect_payload(choice: dict, draft_year: int, fallback_id) -> dict:
             "category": info.get("category"),
         },
     }
+
+
+# MARK: - Interactive draft room
+
+_ROOM_TTL = 6 * 3600
+_room_cache: Dict[str, object] = {"ts": 0.0, "data": None}
+
+
+def build_draft_room(sb, force: bool = False) -> Optional[dict]:
+    """Everything the app needs to run a draft itself: order, board, needs.
+
+    The room deliberately hands over the whole board in one response and lets
+    the client pick. A request per pick would put a Render cold start between
+    a user and their next selection, which is the one thing a draft can't
+    survive; it also means the AI GMs can re-pick instantly when the user takes
+    someone they wanted.
+
+    Order is taken from real results when the class has already been drafted,
+    then the stored weekly mock, and only then re-resolved — that last cascade
+    fetches news and calls an LLM, far too heavy to run whenever somebody opens
+    the screen.
+    """
+    now = time.time()
+    if not force and _room_cache["data"] and now - float(_room_cache["ts"]) < _ROOM_TTL:
+        return _room_cache["data"]
+
+    pool = _consensus_pool(sb)
+    if not pool:
+        return None
+
+    yr_rows = sb.table("prospects").select("draft_year").eq("notable", "true").limit(1).execute().data
+    draft_year = (yr_rows[0].get("draft_year") if yr_rows else None) or datetime.date.today().year + 1
+
+    # A class that has already been drafted turns the room into a re-draft: the
+    # real first round is both the truest pick order and something to score the
+    # user against. Before a draft this is empty and everything below falls back.
+    from services.draft_results import drafted_lookup, fetch_draft_picks
+    actual, real_first_round = {}, []
+    try:
+        actual = drafted_lookup(draft_year)
+        real_first_round = sorted((p for p in fetch_draft_picks(draft_year) if p.get("round") == 1),
+                                  key=lambda p: p["overall"])
+    except Exception as e:
+        print(f"[draft-room] real draft results unavailable: {e}", flush=True)
+
+    # Must be OUR mock: the table also holds imported insider mocks (023), which
+    # are partial (an article often lists 19 of 32) and carry the headline as
+    # their order_basis. A room built on one would run out of picks mid-draft.
+    mock = None
+    try:
+        rows = (sb.table("mock_drafts").select("*").eq("source", "HockeyQuant")
+                .order("generated_at", desc=True).limit(1).execute().data)
+        mock = rows[0] if rows else None
+    except Exception:
+        pass                            # pre-023 rows: no source column to filter on
+    if mock is None:
+        rows = (sb.table("mock_drafts").select("*")
+                .order("generated_at", desc=True).limit(1).execute().data)
+        mock = rows[0] if rows else None
+
+    order, basis, lottery = [], None, []
+    if real_first_round:
+        order = [p["team"] for p in real_first_round]
+        basis = f"Actual {draft_year} first-round order"
+    elif mock:
+        order = [p["team"] for p in (mock.get("picks") or []) if p.get("team")]
+        basis = mock.get("order_basis")
+        lottery = mock.get("lottery_odds") or []
+
+    standings = _fetch_standings()
+    if len(order) < len(ALL_TEAMS):
+        # No usable stored order — pay for the full resolve once rather than
+        # opening the room on a first round that stops early.
+        order, basis = _resolve_order(draft_year, standings, _fetch_draft_news(draft_year))
+    if not lottery:
+        # Always ship the odds: the room re-runs the lottery off them, and the
+        # real-results branch above has none of its own to hand over.
+        lottery = _lottery_odds(standings)
+
+    needs: Dict[str, dict] = {}
+    try:
+        if standings:
+            needs = _team_needs({s["abbrev"]: s for s in standings})
+    except Exception as e:
+        print(f"[draft-room] team needs unavailable: {e}", flush=True)
+    if not needs and mock:
+        # MoneyPuck is down: the group each team's mock pick addressed is a
+        # weaker but honest read of the same need, and keeps the AI tilted.
+        needs = {p["team"]: {"primary": p.get("need") or "F", "secondary": "D", "ranks": {}}
+                 for p in (mock.get("picks") or []) if p.get("team")}
+
+    board = []
+    for i, c in enumerate(pool):
+        real = actual.get((c.get("name") or "").lower())
+        board.append({
+            "group": c["group"],
+            "value": c["value"],
+            "actual": {"overall": real["overall"], "round": real["round"], "team": real["team"]}
+                      if real else None,
+            "prospect": _prospect_payload(c, draft_year, i + 1),
+        })
+
+    room = {
+        "draft_year": draft_year,
+        "order": order,
+        "order_basis": basis,
+        "lottery_odds": lottery,
+        # Reverse-standings order, i.e. the board BEFORE any lottery. Re-running
+        # the lottery has to start here: `order` above already has a lottery
+        # applied (and, in a re-draft, the real one), so drawing on top of it
+        # would apply a second one and move the wrong teams.
+        "standings_order": _draft_order(standings) if standings else [],
+        "needs": needs,
+        # True once the class has actually been drafted: the room is a re-draft
+        # of a known first round rather than a projection of an unknown one.
+        "is_redraft": bool(actual),
+        # The real first round, so a finished re-draft can be shown slot by slot
+        # against it. Sent whole rather than reconstructed from `board.actual`:
+        # a player the league took in round 1 isn't necessarily on our board.
+        "actual_first_round": [{
+            "overall": p["overall"], "team": p["team"],
+            "player": p["player"], "position": p.get("position"),
+        } for p in real_first_round],
+        "board": board,
+        "team_names": {a: TEAM_FULL_NAMES.get(a, a) for a in order},
+        # The client scores picks with these, so they travel with the board —
+        # a tuning change here must not need an app release to take effect.
+        "weights": {
+            "primary_bonus": _PRIMARY_BONUS,
+            "secondary_bonus": _SECONDARY_BONUS,
+            "goalie_reach_penalty": _GOALIE_REACH_PENALTY,
+            "window": _WINDOW,
+        },
+    }
+    print(f"[draft-room] {draft_year}: {len(order)} picks, {len(board)} prospects, "
+          f"needs={len(needs)}, basis={basis!r}", flush=True)
+    _room_cache.update({"ts": now, "data": room})
+    return room
 
 
 def build_mock_draft(sb) -> Optional[dict]:

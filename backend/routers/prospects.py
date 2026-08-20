@@ -5,7 +5,7 @@ from fastapi import APIRouter, HTTPException
 
 from services.supabase_client import get_supabase
 from services.prospects import sync_all
-from services.draft_simulator import build_mock_draft
+from services.draft_simulator import build_mock_draft, build_draft_room
 from services.draft_results import fetch_draft_picks, drafted_lookup, team_picks
 from services.push import apns_send
 
@@ -277,3 +277,15 @@ def latest_mock_draft():
     sb = _sb()
     rows = sb.table("mock_drafts").select("*").order("generated_at", desc=True).limit(1).execute().data
     return {"mock_draft": rows[0] if rows else None}
+
+
+@router.get("/prospects/draft-room")
+def draft_room(refresh: bool = False):
+    """App: inputs for the interactive draft — order, full board, team needs.
+
+    One payload; the app drafts against it locally. See `build_draft_room`.
+    """
+    room = build_draft_room(_sb(), force=refresh)
+    if not room:
+        raise HTTPException(status_code=503, detail="No draft board available yet")
+    return room

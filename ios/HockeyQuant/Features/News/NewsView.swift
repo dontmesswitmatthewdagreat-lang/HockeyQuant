@@ -1009,6 +1009,7 @@ struct NewsView: View {
             shimmer
         } else if let mock = selectedMock, !mock.picks.isEmpty {
             VStack(spacing: 0) {
+                draftRoomLink
                 if store.mocks.count > 1 { mockSourcePicker }
                 MockDraftBoard(
                     mock: mock,
@@ -1021,6 +1022,46 @@ struct NewsView: View {
             EmptyStateView(systemImage: "list.number", title: "No mock draft yet",
                            message: "This week's projected first round will appear here.")
         }
+    }
+
+    /// Reading a mock invites the obvious response, so the way in sits right on
+    /// top of it: go do it yourself.
+    private var draftRoomLink: some View {
+        NavigationLink { EntryDraftRoomView() } label: {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    Circle().fill(LinearGradient(
+                        colors: [Theme.Palette.accent, Theme.Palette.accentAlt],
+                        startPoint: .topLeading, endPoint: .bottomTrailing))
+                    Image(systemName: "person.badge.clock.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 34, height: 34)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Think you can do better?")
+                        .font(.system(size: 14, weight: .heavy, design: .rounded))
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("Take the clock for your team and draft the round yourself.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .lineLimit(1).minimumScaleFactor(0.8)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+            .padding(.horizontal, Theme.Spacing.sm)
+            .padding(.vertical, Theme.Spacing.xs)
+            .background(Theme.Palette.surface)
+            .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.md, style: .continuous)
+                .strokeBorder(Theme.Palette.accent.opacity(0.5), lineWidth: 1))
+            .padding(.horizontal, Theme.Spacing.md)
+            .padding(.bottom, Theme.Spacing.sm)
+        }
+        .buttonStyle(.plain)
     }
 
     /// Switch between the internal projection and imported insider mocks.

@@ -320,14 +320,19 @@ def sync_prospects():
 # ---------------------------------------------------------------------------
 
 @router.get("/fantasy/players")
-def list_players(slot_type: Optional[str] = None, q: Optional[str] = None, limit: int = 200):
-    """List the player pool, optionally filtered by slot type (LW/RW/C/LHD/RHD/G) and name search."""
+def list_players(slot_type: Optional[str] = None, q: Optional[str] = None,
+                 team: Optional[str] = None, limit: int = 200):
+    """List the player pool, optionally filtered by slot type (LW/RW/C/LHD/RHD/G), team and name search."""
     sb = _sb()
     query = sb.table("fantasy_players").select(
         "id,nhl_id,full_name,team,position,shoots,roster_pos,is_goalie,sweater,headshot,cost"
     ).eq("active", "true")
     if slot_type:
         query = query.eq("roster_pos", slot_type)
+    if team:
+        # Powers the lineup builder, which needs one club's whole roster rather
+        # than the top of the league-wide value board.
+        query = query.eq("team", team.upper())
     if q:
         query = query.ilike("full_name", f"*{q}*")
     # Priciest (best) players first — the market reads as a value board.
