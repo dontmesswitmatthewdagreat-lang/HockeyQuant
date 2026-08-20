@@ -164,10 +164,15 @@ def scoreboard(duel_id: int):
         raise HTTPException(status_code=404, detail="No such duel")
     duel = duel[0]
     picks = (sb.table("duel_picks").select("user_id,chosen_nhl_id,slot")
-             .eq("duel_id", duel_id).limit(64).execute().data)
+             .eq("duel_id", duel_id).order("pick_no").limit(64).execute().data)
+    from routers.franchise import _usernames
+    # Coalesced here rather than client-side: a profile row can exist with a
+    # null username, and "GM" is what the rankings board calls that too.
+    names = {uid: (name or "GM")
+             for uid, name in _usernames(sb, [duel["user_a"], duel["user_b"]]).items()}
     ids = [p["chosen_nhl_id"] for p in picks if p["chosen_nhl_id"]]
     if not ids:
-        return {"duel": duel, "a": None, "b": None}
+        return {"duel": duel, "names": names, "a": None, "b": None}
     meta = (sb.table("fantasy_players").select("nhl_id,position,full_name,team")
             .in_("nhl_id", ids).limit(64).execute().data)
     info = {m["nhl_id"]: m for m in meta}
@@ -181,8 +186,12 @@ def scoreboard(duel_id: int):
                    "slot": p["slot"]}
                   for p in picks if p["user_id"] == uid and p["chosen_nhl_id"]]
         scored = score_roster(roster, start, end)
-        for row in scored["players"]:
+        # score_roster preserves roster order, so the slot each player was
+        # drafted into rides along — the scoreboard reads in the same "2C / G1"
+        # vocabulary as the draft board rather than a bare list of names.
+        for drafted, row in zip(roster, scored["players"]):
+            row["slot"] = drafted["slot"]
             row.update({k: info.get(row["nhl_id"], {}).get(k)
                         for k in ("full_name", "team", "position")})
         out[side] = scored
-    return {"duel": duel, **out}
+    return {"duel": duel, "names": names, **out}

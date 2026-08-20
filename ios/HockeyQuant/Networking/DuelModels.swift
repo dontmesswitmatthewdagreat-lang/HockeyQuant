@@ -15,6 +15,20 @@ struct DuelBoardPlayer: Decodable, Identifiable, Hashable {
     var headshotURL: URL? { headshot.flatMap(URL.init(string:)) }
 }
 
+/// Depth-slot codes ("1C", "4D", "G2") in the one place that knows how to read
+/// them — the draft board and the scoreboard have to name a slot identically.
+enum DuelSlot {
+    /// "1C" → "1st line C"; "G2" → "Backup G".
+    static func label(_ slot: String) -> String {
+        if slot.hasPrefix("G") { return slot == "G1" ? "Starting G" : "Backup G" }
+        guard let tier = slot.first, let n = Int(String(tier)) else { return slot }
+        let position = String(slot.dropFirst())
+        let ordinal = ["", "1st", "2nd", "3rd", "4th"]
+        let line = n < ordinal.count ? ordinal[n] : "\(n)th"
+        return "\(line) \(position == "D" ? "pair" : "line") \(position)"
+    }
+}
+
 /// A pick in the draft order — filled in once chosen.
 struct DuelPick: Decodable, Identifiable, Hashable {
     let id: Int
@@ -30,15 +44,7 @@ struct DuelPick: Decodable, Identifiable, Hashable {
 
     var isDone: Bool { chosenNhlId != nil }
 
-    /// "1C" → "1st line C"; "G2" → "Backup G".
-    var slotLabel: String {
-        if slot.hasPrefix("G") { return slot == "G1" ? "Starting G" : "Backup G" }
-        guard let tier = slot.first, let n = Int(String(tier)) else { return slot }
-        let position = String(slot.dropFirst())
-        let ordinal = ["", "1st", "2nd", "3rd", "4th"]
-        let line = n < ordinal.count ? ordinal[n] : "\(n)th"
-        return "\(line) \(position == "D" ? "pair" : "line") \(position)"
-    }
+    var slotLabel: String { DuelSlot.label(slot) }
 }
 
 struct Duel: Decodable, Identifiable, Hashable {
@@ -60,6 +66,7 @@ struct Duel: Decodable, Identifiable, Hashable {
     let winner: String?
 
     var isDrafting: Bool { state == "drafting" }
+    var isFinal: Bool { state == "final" }
     var isFlash: Bool { mode == "flash" }
     /// Six picks a side over a week, four over a single night.
     var rosterSize: Int { isFlash ? 4 : 6 }
@@ -110,6 +117,85 @@ struct DuelRanking: Decodable, Identifiable, Hashable {
 }
 
 struct DuelRankingsResponse: Decodable { let rankings: [DuelRanking] }
+
+// MARK: - Scoreboard
+
+/// `GET /api/duels/{id}/scoreboard` — what each drafted player has produced.
+/// Both sides are null until the draft finishes and someone has been picked.
+struct DuelScoreboard: Decodable {
+    let duel: Duel
+    let names: [String: String]?     // user id → username
+    let a: DuelSide?
+    let b: DuelSide?
+
+    func side(for userId: String?) -> DuelSide? {
+        guard let userId else { return nil }
+        return duel.userA.lowercased() == userId.lowercased() ? a : b
+    }
+
+    func opponentSide(for userId: String?) -> DuelSide? {
+        guard let userId else { return nil }
+        return duel.userA.lowercased() == userId.lowercased() ? b : a
+    }
+
+    /// Usernames are keyed by the Postgres (lowercase) id; `AuthStore.userId`
+    /// is uppercased, so every lookup here has to case-fold.
+    func name(for userId: String?) -> String? {
+        guard let userId else { return nil }
+        return names?.first { $0.key.lowercased() == userId.lowercased() }?.value
+    }
+}
+
+/// One drafter's roster and its two score components.
+struct DuelSide: Decodable {
+    /// Skater points — goals and assists.
+    let base: Double
+    /// The defensive/goaltending layer: plus-minus, shorthanded play, goalie work.
+    let bonus: Double
+    let players: [DuelScoredPlayer]
+
+    var total: Double { base + bonus }
+}
+
+struct DuelScoredPlayer: Decodable, Identifiable {
+    let nhlId: Int
+    let games: Int
+    let base: Double
+    let bonus: Double
+    /// Raw counting stats, keyed differently for skaters ("g", "a", "+/-", "sh")
+    /// and goalies ("wins", "saves", "ga", "shutouts").
+    let line: [String: Int]?
+    let slot: String?
+    let fullName: String?
+    let team: String?
+    let position: String?
+
+    var id: Int { nhlId }
+    var total: Double { base + bonus }
+    var isGoalie: Bool { (position ?? "").uppercased() == "G" }
+    var slotLabel: String { slot.map(DuelSlot.label) ?? (position ?? "") }
+    var name: String { fullName ?? "Player \(nhlId)" }
+
+    private func stat(_ key: String) -> Int { line?[key] ?? 0 }
+
+    /// The week in counting stats — "2G 3A · +4" or "2W · 61 SV · 3 GA".
+    var statLine: String {
+        guard games > 0 else { return "Yet to play" }
+        var parts: [String] = []
+        if isGoalie {
+            if stat("wins") > 0 { parts.append("\(stat("wins"))W") }
+            parts.append("\(stat("saves")) SV")
+            parts.append("\(stat("ga")) GA")
+            if stat("shutouts") > 0 { parts.append("\(stat("shutouts")) SO") }
+        } else {
+            parts.append("\(stat("g"))G \(stat("a"))A")
+            let pm = stat("+/-")
+            parts.append(pm >= 0 ? "+\(pm)" : "\(pm)")
+            if stat("sh") > 0 { parts.append("\(stat("sh")) SH") }
+        }
+        return parts.joined(separator: " · ")
+    }
+}
 
 extension ISO8601DateFormatter {
     /// Postgres hands back fractional seconds; the default parser rejects them.
