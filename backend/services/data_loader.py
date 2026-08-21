@@ -94,9 +94,12 @@ class DataLoader:
         self._team_5on5 = None
         self._team_other = None
         self._skater_5on5 = None
-        # lines.csv is loaded separately — see the `lines_data` property.
+        # lines.csv is loaded separately — see the `lines_data` property. The
+        # timestamp records the last *attempt*, not the last success, so a
+        # failing fetch backs off instead of retrying on every single request.
         self._lines_data = None
-        self._lines_last_load = None
+        self._lines_last_attempt = None
+        self._lines_interval = timedelta(hours=6)
         self._injury_cache = {}
         self._confirmed_starters_cache = {}
         self._last_load_time = None
@@ -415,11 +418,19 @@ class DataLoader:
 
         A failed fetch serves the last good frame rather than None, and an empty
         result is never cached (ARCHITECTURE §8).
+
+        Failures are remembered as well as successes, and that is the whole
+        point of the attempt timestamp. Stamping only on success means the
+        interval never elapses, so every caller pays the full 30-second
+        `_fetch_csv` timeout — even one that is holding a perfectly good stale
+        frame. An autumn outage, which is exactly when this file is most likely
+        to be missing, would then block a worker per request until the pool is
+        gone. Backing off to 10 minutes costs one timeout per 10 minutes.
         """
-        fresh = (self._lines_last_load
-                 and datetime.now() - self._lines_last_load < timedelta(hours=6))
-        if self._lines_data is not None and fresh:
+        if (self._lines_last_attempt
+                and datetime.now() - self._lines_last_attempt < self._lines_interval):
             return self._lines_data
+        self._lines_last_attempt = datetime.now()
         try:
             # lineId is a 21-digit concatenation that overflows int64, and
             # MoneyPuck wraps it in quotes — read it as text and strip.
@@ -428,9 +439,13 @@ class DataLoader:
                 df = df.copy()
                 df["lineId"] = df["lineId"].astype(str).str.strip("'\" ")
                 self._lines_data = df
-                self._lines_last_load = datetime.now()
+                self._lines_interval = timedelta(hours=6)
+                return self._lines_data
         except Exception:
             pass    # keep whatever we had; never blank out good data
+        # Reached on a fetch error or an empty file — both are failures, and an
+        # empty frame in particular must never be cached as a result.
+        self._lines_interval = timedelta(minutes=10)
         return self._lines_data
 
 

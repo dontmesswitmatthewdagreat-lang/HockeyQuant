@@ -7,8 +7,11 @@ struct TeamDetailView: View {
     @State private var showAllSkaters = false
     @State private var decomposition: TeamDecomposition?
     @State private var showStateSplit = false
-    /// Advanced impact keyed by name. The roster table and this endpoint are
-    /// both built from MoneyPuck skater rows, so the names match exactly.
+    /// Advanced impact, keyed by name *and* position. The roster table and this
+    /// endpoint are both built from MoneyPuck skater rows, so both fields match
+    /// exactly — but name alone is not unique. Vancouver dresses two Elias
+    /// Petterssons, a centre and a defenceman, and keying on name would open
+    /// the forward's card from the defenceman's row.
     @State private var impacts: [String: SkaterImpact] = [:]
     @State private var selectedSkater: SkaterImpact?
     @State private var goalieImpacts: [String: GoalieImpact] = [:]
@@ -20,6 +23,23 @@ struct TeamDetailView: View {
     }
 
     private var info: TeamInfo { TeamInfo.lookup(model.abbrev) }
+
+    /// Both endpoints read the same MoneyPuck column for position, but only the
+    /// roster one uppercases it — so normalize here rather than trust that.
+    private static func impactKey(_ name: String, _ position: String) -> String {
+        "\(name)|\(position.uppercased())"
+    }
+
+    /// Build a lookup that *drops* genuine duplicates instead of arbitrarily
+    /// keeping one. If two rows still collide after keying, there is no way to
+    /// tell which roster row means which player, and opening the wrong player's
+    /// card is worse than the row not being tappable.
+    private static func lookup<T>(_ rows: [T], key: (T) -> String) -> [String: T] {
+        var counts: [String: Int] = [:]
+        for row in rows { counts[key(row), default: 0] += 1 }
+        return Dictionary(uniqueKeysWithValues:
+            rows.filter { counts[key($0)] == 1 }.map { (key($0), $0) })
+    }
 
     var body: some View {
         ZStack {
@@ -36,11 +56,13 @@ struct TeamDetailView: View {
         .task { decomposition = try? await api.teamDecomposition(model.abbrev) }
         .task {
             let rows = (try? await api.skaterImpact(team: model.abbrev)) ?? []
-            impacts = Dictionary(rows.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+            impacts = Self.lookup(rows) { Self.impactKey($0.name, $0.position) }
         }
         .task {
             let rows = (try? await api.goalieImpact(team: model.abbrev)) ?? []
-            goalieImpacts = Dictionary(rows.map { ($0.name, $0) }, uniquingKeysWith: { a, _ in a })
+            // Goalies have no second field to disambiguate on, so a same-name
+            // pair simply becomes untappable rather than wrong.
+            goalieImpacts = Self.lookup(rows) { $0.name }
         }
         .floatingCard(item: $selectedSkater) { skater in
             PlayerImpactSheet(skater: skater, teamColor: info.color)
@@ -351,7 +373,7 @@ struct TeamDetailView: View {
                 sectionHeader("Players (\(skaters.count))")
                 skaterHeaderRow
                 ForEach(visible) { skater in
-                    if let impact = impacts[skater.name] {
+                    if let impact = impacts[Self.impactKey(skater.name, skater.position)] {
                         PressableButton(action: { selectedSkater = impact }) {
                             skaterRow(skater, tappable: true)
                         }

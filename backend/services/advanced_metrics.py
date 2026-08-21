@@ -27,6 +27,7 @@ time by ~7%. Team numbers always come from the team frame.
 """
 
 import time
+from bisect import bisect_left, bisect_right
 from typing import Dict, List, Optional
 
 import pandas as pd
@@ -204,6 +205,24 @@ def _per60(value: float, icetime_seconds: float) -> float:
     return value / hours if hours > 0 else 0.0
 
 
+def _percentile(values: List[float], v: float, higher_better: bool = True) -> int:
+    """Where `v` sits among `values`, 0-100. `values` must already be sorted.
+
+    Two binary searches rather than two full scans. That matters more than it
+    looks: the scan version is O(pool) per player per metric, which over ~700
+    qualified forwards and five metrics is several million comparisons every
+    time the hour-long cache turns over — all of it inside a request.
+
+    Ties split the difference, so a pool where everyone is identical ranks
+    everyone 50th rather than everyone 100th.
+    """
+    lo = bisect_left(values, v)
+    hi = bisect_right(values, v)
+    same = hi - lo
+    better = lo if higher_better else len(values) - hi
+    return round((better + same / 2) / len(values) * 100)
+
+
 def _position_group(position: str) -> str:
     """Forwards are ranked against forwards, defencemen against defencemen —
     a blueliner shouldn't read as a bottom-percentile player for scoring less
@@ -262,12 +281,16 @@ def _ranked(rows: List[dict]) -> List[dict]:
     Only players over the ice-time floor are ranked against each other; the
     rest still get their raw numbers, just no percentile.
     """
-    metrics = ["game_score_per60", "xgf_pct_rel", "xgf_per60", "finishing", "penalty_differential"]
+    # xGA/60 is the one metric where a low number is the good one.
+    metrics = {
+        "game_score_per60": True, "xgf_pct_rel": True, "xgf_per60": True,
+        "finishing": True, "penalty_differential": True, "xga_per60": False,
+    }
     for group in ("F", "D"):
         pool = [r for r in rows if r["position_group"] == group and r["icetime"] >= MIN_ICETIME]
         if len(pool) < 5:
             continue
-        for metric in metrics:
+        for metric, higher_better in metrics.items():
             values = sorted(r[metric] for r in pool if r.get(metric) is not None)
             if not values:
                 continue
@@ -275,24 +298,8 @@ def _ranked(rows: List[dict]) -> List[dict]:
                 v = r.get(metric)
                 if v is None:
                     continue
-                # Fraction of the pool this player is at or above.
-                below = sum(1 for x in values if x < v)
-                same = sum(1 for x in values if x == v)
-                r.setdefault("percentiles", {})[metric] = round(
-                    (below + same / 2) / len(values) * 100
-                )
-        # xGA is the one metric where lower is better.
-        values = sorted(r["xga_per60"] for r in pool if r.get("xga_per60") is not None)
-        if values:
-            for r in pool:
-                v = r.get("xga_per60")
-                if v is None:
-                    continue
-                above = sum(1 for x in values if x > v)
-                same = sum(1 for x in values if x == v)
-                r.setdefault("percentiles", {})["xga_per60"] = round(
-                    (above + same / 2) / len(values) * 100
-                )
+                r.setdefault("percentiles", {})[metric] = _percentile(
+                    values, v, higher_better)
     return rows
 
 
@@ -381,9 +388,16 @@ def _goalie_row(row) -> dict:
 
 
 def _rank_goalies(rows: List[dict]) -> List[dict]:
-    """League percentiles among goalies over the ice-time floor."""
+    """League percentiles among goalies over the ice-time floor.
+
+    ⚠️ `workload_per60` is deliberately absent. Shots faced per 60 is context,
+    not quality — a percentile for it would render through the same bar and the
+    same green-above-75 tint as GSAx, telling a goalie behind a leaky defence
+    that he is elite at being shot at. The raw number is shown on its own row
+    instead, where it can't be read as a grade.
+    """
     higher_better = ["gsax", "gsax_per60", "save_pct", "hd_save_pct",
-                     "hd_gsax", "rebound_control", "workload_per60"]
+                     "hd_gsax", "rebound_control"]
     pool = [r for r in rows if r["icetime"] >= MIN_GOALIE_ICETIME]
     if len(pool) < 5:
         return rows
@@ -395,10 +409,7 @@ def _rank_goalies(rows: List[dict]) -> List[dict]:
             v = r.get(metric)
             if v is None:
                 continue
-            below = sum(1 for x in values if x < v)
-            same = sum(1 for x in values if x == v)
-            r.setdefault("percentiles", {})[metric] = round(
-                (below + same / 2) / len(values) * 100)
+            r.setdefault("percentiles", {})[metric] = _percentile(values, v)
     return rows
 
 

@@ -25,8 +25,10 @@ struct GoalieImpactSheet: View {
                              detail: "Raw stop rate — context-free, which is why it's ranked last"),
             PercentileMetric(key: "rebound_control", label: "Rebound control",
                              detail: "Rebounds allowed vs. expected, ranked against other goalies"),
-            PercentileMetric(key: "workload_per60", label: "Workload",
-                             detail: "Shots faced per 60 — not good or bad, just how busy he was"),
+            // Workload is deliberately not here. Everything in this card is
+            // scored on the same green-above-75 scale, and shots faced per 60
+            // isn't a grade — a heavy workload says something about the team in
+            // front of him, not about him. It shows as a plain number below.
         ]
     }
 
