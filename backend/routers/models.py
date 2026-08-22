@@ -83,6 +83,12 @@ class UserModel(BaseModel):
     model_type: str = "weighted"
     ml_kind: Optional[str] = None            # "logistic" | "boosted"
     ml_features: Optional[List[str]] = None  # human-readable feature labels
+    # Marketplace state. The owner's own list is where publishing is toggled, so
+    # it has to carry whether the model is already listed and what it's earned.
+    is_public: bool = False
+    published_at: Optional[str] = None
+    fork_count: int = 0
+    forked_from: Optional[str] = None
 
 
 _ML_FEATURE_LABELS = {
@@ -90,6 +96,16 @@ _ML_FEATURE_LABELS = {
     "st": "Special teams", "injury": "Injuries", "h2h": "Head-to-head",
     "base_score": "Quality score", "xg_diff": "Expected goals",
 }
+
+
+def _marketplace_fields(row: dict) -> dict:
+    """Publication state for a user_models row, as UserModel kwargs."""
+    return {
+        "is_public": bool(row.get("is_public")),
+        "published_at": row.get("published_at"),
+        "fork_count": row.get("fork_count") or 0,
+        "forked_from": row.get("forked_from"),
+    }
 
 
 def _ml_display(row: dict):
@@ -264,6 +280,7 @@ async def list_models(authorization: str = Header(None)):
                 model_type=mtype,
                 ml_kind=mkind,
                 ml_features=mfeats,
+                **_marketplace_fields(row),
             ))
 
         return ModelsListResponse(models=models, total=len(models))
@@ -461,6 +478,7 @@ async def get_model(model_id: str, authorization: str = Header(None)):
             model_type=mtype,
             ml_kind=mkind,
             ml_features=mfeats,
+            **_marketplace_fields(row),
         )
 
     except HTTPException:
@@ -523,6 +541,7 @@ async def update_model(model_id: str, request: UpdateModelRequest, authorization
             model_type=mtype,
             ml_kind=mkind,
             ml_features=mfeats,
+            **_marketplace_fields(row),
         )
 
     except HTTPException:

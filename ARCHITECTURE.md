@@ -332,17 +332,226 @@ rather than being a counter that can only increase.
 Listed at **`/api/marketplace/models`**, not `/models/public` — `GET
 /models/{model_id}` is declared earlier and would match `"public"` as an id.
 
-## 13. Working but unreachable
+That endpoint serves **raw `user_models` rows**, so the client reassembles
+weights from the `weight_*` columns and humanizes the `ml_meta.features` ids
+itself — unlike `/api/models`, nothing is shaped for it. It also carries no
+accuracy, so `ModelMarketplaceView` joins `/api/models/leaderboard` by model id;
+that join is decoration and is allowed to fail on its own.
 
-Backends that are complete and verified, with no UI calling them. Worth knowing
-before building anything new, since these are the cheapest wins available:
+## 13. The ranked/marketplace UI
 
-- **Model marketplace** — publish / browse / fork all work; nothing in the Models
-  tab calls them.
-- **Duel scoreboard** — `GET /api/duels/{id}/scoreboard` returns a per-player
-  weekly breakdown; nothing renders it.
-- **Ranked leaderboard** — `GET /api/duels/rankings` returns Elo standings;
-  no screen exists.
+All three surfaces from the old "working but unreachable" list now have screens
+(2026-08). What they are and where they hang:
+
+- **Model marketplace** — `Features/Models/ModelMarketplaceView.swift`, reached
+  from a full-width row under the Lab tool grid. Browse, sort by forks or joined
+  accuracy, and fork. Publishing is a toggle on your own `ModelCard`
+  (`MarketplacePublishRow`), which is why `/api/models` now returns `is_public`,
+  `published_at`, `fork_count` and `forked_from` — the owner's list is where the
+  decision is made, so it has to carry the state.
+- **Duel scoreboard** — `Features/Duels/DuelScoreboardView.swift`, opened from
+  the locked-roster card on the draft screen. The endpoint now also returns the
+  drafted `slot` per player and both `names`, so the scoreboard names a roster
+  spot the same way the draft board does.
+- **Ranked ladder** — `Features/Duels/DuelRankingsView.swift`, on the draft
+  screen's toolbar (present in every state, including "no duel this week").
+
+Two things to know before touching these:
+
+- **Everything degrades against an older backend on purpose.** Every new field
+  is optional client-side: pre-deploy, the publish row reads "Private" and
+  scoreboard rows fall back to position instead of slot. That is the app talking
+  to a Render deploy that hasn't caught up, not a bug.
+- **In the offseason a scoreboard is all zeros**, because scoring reads the NHL
+  per-game log for the duel's week. To exercise it, point a duel's
+  `week_start`/`week_end` at a played week — but note `/api/duels/current` only
+  returns duels from the last ~7 days, so a back-dated duel disappears from the
+  draft screen that links to it.
+
+## 14. The draft room
+
+`GET /api/prospects/draft-room` (`build_draft_room`) hands the app one payload —
+pick order, the whole consensus board, per-team needs, the AI's scoring weights
+— and the draft itself runs on device (`DraftRoomEngine`, `Features/Draft/`).
+Same split as `MonteCarloEngine`, for a specific reason: a request per pick would
+put a Render cold start between a user and their next selection.
+
+`DraftRoomEngine` is a **port of `build_mock_draft`'s pick rule**, not a second
+opinion — the AI GMs have to behave like the mock the user reads all season. The
+weights ride along in the payload so retuning the mock retunes the room without
+an app release.
+
+**Once a class has been drafted the room becomes a re-draft.** `is_redraft` flips
+on real results, the order becomes the true first round, and each board entry
+carries where the league actually took that player, so a finished draft is scored
+against reality. That's also why the board hides `actual` during the draft and
+only reveals it in the verdict.
+
+Order resolution is a cascade: real results → the stored internal mock → a full
+`_resolve_order` (which fetches news and calls an LLM, so it is a last resort).
+⚠️ The stored mock **must** be the `source = 'HockeyQuant'` row: `mock_drafts`
+also holds imported insider mocks (023), which are partial — an article listing
+19 of 32 picks would run the room out of teams mid-draft.
+
+### Lottery re-roll and trades
+
+Both run on device beside the draft itself.
+
+**`DraftLottery`** re-runs the real two-draw lottery, including the rule that a
+team may climb at most 10 places — which is why only lottery positions 1–11 can
+win the first pick. It draws from **`standings_order`** (reverse standings), not
+`order`: that one already has a lottery applied, and in a re-draft it's the real
+one, so drawing on top of it applies a second lottery and moves the wrong teams.
+Because slot *p* of the standings order is the pick of the team sitting *p*th,
+permuting the standings carries pick ownership along with it. Known
+simplification: restricting each draw to teams that can legally reach the pick
+renormalizes the odds, so an eligible team wins slightly more often than its
+published number (18.5% → ~19.7%).
+
+**`DraftTrades`** prices a slot with a shifted power law
+(`1000 · ((n+3)/4)^-0.75`): #5 ≈ 595, #32 ≈ 196, #64 ≈ 121. An exponential was
+tried first and is wrong in a way that matters — it collapses past round one,
+pricing a second-rounder at ~2% of a first, which makes future picks worthless
+as currency and quietly kills trading up. AI GMs accept at a 6% premium, so
+moving down pays and moving up one slot near the top costs about a future 2nd.
+
+⚠️ Trading away the pick you're on the clock with hands the turn back to an AI
+GM. The AI loop has already exited by then, so `DraftBoardView.onTraded` must
+restart it — without that the draft stops dead on "…is picking".
+
+### Lineup builder
+
+`LineupBuilder` / `LineupBuilderView`, reached from the draft results. It fills a
+real 4-line / 3-pair / 2-goalie depth chart from `GET /api/fantasy/players?team=`
+(the `team` filter was added for this) and lets you drop a drafted prospect in to
+see who he pushes down.
+
+Lines are ordered by `fantasy_players.cost`, the same value signal the draft
+board and franchise card rarity use — one definition of "better" across the app
+rather than a third. Handedness is honoured (LHD left, RHD right), with a
+same-group fallback so a club short a natural RHD still dresses a full lineup
+instead of showing a hole. A prospect has no cap value yet, so a line's total
+visibly *drops* when you promote him — that's the honest read, not a bug.
+
+## 15. Advanced metrics
+
+`services/advanced_metrics.py` + `routers/advanced.py`, surfaced on the team page.
+All of it comes from MoneyPuck data the app already downloaded — `data_loader.py`
+was filtering to `situation == 'all'` and discarding the rest, so `team_5on5`,
+`team_other` and `skater_5on5` were added beside the existing slices at zero
+network cost.
+
+**The goal-differential decomposition is an exact identity, not a model.** Within
+a strength state, `(xGF−xGA) + (GF−xGF) − (GA−xGA)` collapses algebraically to
+`GF−GA`. The API returns the computed `residual` at both levels and the card
+shows a warning if it isn't zero — that's the tripwire for MoneyPuck renaming or
+adding a strength state. ⚠️ `situation == 'other'` (3-on-3 OT, 4-on-4, empty net)
+is load-bearing: it's worth +14 goals to EDM, and dropping it turns an exact
+identity into a wrong one.
+
+⚠️ **MoneyPuck's `gameScore` column is unusable** — byte-identical between the
+'all' and '5on5' rows for 98% of skaters, and it credits 49.42 to a player with
+153 shorthanded seconds. Game Score is computed from components in `_game_score`,
+in one place, so live reads and snapshots can't diverge.
+
+⚠️ **Never sum skater rows to get a team total.** A traded player appears once
+with his season total on one team, inflating summed team ice time by ~7%. Team
+numbers always come from the team frame.
+
+The percentile floor is calibrated, not guessed: 300 minutes ranks ~73% of
+skaters while excluding *zero* players with 55+ games. An earlier 20-hour floor
+dropped Brayden Point, Brady Tkachuk and Mark Stone, which makes the card look
+broken for exactly the players people look up. Percentiles are always within
+position group — a defenceman must not read as bottom-percentile for scoring
+less than a winger.
+
+**The team page and this card disagree on purpose.** The NHL awards a goal for
+winning a shootout; the play-by-play these numbers come from doesn't. COL reads
++101 here and +99 in the standings, so the card says so rather than letting both
+look wrong.
+
+**Goalies** get the same treatment (`team_goalies` / `goalie_impact`,
+`GoalieImpactSheet`), led by GSAx — goals saved above what the shots he actually
+faced were worth, which is the only fair comparison across defences. Their floor
+is 500 minutes, separate from the skater floor because goalies play far fewer.
+⚠️ `rebound_control` is **rank-only, never display the raw value**: MoneyPuck's
+xRebounds isn't calibrated against actual rebounds, so it comes out negative for
+71 of 72 qualified goalies and the number would damn everyone. The ordering is
+still meaningful, so it's ranked into a percentile and the figure stays hidden.
+
+`TeamShotMapView` has a period filter and draws **only the attacking half**. All
+shots are rotated 180° onto one end (`shot_map.py:62-63`) — a rotation, negating
+*both* x and y, not an x-flip; an x-flip would scramble left/right and destroy
+exactly the handedness signal the map is for. So the far half is always empty,
+and cropping to `RinkGeometry.attackingHalf` doubles the scale of everything at
+the same width. Unfolding to show both ends would just split one offence into two
+half-strength blobs telling you which period it was; the period filter is the
+honest version of that question, since the 2nd is the long change and the only
+period with a structural reason to differ.
+
+### Line chemistry
+
+`services/line_metrics.py` + `LineChemistryView`, off the team page. Built on
+MoneyPuck's `lines.csv`, which the app had never fetched.
+
+⚠️ **`lines.csv` is loaded lazily and cached separately** (`DataLoader.lines_data`,
+6h TTL), deliberately *not* inside `load_all_data`. That method re-raises on any
+failure, so folding this file in would mean one 404 — plausible each autumn
+before MoneyPuck posts the new season — taking down every prediction in the app.
+A failed fetch serves the last good frame and never caches an empty result.
+
+⚠️ **`lineId` is a concatenation of 7-digit player ids** — 21 digits for a
+forward line, 14 for a pair. It overflows int64 and MoneyPuck wraps it in quotes,
+so it must be read as text (`dtype={"lineId": str}`) and stripped; `line_player_ids`
+returns `[]` on anything that isn't a clean multiple of 7 so an upstream format
+change drops rows instead of producing garbage joins. Every id parsed this way
+resolves in `skaters.csv`, so the join is exact — do not write a name matcher.
+
+**Chemistry** is unit xGF% minus what its members manage in their *other* minutes,
+with each member's baseline excluding this unit's own time (otherwise the unit
+partly predicts itself). Those baselines are still contaminated by the members'
+other shared units, so the UI calls it "vs. their other minutes", not a clean
+effect, and clamps to ±15.
+
+⚠️ **With/Without is defence-only, and that's a data limit, not an oversight.**
+MoneyPuck lists only combinations that played 10+ minutes together, so listed
+time doesn't sum to a player's total. For pairs the gap is ~2%; for forwards it's
+~17–21%, because a settled duo gets rotated through many short-lived third-man
+trios — time genuinely spent *with* the partner that lands in the "without"
+bucket. That inflates the apart side by up to half, always in the same direction,
+worst for exactly the star duos anyone would look up. Pairs below 90% coverage
+are dropped rather than shown with a caveat, since a number beside a warning
+still gets read as a number.
+
+`RinkGeometry`, `RinkCanvas` and `HeatCanvas` all take an `xRange` so one code
+path draws any slice of ice; the defaults are the full sheet, which is what the
+per-game map (legitimately two-ended) keeps using. Two things to preserve if you
+touch this:
+
+- **Positions and distances need separate helpers.** `dx` maps a coordinate,
+  `length` converts a span of feet. The old code got away with `dx(-100 + 4)` to
+  mean "4 feet wide" only because the origin was fixed at −100; a shifted origin
+  silently corrupts every width computed that way.
+- **`HeatCanvas` splat width is specified in FEET, not cells**, so the blobs stay
+  the same physical size when zoomed. Cell counts scale with the view instead
+  (the half map passes `rows: 48` to match its doubled height, keeping cells the
+  same size in points so the blur radius stays tuned).
+
+`migrations/031_advanced_snapshots.sql` stores **raw counting components, never
+derived metrics** — Game Score weights will be retuned, and an archive holding
+`game_score` would silently invalidate its own history. MoneyPuck serves only
+current cumulative totals, so windowed rates can only ever come from differencing
+snapshots, and **history cannot be backfilled**: a day `advanced-snapshot.yml`
+doesn't run is gone.
+
+Deliberately not built, after checking the data: RAPM and GAR/xGAR (need
+shift-level data — shift charts are never called), passing networks and graph
+centrality (no pass-level data on any reachable endpoint; it's licensed tracking
+data), per-game Game Score (the per-game log has no blocks, faceoffs or on-ice
+shot attempts), and forward WOWY (`lines.csv` has a 600-second floor, so D-pairs
+are 97.9% covered but forwards only 82.9% — the "without" bucket is overstated by
+up to half for exactly the star duos anyone would look up). None of it feeds the
+prediction engines, which keeps the graded record meaning one thing.
 
 Also outstanding: nine `AsyncImage` sites still bypass `HQAsyncImage`
 (`NewsView` ×4, `NewsStoryView`, `ProspectDetailSheet`, `PlayerMarketView` ×2,

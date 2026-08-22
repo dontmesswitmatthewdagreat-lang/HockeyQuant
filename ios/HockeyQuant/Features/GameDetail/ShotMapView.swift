@@ -237,16 +237,45 @@ private struct ShotMarker: View {
 // MARK: - Rink geometry + drawing
 
 enum RinkGeometry {
-    static func point(_ x: Double, _ y: Double, in size: CGSize) -> CGPoint {
-        CGPoint(x: (x + 100) / 200 * size.width,
+    /// The whole sheet, goal line to goal line.
+    static let full: ClosedRange<Double> = -100...100
+    /// One attacking half, centre red line to end boards. The team map folds every
+    /// shot onto this half, so drawing the other one wastes half the canvas.
+    static let attackingHalf: ClosedRange<Double> = 0...100
+
+    /// A rink coordinate in view space. `xRange` is the slice of ice on screen —
+    /// narrowing it zooms in, and everything drawn through here follows.
+    static func point(_ x: Double, _ y: Double, in size: CGSize,
+                      xRange: ClosedRange<Double> = full) -> CGPoint {
+        CGPoint(x: (x - xRange.lowerBound) / span(xRange) * size.width,
                 y: (42.5 - y) / 85 * size.height)
     }
-    static func dx(_ feet: Double, _ w: CGFloat) -> CGFloat { CGFloat((feet + 100) / 200) * w }
+
+    /// X position of a rink coordinate.
+    static func dx(_ feet: Double, _ w: CGFloat, xRange: ClosedRange<Double> = full) -> CGFloat {
+        CGFloat((feet - xRange.lowerBound) / span(xRange)) * w
+    }
+
     static func dy(_ feet: Double, _ h: CGFloat) -> CGFloat { CGFloat((42.5 - feet) / 85) * h }
+
+    /// A horizontal *distance* in feet, as opposed to a position — these have to
+    /// be separate, or a shifted origin corrupts every width.
+    static func length(_ feet: Double, _ w: CGFloat, xRange: ClosedRange<Double> = full) -> CGFloat {
+        CGFloat(feet / span(xRange)) * w
+    }
+
+    static func span(_ r: ClosedRange<Double>) -> Double { r.upperBound - r.lowerBound }
+
+    /// Width-to-height ratio for a given slice, so a view can size itself.
+    static func aspect(_ r: ClosedRange<Double> = full) -> CGFloat { CGFloat(span(r) / 85.0) }
 }
 
 /// A simplified NHL rink drawn with Canvas — boards, lines, circles, creases, nets.
 struct RinkCanvas: View {
+    /// Slice of ice to draw. Anything outside it is still drawn, just off-canvas,
+    /// so a half view needs no special-casing — Canvas clips it.
+    var xRange: ClosedRange<Double> = RinkGeometry.full
+
     private let ice = Color(hex: 0xF3F8FD)
     private let red = Color(hex: 0xD7263D).opacity(0.55)
     private let blue = Color(hex: 0x2563EB).opacity(0.5)
@@ -256,12 +285,19 @@ struct RinkCanvas: View {
         Canvas { ctx, size in
             let w = size.width, h = size.height
             let corner = h * 0.18
-            let boards = Path(roundedRect: CGRect(x: 1, y: 1, width: w - 2, height: h - 2), cornerRadius: corner)
+            // Boards are laid out from the rink's real extents rather than the view
+            // bounds. On a half view that puts the far end's rounded corners off
+            // screen, so the cut edge reads as open ice instead of a wall.
+            let left = RinkGeometry.dx(-100, w, xRange: xRange)
+            let right = RinkGeometry.dx(100, w, xRange: xRange)
+            let boards = Path(roundedRect: CGRect(x: left + 1, y: 1,
+                                                  width: right - left - 2, height: h - 2),
+                              cornerRadius: corner)
             ctx.fill(boards, with: .color(ice))
             ctx.stroke(boards, with: .color(line), lineWidth: 1.5)
 
             func vline(_ feet: Double, _ color: Color, _ lw: CGFloat) {
-                let x = RinkGeometry.dx(feet, w)
+                let x = RinkGeometry.dx(feet, w, xRange: xRange)
                 var p = Path(); p.move(to: CGPoint(x: x, y: 2)); p.addLine(to: CGPoint(x: x, y: h - 2))
                 ctx.stroke(p, with: .color(color), lineWidth: lw)
             }
@@ -270,7 +306,7 @@ struct RinkCanvas: View {
             vline(-89, red, 1); vline(89, red, 1)     // goal lines
 
             func circle(_ fx: Double, _ fy: Double, r: CGFloat, color: Color, fill: Bool = false) {
-                let c = RinkGeometry.point(fx, fy, in: size)
+                let c = RinkGeometry.point(fx, fy, in: size, xRange: xRange)
                 let rect = CGRect(x: c.x - r, y: c.y - r, width: r * 2, height: r * 2)
                 if fill { ctx.fill(Path(ellipseIn: rect), with: .color(color)) }
                 else { ctx.stroke(Path(ellipseIn: rect), with: .color(color), lineWidth: 1) }
@@ -289,15 +325,15 @@ struct RinkCanvas: View {
             }
             // creases + nets at the goal lines
             for s in [-1.0, 1.0] {
-                let gx = RinkGeometry.dx(89 * s, w)
+                let gx = RinkGeometry.dx(89 * s, w, xRange: xRange)
                 let cy = h / 2
                 var crease = Path()
                 crease.addArc(center: CGPoint(x: gx, y: cy), radius: RinkGeometry.dy(42.5 - 6, h),
                               startAngle: .degrees(s > 0 ? 110 : -70), endAngle: .degrees(s > 0 ? 250 : 70), clockwise: s > 0)
                 ctx.stroke(crease, with: .color(blue), lineWidth: 1)
-                let nw = RinkGeometry.dx(-100 + 4, w)
-                let net = CGRect(x: gx - (s > 0 ? 0 : nw), y: cy - RinkGeometry.dy(42.5 - 3, h) / 1,
-                                 width: nw, height: RinkGeometry.dy(42.5 - 3, h) * 2 / 1)
+                let nw = RinkGeometry.length(4, w, xRange: xRange)
+                let net = CGRect(x: gx - (s > 0 ? 0 : nw), y: cy - RinkGeometry.dy(42.5 - 3, h),
+                                 width: nw, height: RinkGeometry.dy(42.5 - 3, h) * 2)
                 ctx.stroke(Path(net), with: .color(red), lineWidth: 1)
             }
         }
@@ -309,25 +345,37 @@ struct RinkCanvas: View {
 /// sparse areas stay dim. Normalizing by the max makes it adapt to any shot volume.
 struct HeatCanvas: View {
     let shots: [ShotEvent]
-    private let cols = 56
-    private let rows = 24
+    /// Grid resolution. Zooming in wants more cells, or the same cells just get
+    /// drawn bigger and the map turns blocky.
+    var cols = 56
+    var rows = 24
+    var xRange: ClosedRange<Double> = RinkGeometry.full
     private let gamma = 1.45
+    /// Splat width in FEET, not cells — so the blobs stay the same physical size
+    /// whether we're drawing the whole sheet or a zoomed half. Matches the spread
+    /// the full-rink map has always had.
+    private let sigmaFeet = 3.75
 
     var body: some View {
         Canvas { ctx, size in
             guard size.width > 0, size.height > 0, !shots.isEmpty else { return }
             var grid = [Double](repeating: 0, count: cols * rows)
-            let kr = 2  // gaussian splat radius (cells)
+            // Convert the physical spread into cells on each axis independently,
+            // since the grid isn't necessarily square in feet.
+            let sx = sigmaFeet / (RinkGeometry.span(xRange) / Double(cols))
+            let sy = sigmaFeet / (85.0 / Double(rows))
+            let krx = max(1, Int(ceil(sx * 2))), kry = max(1, Int(ceil(sy * 2)))
             for s in shots {
-                let p = RinkGeometry.point(s.x, s.y, in: size)
+                let p = RinkGeometry.point(s.x, s.y, in: size, xRange: xRange)
                 let fx = p.x / size.width * Double(cols)
                 let fy = p.y / size.height * Double(rows)
                 let w = s.isGoal ? 1.6 : 1.0
                 let gx0 = Int(fx), gy0 = Int(fy)
-                for gx in max(0, gx0 - kr)...min(cols - 1, gx0 + kr) {
-                    for gy in max(0, gy0 - kr)...min(rows - 1, gy0 + kr) {
-                        let ddx = Double(gx) + 0.5 - fx, ddy = Double(gy) + 0.5 - fy
-                        grid[gy * cols + gx] += w * exp(-(ddx * ddx + ddy * ddy) / 2.2)
+                guard gx0 + krx >= 0, gx0 - krx < cols, gy0 + kry >= 0, gy0 - kry < rows else { continue }
+                for gx in max(0, gx0 - krx)...min(cols - 1, gx0 + krx) {
+                    for gy in max(0, gy0 - kry)...min(rows - 1, gy0 + kry) {
+                        let ddx = (Double(gx) + 0.5 - fx) / sx, ddy = (Double(gy) + 0.5 - fy) / sy
+                        grid[gy * cols + gx] += w * exp(-(ddx * ddx + ddy * ddy) / 2)
                     }
                 }
             }

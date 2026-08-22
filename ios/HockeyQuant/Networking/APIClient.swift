@@ -113,6 +113,46 @@ struct APIClient: Sendable {
         return try await get(url, as: [SkaterStats].self)
     }
 
+    // MARK: - Advanced metrics
+
+    /// `GET /api/advanced/team/{abbrev}` — goal differential split by strength
+    /// state and by cause (process / finishing / goaltending).
+    func teamDecomposition(_ abbrev: String) async throws -> TeamDecomposition {
+        try await get(apiURL("advanced").appendingPathComponent("team")
+                        .appendingPathComponent(abbrev.uppercased()),
+                      as: TeamDecomposition.self)
+    }
+
+    /// `GET /api/advanced/skaters/{abbrev}` — every skater on a team, best
+    /// Game Score first.
+    func skaterImpact(team abbrev: String) async throws -> [SkaterImpact] {
+        try await get(apiURL("advanced").appendingPathComponent("skaters")
+                        .appendingPathComponent(abbrev.uppercased()),
+                      as: SkaterImpactResponse.self).skaters
+    }
+
+    /// `GET /api/advanced/player/{id}` — one skater with league percentiles.
+    func playerImpact(_ playerId: Int) async throws -> SkaterImpact {
+        try await get(apiURL("advanced").appendingPathComponent("player")
+                        .appendingPathComponent("\(playerId)"),
+                      as: SkaterImpact.self)
+    }
+
+    /// `GET /api/advanced/goalies/{abbrev}` — a team's goalies by GSAx.
+    func goalieImpact(team abbrev: String) async throws -> [GoalieImpact] {
+        try await get(apiURL("advanced").appendingPathComponent("goalies")
+                        .appendingPathComponent(abbrev.uppercased()),
+                      as: GoalieImpactResponse.self).goalies
+    }
+
+    /// `GET /api/advanced/lines/{abbrev}` — line & pair chemistry, plus
+    /// With/Without for the defence pairs.
+    func lineChemistry(team abbrev: String) async throws -> LineChemistryResponse {
+        try await get(apiURL("advanced").appendingPathComponent("lines")
+                        .appendingPathComponent(abbrev.uppercased()),
+                      as: LineChemistryResponse.self)
+    }
+
     // MARK: - Offseason GM
 
     /// `GET /api/offseason/market` — cap ceiling, all teams' cap sheets, FA pool.
@@ -190,6 +230,14 @@ struct APIClient: Sendable {
         let data = try await perform("GET", apiURL("duels").appendingPathComponent("rankings"),
                                      token: nil, body: Optional<Int>.none)
         return try Self.decode(DuelRankingsResponse.self, from: data).rankings
+    }
+
+    /// `GET /api/duels/{id}/scoreboard` — per-player breakdown for both sides.
+    func duelScoreboard(duelId: Int) async throws -> DuelScoreboard {
+        let url = apiURL("duels").appendingPathComponent("\(duelId)")
+            .appendingPathComponent("scoreboard")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(DuelScoreboard.self, from: data)
     }
 
     /// `GET /api/market/players` — search, or the top of the market.
@@ -309,6 +357,37 @@ struct APIClient: Sendable {
         let url = apiURL("models").appendingPathComponent("leaderboard")
         let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
         return try Self.decode([ModelLeaderboardEntry].self, from: data)
+    }
+
+    // MARK: - Model marketplace
+
+    /// `GET /api/marketplace/models` — published models, most-forked first.
+    /// Note the path: `/models/public` would be swallowed by `/models/{id}`.
+    func marketplaceModels(limit: Int = 50) async throws -> [MarketplaceModel] {
+        var comps = URLComponents(url: apiURL("marketplace").appendingPathComponent("models"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "limit", value: String(limit))]
+        let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
+        return try Self.decode(MarketplaceResponse.self, from: data).models
+    }
+
+    /// `POST /api/models/{id}/publish?public=` — list a model, or take it down.
+    @discardableResult
+    func publishModel(id: String, public isPublic: Bool, token: String) async throws -> PublishResult {
+        var comps = URLComponents(url: apiURL("models").appendingPathComponent(id)
+                                    .appendingPathComponent("publish"),
+                                  resolvingAgainstBaseURL: false)!
+        comps.queryItems = [URLQueryItem(name: "public", value: isPublic ? "true" : "false")]
+        let data = try await perform("POST", comps.url!, token: token, body: Optional<Int>.none)
+        return try Self.decode(PublishResult.self, from: data)
+    }
+
+    /// `POST /api/models/{id}/fork` — clone a published model into your models.
+    @discardableResult
+    func forkModel(id: String, token: String) async throws -> ForkResult {
+        let url = apiURL("models").appendingPathComponent(id).appendingPathComponent("fork")
+        let data = try await perform("POST", url, token: token, body: Optional<Int>.none)
+        return try Self.decode(ForkResult.self, from: data)
     }
 
     private func apiURL(_ path: String) -> URL {
@@ -575,13 +654,16 @@ extension APIClient {
     }
 
     /// `GET /api/fantasy/players` — the draftable player pool (optionally filtered).
-    func fantasyPlayers(slotType: String? = nil, query: String? = nil) async throws -> [FantasyPlayer] {
+    func fantasyPlayers(slotType: String? = nil, query: String? = nil,
+                        team: String? = nil, limit: Int? = nil) async throws -> [FantasyPlayer] {
         var comps = URLComponents(
             url: fantasyURL("players"), resolvingAgainstBaseURL: false
         )!
         var items: [URLQueryItem] = []
         if let slotType { items.append(.init(name: "slot_type", value: slotType)) }
         if let query, !query.isEmpty { items.append(.init(name: "q", value: query)) }
+        if let team { items.append(.init(name: "team", value: team)) }
+        if let limit { items.append(.init(name: "limit", value: String(limit))) }
         if !items.isEmpty { comps.queryItems = items }
         let data = try await perform("GET", comps.url!, token: nil, body: Optional<Int>.none)
         return try Self.decode(FantasyPlayersResponse.self, from: data).players
@@ -967,6 +1049,14 @@ extension APIClient {
         let url = apiURL("prospects").appendingPathComponent("mock-draft")
         let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
         return try Self.decode(MockDraftResponse.self, from: data).mockDraft
+    }
+
+    /// `GET /api/prospects/draft-room` — order, board and needs for one round.
+    /// Fetched once; the draft then runs on device.
+    func draftRoom() async throws -> DraftRoom {
+        let url = apiURL("prospects").appendingPathComponent("draft-room")
+        let data = try await perform("GET", url, token: nil, body: Optional<Int>.none)
+        return try Self.decode(DraftRoom.self, from: data)
     }
 
     /// `POST /api/me/device-token` — register this device's APNs token.

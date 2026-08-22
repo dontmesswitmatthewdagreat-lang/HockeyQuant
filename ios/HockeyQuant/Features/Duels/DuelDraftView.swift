@@ -23,8 +23,18 @@ struct DuelDraftView: View {
             Theme.backgroundView()
             content
         }
-        .navigationTitle("Weekly Duel")
+        .navigationTitle(current?.duel?.modeLabel ?? "Ranked Duel")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            // The ladder is the point of the mode, so it stays reachable whether
+            // you're drafting, waiting, or not in a duel at all.
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { DuelRankingsView() } label: {
+                    Image(systemName: "trophy.fill")
+                }
+                .accessibilityLabel("Ranked ladder")
+            }
+        }
         .task { await load() }
         .refreshable { await load() }
         .onReceive(tick) { now = $0 }
@@ -171,23 +181,38 @@ struct DuelDraftView: View {
         }
     }
 
+    /// Once the rosters lock, the draft screen's job is done — the live
+    /// per-player breakdown is the thing worth opening, so the card is the way in.
     private func liveCard(_ duel: Duel) -> some View {
-        Card {
-            VStack(spacing: 6) {
-                Text("ROSTERS LOCKED")
-                    .font(Theme.Font.caption())
-                    .foregroundStyle(Theme.Palette.textSecondary)
-                Text("Scores settle Sunday night")
-                    .font(Theme.Font.headline())
-                    .foregroundStyle(Theme.Palette.textPrimary)
-                if let a = duel.scoreA, let b = duel.scoreB {
-                    Text(String(format: "%.1f – %.1f", a, b))
-                        .font(.system(size: 26, weight: .heavy, design: .rounded))
-                        .foregroundStyle(Theme.Palette.accent)
+        NavigationLink { DuelScoreboardView(duelId: duel.id) } label: {
+            Card {
+                VStack(spacing: 6) {
+                    Text("ROSTERS LOCKED")
+                        .font(Theme.Font.caption())
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                    Text(duel.isFinal ? "Final result"
+                                      : (duel.isFlash ? "Scores settle after tonight's games"
+                                                      : "Scores settle Sunday night"))
+                        .font(Theme.Font.headline())
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    if let a = duel.scoreA, let b = duel.scoreB {
+                        Text(String(format: "%.1f – %.1f", a, b))
+                            .font(.system(size: 26, weight: .heavy, design: .rounded))
+                            .foregroundStyle(Theme.Palette.accent)
+                    }
+                    HStack(spacing: 4) {
+                        Image(systemName: "list.number").font(.system(size: 11, weight: .bold))
+                        Text("See the scoreboard")
+                        Image(systemName: "chevron.right").font(.system(size: 9, weight: .heavy))
+                    }
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .foregroundStyle(Theme.Palette.accent)
+                    .padding(.top, 2)
                 }
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: .infinity)
         }
+        .buttonStyle(.plain)
     }
 
     private func rosters(_ duel: Duel) -> some View {

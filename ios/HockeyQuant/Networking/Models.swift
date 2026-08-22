@@ -416,10 +416,19 @@ struct UserModel: Decodable, Identifiable, Sendable {
     let modelType: String?
     let mlKind: String?                  // "logistic" | "boosted"
     let mlFeatures: [String]?            // human-readable feature labels
+    // Marketplace state. Optional so the app keeps decoding against a backend
+    // that predates publishing.
+    let isPublic: Bool?
+    let publishedAt: String?
+    let forkCount: Int?
+    let forkedFrom: String?
 
     var resolvedMultipliers: ModelMultipliers { multipliers ?? .official }
     var isML: Bool { modelType == "ml" }
     var mlKindLabel: String { mlKind == "boosted" ? "Boosted" : "Logistic" }
+    var isPublished: Bool { isPublic == true }
+    var forks: Int { forkCount ?? 0 }
+    var isFork: Bool { forkedFrom != nil }
 }
 
 // MARK: - Model board (every model's call on one game)

@@ -139,6 +139,25 @@ struct ModelsView: View {
         await model.load(token: token)
     }
 
+    /// Sources this user has already forked, so the marketplace can say so on a
+    /// later visit instead of offering the same copy again.
+    private var forkedSourceIds: Set<String> {
+        guard case .loaded(let models) = model.state else { return [] }
+        return Set(models.compactMap(\.forkedFrom))
+    }
+
+    /// List a model on the marketplace, or take it back down. Reloads so the
+    /// card shows the fork count the backend actually has.
+    private func publish(_ m: UserModel, _ isPublic: Bool) async {
+        guard let token = await auth.accessToken() else { return }
+        do {
+            try await APIClient().publishModel(id: m.id, public: isPublic, token: token)
+            await reload()
+        } catch {
+            Log.error("publish model", error)
+        }
+    }
+
     // MARK: - Sign-in gate
 
     private var signInPrompt: some View {
@@ -206,7 +225,7 @@ struct ModelsView: View {
                 Text("Models")
                     .font(.system(size: 30, weight: .heavy))
                     .foregroundStyle(.white)
-                Text("\(models.count) model\(models.count == 1 ? "" : "s") · 6 lab tools · one leaderboard")
+                Text("\(models.count) model\(models.count == 1 ? "" : "s") · 6 lab tools · a marketplace")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.8))
             }
@@ -234,7 +253,8 @@ struct ModelsView: View {
                             }
                         },
                         // ML models aren't slider-editable — show their detail instead.
-                        onOpen: { if m.isML { mlDetail = m } else { editor = .edit(m) } }
+                        onOpen: { if m.isML { mlDetail = m } else { editor = .edit(m) } },
+                        onPublish: { isPublic in await publish(m, isPublic) }
                     )
                     .staggeredEntrance(index: index)
                 }
@@ -277,6 +297,50 @@ struct ModelsView: View {
     // MARK: - The Lab segment (tool tile grid)
 
     private var labGrid: some View {
+        VStack(spacing: Theme.Spacing.md) {
+            toolGrid
+            // The marketplace isn't a tool you run on your own models, it's where
+            // you take someone else's — so it gets its own row rather than a
+            // seventh tile that would leave the grid ragged.
+            NavigationLink {
+                ModelMarketplaceView(alreadyForked: forkedSourceIds,
+                                     onForked: { await reload() })
+            } label: {
+                marketplaceRow
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var marketplaceRow: some View {
+        Card {
+            HStack(spacing: Theme.Spacing.sm) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: Theme.Radius.sm, style: .continuous)
+                        .fill(Theme.Palette.accent.opacity(0.16))
+                    Image(systemName: "shippingbox.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(Theme.Palette.accent)
+                }
+                .frame(width: 44, height: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Model marketplace")
+                        .font(Theme.Font.headlineHeavy())
+                        .foregroundStyle(Theme.Palette.textPrimary)
+                    Text("Browse what other GMs published and fork a copy to tune yourself.")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Theme.Palette.textSecondary)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Theme.Palette.textTertiary)
+            }
+        }
+    }
+
+    private var toolGrid: some View {
         let cols = Array(repeating: GridItem(.flexible(), spacing: Theme.Spacing.sm), count: 3)
         return LazyVGrid(columns: cols, spacing: Theme.Spacing.sm) {
             NavigationLink { WhatIfSimulatorView() } label: {
@@ -314,6 +378,7 @@ struct ModelCard: View {
     var isExpanded: Bool = true
     var onToggle: (() -> Void)? = nil
     var onOpen: (() -> Void)? = nil
+    var onPublish: ((Bool) async -> Void)? = nil
 
     var body: some View {
         Card {
@@ -334,6 +399,10 @@ struct ModelCard: View {
                             }
                         }
                         Spacer(minLength: Theme.Spacing.xs)
+                        if model.isPublished {
+                            StatusPill(text: "Listed", systemImage: "shippingbox.fill",
+                                       color: Theme.Palette.accent)
+                        }
                         if model.isML {
                             StatusPill(text: "ML", systemImage: "cpu", color: Color(hex: 0xAF52DE), solid: true)
                         }
@@ -400,6 +469,10 @@ struct ModelCard: View {
                     weightRow(row.label, row.value, WeightBar.colors[i % WeightBar.colors.count])
                 }
             }
+        }
+        if let onPublish {
+            Divider().overlay(Theme.Palette.border)
+            MarketplacePublishRow(model: model, onChange: onPublish)
         }
         if onOpen != nil {
             PressableButton(action: { onOpen?() }) {

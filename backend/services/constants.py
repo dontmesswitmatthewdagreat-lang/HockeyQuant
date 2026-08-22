@@ -3,9 +3,13 @@ HockeyQuant Constants
 All team data, mappings, and configuration values
 """
 
-# Team timezone offsets from UTC
+# Team timezone offsets from UTC.
+# ⚠️ ALL_TEAMS is derived from these keys, so a team missing here is invisible
+# to every caller of it — team detail 404s, the mock draft computes no needs for
+# it, and `len(ALL_TEAMS)` completeness checks compare against the wrong number.
+# All 32 must be present.
 TEAM_TIMEZONES = {
-    'VAN': -8, 'SEA': -8, 'LAK': -8, 'ANA': -8, 'SJS': -8,
+    'VAN': -8, 'SEA': -8, 'LAK': -8, 'ANA': -8, 'SJS': -8, 'VGK': -8,
     'CGY': -7, 'EDM': -7, 'COL': -7, 'UTA': -7,
     'DAL': -6, 'MIN': -6, 'WPG': -6, 'CHI': -6, 'STL': -6, 'NSH': -6,
     'TOR': -5, 'BOS': -5, 'BUF': -5, 'DET': -5, 'MTL': -5, 'OTT': -5,
