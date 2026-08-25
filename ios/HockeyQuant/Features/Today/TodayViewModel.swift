@@ -132,17 +132,52 @@ final class TodayViewModel {
         guard let interval = cal.dateInterval(of: .month, for: month),
               let dayCount = cal.range(of: .day, in: .month, for: month)?.count else { return }
         let days = (0..<dayCount).compactMap { cal.date(byAdding: .day, value: $0, to: interval.start) }
+        await fetchCounts(for: days.map { APIClient.apiDateString($0) })
+    }
+
+    /// Most count probes allowed in flight at once.
+    ///
+    /// One task per day is what broke this screen. The strip wants 21 days and
+    /// every calendar month scrolled wants ~31 more, and firing them all at once
+    /// saturates a single-worker dyno that does blocking pandas per request — so
+    /// the prediction call the screen is actually waiting on starves and hits its
+    /// 90-second timeout. Measured before this cap: 193 requests in one session,
+    /// 61 of them timing out. The offseason is what exposed it, because with no
+    /// games near today you scroll months hunting for them.
+    private static let maxConcurrentCounts = 4
+
+    /// Days already being fetched, so scrolling back and forth across the same
+    /// month doesn't queue them a second time.
+    private var countsInFlight: Set<String> = []
+
+    /// Fetch game counts for `days`, skipping any already known or in flight and
+    /// holding a fixed number of requests outstanding.
+    private func fetchCounts(for days: [String]) async {
+        let pending = days.filter { gameCounts[$0] == nil && !countsInFlight.contains($0) }
+        guard !pending.isEmpty else { return }
+        countsInFlight.formUnion(pending)
+        defer { countsInFlight.subtract(pending) }
+
         await withTaskGroup(of: (String, Int)?.self) { group in
-            for day in days {
-                let ds = APIClient.apiDateString(day)
-                if gameCounts[ds] != nil { continue }
+            var next = 0
+            while next < min(Self.maxConcurrentCounts, pending.count) {
+                let ds = pending[next]
+                next += 1
                 group.addTask { [api] in
                     guard let scores = try? await api.scores(forDate: ds) else { return nil }
                     return (ds, scores.count)
                 }
             }
+            // Each completion admits exactly one more, holding the window steady.
             for await result in group {
                 if let (ds, count) = result { gameCounts[ds] = count }
+                guard next < pending.count else { continue }
+                let ds = pending[next]
+                next += 1
+                group.addTask { [api] in
+                    guard let scores = try? await api.scores(forDate: ds) else { return nil }
+                    return (ds, scores.count)
+                }
             }
         }
     }
@@ -198,18 +233,6 @@ final class TodayViewModel {
         let cal = Calendar.current
         let anchor = cal.startOfDay(for: selectedDate)
         let window = (-10...10).compactMap { cal.date(byAdding: .day, value: $0, to: anchor) }
-        await withTaskGroup(of: (String, Int)?.self) { group in
-            for day in window {
-                let ds = APIClient.apiDateString(day)
-                if gameCounts[ds] != nil { continue }
-                group.addTask { [api] in
-                    guard let scores = try? await api.scores(forDate: ds) else { return nil }
-                    return (ds, scores.count)
-                }
-            }
-            for await result in group {
-                if let (ds, count) = result { gameCounts[ds] = count }
-            }
-        }
+        await fetchCounts(for: window.map { APIClient.apiDateString($0) })
     }
 }
