@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional, Dict
 from datetime import date, datetime, timedelta, timezone
+import asyncio
 import json
 import time as _time
 import httpx
@@ -421,6 +422,91 @@ async def get_prediction_status(date_str: str):
 # ---------------------------------------------------------------------------
 _SCORE_CACHE: dict = {}
 _SCORE_TTL = 30  # seconds
+
+# Month -> (fetched_at, payload). A month's schedule barely moves, so this is
+# cached far longer than live scores. Bounded because the key comes from the
+# request path: a caller walking years would otherwise grow it without limit.
+_MONTH_COUNT_CACHE: dict = {}
+_MONTH_COUNT_TTL = 3600
+_MONTH_COUNT_MAX = 64
+
+
+@router.get("/games/counts/{month}")
+async def get_month_game_counts(month: str):
+    """How many games fall on each day of a month, in a single request.
+
+    The Schedule tab draws a dot on every day that has games, and it used to
+    answer that one request per day — 21 for the day strip and ~31 more for
+    every month the calendar scrolled, all fired at once. That saturated the
+    worker pool and starved the prediction request the screen was actually
+    waiting on, so the screen hung on placeholders.
+
+    The NHL's schedule endpoint already answers a whole week at a time, so a
+    month costs about five upstream calls made concurrently here instead of 31
+    made serially from a phone.
+
+    Days the upstream never mentions are reported as 0 rather than omitted, so
+    the client can tell "no games" apart from "not loaded yet".
+    """
+    try:
+        start = datetime.strptime(month, "%Y-%m").date()
+    except ValueError:
+        raise HTTPException(status_code=400,
+                            detail="Use YYYY-MM (e.g. 2026-05)")
+
+    now = _time.time()
+    hit = _MONTH_COUNT_CACHE.get(month)
+    if hit and now - hit[0] < _MONTH_COUNT_TTL:
+        return hit[1]
+
+    # Last day of the month, without pulling in calendar just for this.
+    next_month = (start.replace(day=28) + timedelta(days=4)).replace(day=1)
+    last_day = (next_month - timedelta(days=1)).day
+
+    # The endpoint returns the week *containing* the date it's given, so step a
+    # week at a time from the 1st until the month is covered.
+    anchors, cursor = [], start
+    while cursor.month == start.month:
+        anchors.append(cursor.isoformat())
+        cursor += timedelta(days=7)
+
+    counts: Dict[str, int] = {}
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            responses = await asyncio.gather(
+                *(client.get(f"https://api-web.nhle.com/v1/schedule/{a}")
+                  for a in anchors),
+                return_exceptions=True,
+            )
+    except Exception as e:
+        print(f"Error fetching month counts for {month}: {e}")
+        responses = []
+
+    for resp in responses:
+        # One bad week shouldn't blank the whole month — take what came back.
+        if isinstance(resp, BaseException) or resp.status_code != 200:
+            continue
+        try:
+            week = resp.json().get("gameWeek", [])
+        except Exception:
+            continue
+        for day in week:
+            day_str = day.get("date")
+            if day_str and day_str.startswith(month):
+                counts[day_str] = day.get("numberOfGames", 0)
+
+    result = {
+        "month": month,
+        "counts": {
+            start.replace(day=d).isoformat(): counts.get(
+                start.replace(day=d).isoformat(), 0)
+            for d in range(1, last_day + 1)
+        },
+    }
+    if len(_MONTH_COUNT_CACHE) >= _MONTH_COUNT_MAX:
+        _MONTH_COUNT_CACHE.clear()
+    _MONTH_COUNT_CACHE[month] = (now, result)
+    return result
 
 
 @router.get("/games/{date_str}/scores")

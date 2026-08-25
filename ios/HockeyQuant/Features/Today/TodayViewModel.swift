@@ -126,29 +126,58 @@ final class TodayViewModel {
         }
     }
 
-    /// Fill game-count dots for a whole visible calendar month (cached per day).
+    /// Fill game-count dots for a whole visible calendar month.
+    ///
+    /// One request for the whole month. Asking per day is what broke this
+    /// screen: the strip wants 21 days and every month scrolled wanted ~31
+    /// more, all fired at once, which saturated a single-worker dyno doing
+    /// blocking pandas per request and starved the prediction call the screen
+    /// was actually waiting on. Measured before the endpoint existed: 193
+    /// requests in one session, 61 of them timing out.
     func loadMonthCounts(for month: Date) async {
+        await loadMonthCounts(key: Self.monthKey(month), fallback: month)
+    }
+
+    private func loadMonthCounts(key: String, fallback month: Date) async {
+        guard !monthsLoaded.contains(key) else { return }
+        monthsLoaded.insert(key)
+        do {
+            let counts = try await api.monthGameCounts(month: key)
+            gameCounts.merge(counts) { _, new in new }
+        } catch {
+            // Allow a later retry, then degrade to the per-day path so the dots
+            // still appear against a backend that predates the endpoint.
+            monthsLoaded.remove(key)
+            Log.error("Month counts for \(key)", error)
+            await fetchDayCounts(forMonthOf: month)
+        }
+    }
+
+    /// The month a date falls in, as `yyyy-MM`. Derived from the day-key
+    /// formatter so it can never drift from the keys in `gameCounts` — both are
+    /// ET, which is the timezone the NHL schedule is keyed by.
+    private static func monthKey(_ date: Date) -> String {
+        String(APIClient.apiDateString(date).prefix(7))
+    }
+
+    /// Months whose counts are loaded (or in flight), so scrolling back and
+    /// forth over the same month doesn't refetch it.
+    private var monthsLoaded: Set<String> = []
+
+    /// Most day-probes allowed in flight at once, on the fallback path.
+    private static let maxConcurrentCounts = 4
+
+    /// Days already being fetched, so overlapping requests don't queue twice.
+    private var countsInFlight: Set<String> = []
+
+    /// Per-day fallback for one month, used only when the month endpoint fails.
+    private func fetchDayCounts(forMonthOf month: Date) async {
         let cal = Calendar.current
         guard let interval = cal.dateInterval(of: .month, for: month),
               let dayCount = cal.range(of: .day, in: .month, for: month)?.count else { return }
         let days = (0..<dayCount).compactMap { cal.date(byAdding: .day, value: $0, to: interval.start) }
         await fetchCounts(for: days.map { APIClient.apiDateString($0) })
     }
-
-    /// Most count probes allowed in flight at once.
-    ///
-    /// One task per day is what broke this screen. The strip wants 21 days and
-    /// every calendar month scrolled wants ~31 more, and firing them all at once
-    /// saturates a single-worker dyno that does blocking pandas per request — so
-    /// the prediction call the screen is actually waiting on starves and hits its
-    /// 90-second timeout. Measured before this cap: 193 requests in one session,
-    /// 61 of them timing out. The offseason is what exposed it, because with no
-    /// games near today you scroll months hunting for them.
-    private static let maxConcurrentCounts = 4
-
-    /// Days already being fetched, so scrolling back and forth across the same
-    /// month doesn't queue them a second time.
-    private var countsInFlight: Set<String> = []
 
     /// Fetch game counts for `days`, skipping any already known or in flight and
     /// holding a fixed number of requests outstanding.
@@ -228,11 +257,18 @@ final class TodayViewModel {
     }
 
     /// Best-effort game counts for the days near the selected date (for the dots),
-    /// fetched in the background (missing days only) so the strip renders immediately.
+    /// fetched in the background so the strip renders immediately.
+    ///
+    /// The ±10-day strip can straddle a month boundary, so this loads whichever
+    /// months it touches — at most two requests, and none at all once they're
+    /// cached.
     func loadStripCounts() async {
         let cal = Calendar.current
         let anchor = cal.startOfDay(for: selectedDate)
-        let window = (-10...10).compactMap { cal.date(byAdding: .day, value: $0, to: anchor) }
-        await fetchCounts(for: window.map { APIClient.apiDateString($0) })
+        let edges = [-10, 0, 10].compactMap { cal.date(byAdding: .day, value: $0, to: anchor) }
+        var seen: Set<String> = []
+        for date in edges where seen.insert(Self.monthKey(date)).inserted {
+            await loadMonthCounts(key: Self.monthKey(date), fallback: date)
+        }
     }
 }

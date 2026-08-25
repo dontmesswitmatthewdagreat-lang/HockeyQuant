@@ -176,6 +176,14 @@ struct ScoresResponse: Decodable, Sendable {
     let games: [GameScore]
 }
 
+/// Games per day for one month, keyed by `yyyy-MM-dd`. Every day of the month
+/// is present; days with nothing scheduled are 0, so the caller can tell "none
+/// scheduled" from "not fetched yet".
+struct MonthGameCounts: Decodable, Sendable {
+    let month: String
+    let counts: [String: Int]
+}
+
 // MARK: - Accuracy (GET /api/accuracy/stats, /trend, /parlay-stats)
 
 struct WindowStats: Decodable, Sendable {

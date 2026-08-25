@@ -84,6 +84,20 @@ struct APIClient: Sendable {
         return try await get(url, as: ScoresResponse.self).games
     }
 
+    /// `GET /api/games/counts/{YYYY-MM}` — games per day for a whole month, in
+    /// one request, for the calendar's game-day dots.
+    ///
+    /// Days with no games come back as 0 rather than being omitted, so the
+    /// caller can tell "none scheduled" from "not fetched yet".
+    func monthGameCounts(month: String) async throws -> [String: Int] {
+        let url = environment.baseURL
+            .appendingPathComponent("api")
+            .appendingPathComponent("games")
+            .appendingPathComponent("counts")
+            .appendingPathComponent(month)
+        return try await get(url, as: MonthGameCounts.self).counts
+    }
+
     // MARK: - Teams
 
     /// `GET /api/teams` — all teams with standings.
