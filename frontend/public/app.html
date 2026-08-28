@@ -4,17 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HockeyQuant — NHL prediction & analytics for iOS</title>
-<meta name="description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room. SwiftUI, FastAPI, PostgreSQL.">
+<meta name="description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room.">
 <link rel="icon" href="/logo.png">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="HockeyQuant">
 <meta property="og:title" content="HockeyQuant — NHL prediction & analytics for iOS">
-<meta property="og:description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room. SwiftUI, FastAPI, PostgreSQL.">
+<meta property="og:description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room.">
 <meta property="og:url" content="https://hockeyquant.vercel.app/app">
 <meta property="og:image" content="https://hockeyquant.vercel.app/logo.png">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="HockeyQuant — NHL prediction & analytics for iOS">
-<meta name="twitter:description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room. SwiftUI, FastAPI, PostgreSQL.">
+<meta name="twitter:description" content="A native iOS app for NHL predictions and advanced analytics — Poisson scoreline grids, shot heat maps, user-built prediction models and a full draft room.">
 <style>
   :root {
     --board:  #0A0F1A;
@@ -84,9 +84,10 @@
   }
   .hero .wrap { position: relative; }
   .hero .mono { color: #7F91AC; }
-  .hero h1 { font-size: clamp(3rem, 9.5vw, 6.5rem); line-height: .9; margin-block: .3em .28em; }
+  /* No eyebrow above it any more, so the title starts flush with the padding. */
+  .hero h1 { font-size: clamp(3rem, 9.5vw, 6.5rem); line-height: .9; margin-block: 0 .3em; }
   .hero h1 .q { color: var(--red); }
-  .hero-lede { font-size: clamp(1.05rem, 2.2vw, 1.4rem); color: #B9C6D8; max-width: 26ch; line-height: 1.35; }
+  .hero-lede { font-size: clamp(1.15rem, 2.6vw, 1.65rem); color: #B9C6D8; max-width: 26ch; line-height: 1.3; }
 
   .board {
     margin-top: clamp(2.25rem, 5vw, 3.25rem);
@@ -143,11 +144,6 @@
   }
   .num .k { font-size: .84rem; color: var(--text-2); margin-top: .4rem; }
 
-  .chips { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 1.75rem; }
-  .chips span { border: 1px solid var(--rule); color: var(--text-2); padding: .45em .75em; }
-  /* The hero is dark in both themes, so its chips can't use the page tokens. */
-  .hero .chips span { border-color: rgba(120,150,210,.28); color: #9FB0C8; }
-
   footer {
     border-top: 1px solid var(--rule); padding-block: 2rem 3rem;
     color: var(--text-3);
@@ -180,13 +176,8 @@
 <body>
 <header class="hero">
   <div class="wrap">
-    <span class="mono">Native iOS · Swift 6 · SwiftUI</span>
     <h1>Hockey<span class="q">Quant</span></h1>
-    <p class="hero-lede">Predictions, advanced analytics, fantasy and a draft room — in one native iOS app.</p>
-    <div class="chips mono" style="margin-top:clamp(2.25rem,5vw,3rem)">
-      <span>Swift 6</span><span>SwiftUI</span><span>Python</span><span>FastAPI</span>
-      <span>PostgreSQL</span><span>Supabase</span><span>pandas</span><span>Render</span><span>GitHub Actions</span>
-    </div>
+    <p class="hero-lede">The NHL app for stat nerds.</p>
   </div>
 </header>
 
