@@ -4,6 +4,7 @@
   "buildCommand": "npx vite build",
   "outputDirectory": "dist",
   "rewrites": [
+    { "source": "/app", "destination": "/app.html" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }
