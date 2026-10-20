@@ -3,6 +3,12 @@ name: Keep Backend Warm
 # Render free tier spins the service down after 15 idle minutes (~1 min cold
 # start). A ping every 10 minutes keeps it warm; the free 750 instance-hours
 # per month cover one always-on service.
+#
+# The second ping is for Supabase, which pauses a Free-plan project that shows
+# low activity across a 7-day window. /health answers from memory and never
+# opens a connection, so a service kept warm by that alone still looks idle to
+# the database. The debug endpoint runs a one-row select, which is the cheapest
+# request here that Postgres actually sees.
 
 on:
   schedule:
@@ -17,3 +23,8 @@ jobs:
         run: |
           curl -sS --max-time 90 -o /dev/null -w "health: HTTP %{http_code} in %{time_total}s\n" \
             "https://hockeyquant.onrender.com/health" || true
+
+      - name: Touch the database so Supabase counts the activity
+        run: |
+          curl -sS --max-time 90 -o /dev/null -w "db: HTTP %{http_code} in %{time_total}s\n" \
+            "https://hockeyquant.onrender.com/api/accuracy/debug" || true

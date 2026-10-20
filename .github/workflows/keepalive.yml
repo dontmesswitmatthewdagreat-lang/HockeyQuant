@@ -1,0 +1,88 @@
+# HockeyQuant — Actions keepalive
+#
+# GitHub disables scheduled workflows in a public repository once 60 days pass
+# with no repository activity, and does not turn them back on when work
+# resumes. Every cron in this directory shares that one clock, so a quiet
+# stretch doesn't degrade the automation — it stops all of it at once: no
+# digests, no snapshots, no Render ping, and about a week later Supabase pauses
+# the database for inactivity too. The repo has already paid for this once:
+# accuracy-automation.yml was disabled this way and sat dead from 2026-06-08,
+# losing a season of per-game predictions that can't be reconstructed.
+#
+# A heartbeat commit holds the clock below 60 days, and the second step repairs
+# anything that slipped through. Pushes authenticated with GITHUB_TOKEN don't
+# trigger workflows, so the heartbeat never sets off build.yml.
+
+name: Keepalive
+
+on:
+  schedule:
+    # Mondays, 08:00 UTC. Weekly against a 60-day limit means eight runs in a
+    # row can be dropped or delayed before anything is actually at risk.
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write   # push the heartbeat commit
+  actions: write    # re-enable workflows disabled by inactivity
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Push a heartbeat commit if main has gone quiet
+        run: |
+          # Only commit when real work has stopped landing, so ordinary weeks
+          # leave no trace in the log. `|| echo 0` fails toward committing:
+          # if the age can't be determined, the heartbeat is the safe choice.
+          LAST=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+          AGE=$(( ( $(date -u +%s) - LAST ) / 86400 ))
+          echo "newest commit on main is ${AGE} day(s) old"
+
+          if [ "$AGE" -lt 30 ]; then
+            echo "recent activity — no heartbeat needed"
+            exit 0
+          fi
+
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit --allow-empty -m "Keep the scheduled workflows alive ($(date -u +%Y-%m-%d))"
+          git push origin HEAD:main
+          echo "heartbeat pushed — the 60-day clock is back to zero"
+
+      - name: Re-enable workflows disabled by inactivity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Matches on disabled_inactivity only. A workflow switched off on
+          # purpose reads disabled_manually and is left alone.
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows" \
+            --jq '.workflows[] | select(.state == "disabled_inactivity") | "\(.id) \(.path)"' \
+          | while read -r id path; do
+              echo "re-enabling $path"
+              gh api --method PUT "repos/$GITHUB_REPOSITORY/actions/workflows/$id/enable"
+            done
+          echo "no workflows left in disabled_inactivity"
+
+      - name: Confirm Supabase is still answering queries
+        run: |
+          # /health returns a literal from memory, so it proves nothing about
+          # the database. This endpoint runs a real select, which is both the
+          # check and the activity that keeps a Free-plan project unpaused.
+          # Three attempts: a Render cold start can swallow the first request,
+          # and a weekly false alarm would train the failure email to be noise.
+          for attempt in 1 2 3; do
+            BODY=$(curl -s --max-time 120 "https://hockeyquant.onrender.com/api/accuracy/debug" || true)
+            echo "attempt ${attempt}: ${BODY}"
+            if [ "$(printf '%s' "$BODY" | jq -r '.query_success // false' 2>/dev/null)" = "true" ]; then
+              echo "Postgres answered — Supabase is seeing traffic"
+              exit 0
+            fi
+            sleep 20
+          done
+          echo "::error::Supabase did not answer a query in three attempts — the project may be paused, or the backend's credentials are gone"
+          exit 1
