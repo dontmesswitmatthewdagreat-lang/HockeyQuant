@@ -4,7 +4,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import WelcomeModal from './components/WelcomeModal';
-import Home from './pages/Home';
+import Dashboard from './pages/Dashboard';
 import Predictions from './pages/Predictions';
 import Teams from './pages/Teams';
 import Accuracy from './pages/Accuracy';
@@ -27,7 +27,7 @@ function App() {
             {showWelcome && <WelcomeModal onClose={() => setShowWelcome(false)} />}
             <main className="main-content">
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<Dashboard />} />
                 <Route path="/games" element={<Predictions />} />
                 <Route path="/teams" element={<Teams />} />
                 <Route path="/accuracy" element={<Accuracy />} />

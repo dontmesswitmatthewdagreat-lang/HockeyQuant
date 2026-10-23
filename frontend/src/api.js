@@ -402,3 +402,46 @@ export async function fetchCalibration() {
   }
   return response.json();
 }
+
+// ---------------------------------------------------------------------------
+// News (/api/news/*)
+// ---------------------------------------------------------------------------
+
+/** `GET /api/news/latest` — the current league digest edition (+ team ones). */
+export async function fetchLatestDigests(team) {
+  const url = new URL(`${API_BASE}/api/news/latest`);
+  if (team) url.searchParams.set('team', team);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch digests');
+  }
+  return response.json();
+}
+
+/**
+ * `GET /api/news/feed` — The Wire, the flat chronological archive.
+ * Keyset-paginated: pass the previous response's `next_cursor` to continue.
+ */
+export async function fetchNewsFeed({ team, kind, cursor, limit = 30 } = {}) {
+  const url = new URL(`${API_BASE}/api/news/feed`);
+  if (team) url.searchParams.set('team', team);
+  if (kind) url.searchParams.set('kind', kind);
+  if (cursor) url.searchParams.set('cursor', cursor);
+  url.searchParams.set('limit', String(limit));
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Failed to fetch the wire');
+  }
+  return response.json();
+}
+
+/** `GET /api/news/search` — AI answer over live news plus archive matches. */
+export async function searchNews(q) {
+  const url = new URL(`${API_BASE}/api/news/search`);
+  url.searchParams.set('q', q);
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error('Search failed');
+  }
+  return response.json();
+}

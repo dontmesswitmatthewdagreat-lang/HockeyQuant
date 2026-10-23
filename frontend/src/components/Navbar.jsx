@@ -41,7 +41,7 @@ function Navbar() {
             <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path>
             <polyline points="9 22 9 12 15 12 15 22"></polyline>
           </svg>
-          Home
+          Dashboard
         </Link>
         <Link
           to="/games"
@@ -68,30 +68,6 @@ function Navbar() {
             <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
           </svg>
           Teams
-        </Link>
-        <Link
-          to="/accuracy"
-          className={`nav-link ${isActive('/accuracy') ? 'active' : ''}`}
-          onClick={closeMobileMenu}
-        >
-          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <circle cx="12" cy="12" r="10"></circle>
-            <circle cx="12" cy="12" r="6"></circle>
-            <circle cx="12" cy="12" r="2"></circle>
-          </svg>
-          Accuracy
-        </Link>
-        <Link
-          to="/models"
-          className={`nav-link ${isActive('/models') ? 'active' : ''}`}
-          onClick={closeMobileMenu}
-        >
-          <svg className="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <line x1="18" y1="20" x2="18" y2="10"></line>
-            <line x1="12" y1="20" x2="12" y2="4"></line>
-            <line x1="6" y1="20" x2="6" y2="14"></line>
-          </svg>
-          Models
         </Link>
 
         {/* Theme toggle + auth links inside mobile menu */}
