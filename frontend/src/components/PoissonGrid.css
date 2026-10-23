@@ -77,34 +77,88 @@
 .pg-cell {
   position: relative;
   padding: 0;
+}
+
+/* All the visuals live on the inner span rather than the <td>: transforms on
+   a table cell are unreliable across browsers, and the reveal below scales
+   each cell. The span is a plain block, which transforms predictably.
+   Square without fixed pixel sizing, so the grid scales with the card. */
+.pg-cell-inner {
+  display: block;
+  position: relative;
+  width: 100%;
+  padding-top: 100%;
   border-radius: 4px;
+  transform-origin: center;
   /* Intensity is per-cell, set inline; the hue stays constant so the grid
      reads as one heat ramp rather than a set of categories. */
   background: rgba(220, 38, 38, var(--pg-intensity, 0.08));
 }
 
-/* Square cells without fixed pixel sizing, so the grid scales with the card. */
-.pg-cell-inner {
-  display: block;
-  width: 100%;
-  padding-top: 100%;
-}
-
-.pg-peak {
+.pg-peak .pg-cell-inner {
   box-shadow: inset 0 0 0 2px #fff;
 }
 
-.pg-actual::after {
+.pg-actual .pg-cell-inner::after {
   content: '';
   position: absolute;
   top: 50%;
   left: 50%;
   width: 12px;
   height: 12px;
-  margin: -6px 0 0 -6px;
+  transform: translate(-50%, -50%);
   border-radius: 50%;
   background: #fff;
   box-shadow: inset 0 0 0 2.5px var(--accent-red), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* --- Reveal ---------------------------------------------------------------
+   Cells pop in outward from the model's most likely scoreline, the delay on
+   each being its distance from that cell (set inline as --pg-delay). The
+   distribution then reads as something radiating from the prediction rather
+   than 64 squares appearing at once.
+
+   Everything is wrapped in prefers-reduced-motion: no-preference, so when
+   motion is reduced neither rule applies and the grid is simply drawn — the
+   cells are never left hidden by a disabled animation. */
+@media (prefers-reduced-motion: no-preference) {
+  .poisson-grid.pg-pending .pg-cell-inner {
+    opacity: 0;
+  }
+
+  .poisson-grid.pg-revealed .pg-cell-inner {
+    /* Slight overshoot on the way in; `both` holds the start frame through
+       the delay so nothing flashes before its turn. */
+    animation: pg-pop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation-delay: var(--pg-delay, 0s);
+  }
+
+  /* The actual result is the payoff, so it lands just after its cell has
+     settled instead of arriving with it. */
+  .poisson-grid.pg-revealed .pg-actual .pg-cell-inner::after {
+    animation: pg-dot 0.42s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    animation-delay: calc(var(--pg-delay, 0s) + 0.22s);
+  }
+}
+
+@keyframes pg-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes pg-dot {
+  from {
+    transform: translate(-50%, -50%) scale(0);
+  }
+  to {
+    transform: translate(-50%, -50%) scale(1);
+  }
 }
 
 .poisson-grid-legend {

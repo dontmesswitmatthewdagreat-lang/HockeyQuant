@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import './PoissonGrid.css';
 
 /**
@@ -59,12 +59,37 @@ function PoissonGrid({
     return { matrix: m, maxProb: mp, peak: best };
   }, [awayXG, homeXG, maxGoals]);
 
+  // The grid usually sits well below the fold inside a game card, so the
+  // reveal waits until it is actually on screen rather than playing to nobody
+  // on mount. Where IntersectionObserver is missing, start revealed.
+  const wrapRef = useRef(null);
+  const [revealed, setRevealed] = useState(
+    () => typeof IntersectionObserver === 'undefined',
+  );
+
+  useEffect(() => {
+    if (revealed) return undefined;
+    const el = wrapRef.current;
+    if (!el) return undefined;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          setRevealed(true);
+          io.disconnect();
+        }
+      },
+      { threshold: 0.25 },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [revealed]);
+
   if (!(awayXG > 0) || !(homeXG > 0)) return null;
 
   const counts = Array.from({ length: maxGoals + 1 }, (_, i) => i);
 
   return (
-    <div className="poisson-grid-wrapper">
+    <div className="poisson-grid-wrapper" ref={wrapRef}>
       <div className="poisson-grid-header">
         {hasActual ? (
           <>
@@ -96,7 +121,10 @@ function PoissonGrid({
         <span>{awayTeam} goals →</span>
       </div>
 
-      <table className="poisson-grid" role="presentation">
+      <table
+        className={`poisson-grid ${revealed ? 'pg-revealed' : 'pg-pending'}`}
+        role="presentation"
+      >
         <tbody>
           <tr>
             <td className="pg-corner" />
@@ -117,13 +145,19 @@ function PoissonGrid({
                   isPeak ? 'pg-peak' : '',
                   isActual ? 'pg-actual' : '',
                 ].filter(Boolean).join(' ');
+                // The reveal ripples outward from the model's pick, so the
+                // delay is that cell's straight-line distance from the peak.
+                const ripple = Math.hypot(a - peak.a, h - peak.h);
                 return (
                   <td
                     key={`${a}-${h}`}
                     className={cls}
                     // Every cell is tinted, so the peak reads as the darkest
                     // square rather than the only coloured one.
-                    style={{ '--pg-intensity': (0.08 + 0.85 * intensity).toFixed(3) }}
+                    style={{
+                      '--pg-intensity': (0.08 + 0.85 * intensity).toFixed(3),
+                      '--pg-delay': `${(ripple * 0.07).toFixed(3)}s`,
+                    }}
                     title={`${awayTeam} ${a}–${h} ${homeTeam}: ${(prob * 100).toFixed(1)}%`}
                     aria-label={`${awayTeam} ${a}, ${homeTeam} ${h}: ${Math.round(prob * 100)} percent`}
                   >
