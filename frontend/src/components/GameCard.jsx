@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { getTeamLogo, getTeamName } from '../utils/teamLogos';
 import { fetchGameSummary } from '../api';
 import PoissonChart from './PoissonChart';
+import PoissonGrid from './PoissonGrid';
 import './GameCard.css';
 
 function GameCard({ prediction, liveScore }) {
@@ -338,12 +339,26 @@ function GameCard({ prediction, liveScore }) {
             </div>
           </div>
           {betting_lines.away_expected_goals != null && betting_lines.home_expected_goals != null && (
-            <PoissonChart
-              awayTeam={away.team}
-              homeTeam={home.team}
-              awayXG={betting_lines.away_expected_goals}
-              homeXG={betting_lines.home_expected_goals}
-            />
+            <>
+              <PoissonChart
+                awayTeam={away.team}
+                homeTeam={home.team}
+                awayXG={betting_lines.away_expected_goals}
+                homeXG={betting_lines.home_expected_goals}
+              />
+              {/* The bars above answer "how many will each side score?". The
+                  grid answers "what will the score be?" — which is where a 3-2
+                  separates from a 2-3. */}
+              <PoissonGrid
+                awayTeam={away.team}
+                homeTeam={home.team}
+                awayXG={betting_lines.away_expected_goals}
+                homeXG={betting_lines.home_expected_goals}
+                actualAway={hasScore ? liveScore.away_score : null}
+                actualHome={hasScore ? liveScore.home_score : null}
+                isFinal={isFinal}
+              />
+            </>
           )}
         </div>
       )}

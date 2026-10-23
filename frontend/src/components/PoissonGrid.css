@@ -1,0 +1,140 @@
+.poisson-grid-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 360px;
+}
+
+.poisson-grid-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.poisson-grid-actual {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  color: var(--text-primary);
+}
+
+.pg-chip {
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+}
+
+.pg-chip-live {
+  color: var(--text-on-red);
+  background: var(--accent-red);
+}
+
+.pg-chip-final {
+  color: var(--text-secondary);
+  background: var(--bg-accent);
+}
+
+.poisson-grid-sub {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.poisson-grid-sub strong {
+  color: var(--text-primary);
+}
+
+.poisson-grid-axes {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.poisson-grid {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 3px;
+  table-layout: fixed;
+}
+
+.pg-corner {
+  width: 16px;
+}
+
+.pg-axis {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-align: center;
+  width: 16px;
+  height: 16px;
+}
+
+.pg-cell {
+  position: relative;
+  padding: 0;
+  border-radius: 4px;
+  /* Intensity is per-cell, set inline; the hue stays constant so the grid
+     reads as one heat ramp rather than a set of categories. */
+  background: rgba(220, 38, 38, var(--pg-intensity, 0.08));
+}
+
+/* Square cells without fixed pixel sizing, so the grid scales with the card. */
+.pg-cell-inner {
+  display: block;
+  width: 100%;
+  padding-top: 100%;
+}
+
+.pg-peak {
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+.pg-actual::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  margin: -6px 0 0 -6px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 2.5px var(--accent-red), 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+.poisson-grid-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+}
+
+.pg-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.pg-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.pg-swatch-peak {
+  background: rgba(220, 38, 38, 0.7);
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+.pg-swatch-actual {
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: inset 0 0 0 2.5px var(--accent-red), 0 0 0 0.5px var(--border-color);
+}

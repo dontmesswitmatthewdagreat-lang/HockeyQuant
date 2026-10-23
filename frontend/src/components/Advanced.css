@@ -1,0 +1,465 @@
+/* Shared chrome for the advanced-metrics cards (decomposition, luck, line
+   chemistry, player impact, calibration). One stylesheet so the five cards
+   read as one system wherever they're dropped in. */
+
+.adv-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.adv-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.adv-card-head h4 {
+  margin: 0;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.adv-total {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.adv-note {
+  margin: 0 0 0.75rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.adv-footnote {
+  margin: 0.75rem 0 0;
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.adv-pos-text { color: var(--accent-green); }
+.adv-neg-text { color: var(--accent-red); }
+
+/* --- Decomposition ------------------------------------------------------ */
+
+.adv-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.adv-row {
+  display: grid;
+  grid-template-columns: minmax(96px, 1.1fr) minmax(90px, 2fr) 48px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.adv-row-label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.adv-row-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.adv-row-hint {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.adv-row-value {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-diverge-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--bg-accent);
+  overflow: hidden;
+}
+
+.adv-diverge-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.adv-diverge-fill.adv-pos { background: var(--accent-green); }
+.adv-diverge-fill.adv-neg { background: var(--accent-red); }
+
+.adv-diverge-centre {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border-color);
+}
+
+.adv-toggle {
+  margin-top: 0.75rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.adv-toggle:hover { background: var(--bg-accent); }
+
+.adv-split-table,
+.adv-unit-table {
+  width: 100%;
+  margin-top: 0.6rem;
+  border-collapse: collapse;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-split-table th,
+.adv-unit-table th {
+  text-align: right;
+  font-size: 0.625rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  padding: 0.25rem 0.3rem;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.adv-split-table th:first-child,
+.adv-unit-table th:first-child { text-align: left; }
+
+.adv-split-table td,
+.adv-unit-table td {
+  text-align: right;
+  padding: 0.35rem 0.3rem;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.adv-split-table td:first-child,
+.adv-unit-table td:first-child {
+  text-align: left;
+  color: var(--text-primary);
+}
+
+.adv-split-state { font-weight: 600; }
+
+/* --- Luck meter --------------------------------------------------------- */
+
+.adv-rank-pill {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  color: var(--text-secondary);
+  background: var(--bg-accent);
+}
+
+.adv-pill-good {
+  color: var(--accent-green);
+  background: var(--accent-green-light);
+}
+
+.adv-luck-headline {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-bottom: 0.6rem;
+}
+
+.adv-luck-value {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-luck-verdict {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.adv-luck-hot { color: var(--accent-orange); }
+.adv-luck-cold { color: var(--accent-blue); }
+.adv-luck-even { color: var(--text-secondary); }
+
+.adv-luck-track {
+  position: relative;
+  height: 16px;
+  margin-bottom: 0.3rem;
+}
+
+.adv-luck-track::before {
+  content: '';
+  position: absolute;
+  top: 5px;
+  left: 0;
+  right: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-accent);
+}
+
+.adv-luck-avg {
+  position: absolute;
+  top: 0;
+  width: 1.5px;
+  height: 16px;
+  background: var(--text-muted);
+  transform: translateX(-0.75px);
+}
+
+.adv-luck-marker {
+  position: absolute;
+  top: 1px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  transform: translateX(-7px);
+  box-shadow: 0 0 0 2.5px var(--bg-card);
+  background: var(--text-secondary);
+}
+
+.adv-luck-marker.adv-luck-hot { background: var(--accent-orange); }
+.adv-luck-marker.adv-luck-cold { background: var(--accent-blue); }
+
+.adv-luck-scale {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.adv-luck-detail {
+  margin: 0.6rem 0 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* --- Line chemistry ----------------------------------------------------- */
+
+.adv-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.3rem;
+}
+
+.adv-tab {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-accent);
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.adv-tab.active {
+  color: var(--text-on-red);
+  background: var(--accent-red);
+}
+
+.adv-tab:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.adv-unit-names {
+  display: flex;
+  flex-direction: column;
+  max-width: 190px;
+}
+
+.adv-unit-sub {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+/* --- Player / goalie impact -------------------------------------------- */
+
+.adv-player-modal {
+  max-width: 460px;
+  padding: 1.25rem;
+  position: relative;
+}
+
+.adv-close {
+  position: absolute;
+  top: 0.6rem;
+  right: 0.75rem;
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.adv-player-head h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--text-primary);
+}
+
+.adv-player-meta {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.adv-player-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+  margin: 0.75rem 0 1rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.adv-player-line strong {
+  font-size: 0.9375rem;
+  color: var(--text-primary);
+}
+
+.adv-pct-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.5625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 0.6rem;
+}
+
+.adv-pct-row { margin-bottom: 0.7rem; }
+
+.adv-pct-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.adv-pct-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.adv-pct-value {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.adv-pct-unit {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.adv-pct-track {
+  position: relative;
+  height: 8px;
+  margin: 0.25rem 0 0.15rem;
+  border-radius: 4px;
+  background: var(--bg-accent);
+  overflow: hidden;
+}
+
+.adv-pct-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent-blue);
+}
+
+.adv-pct-fill.adv-pct-high { background: var(--accent-green); }
+.adv-pct-fill.adv-pct-low { background: var(--accent-red); }
+
+/* The bars are centred on the 50th, so the midpoint has to be visible for
+   "above average" to mean anything at a glance. */
+.adv-pct-mid {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--border-color);
+  z-index: 1;
+}
+
+.adv-pct-rank {
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.adv-pct-unranked { font-style: italic; }
+
+/* --- Calibration -------------------------------------------------------- */
+
+.adv-tooltip {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.adv-tooltip-head {
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 0.2rem;
+}
+
+.adv-tooltip-sub {
+  color: var(--text-muted);
+  font-size: 0.6875rem;
+}
+
+@media (max-width: 520px) {
+  .adv-row {
+    grid-template-columns: minmax(80px, 1fr) minmax(60px, 1.4fr) 42px;
+  }
+  .adv-unit-names { max-width: 130px; }
+}
+
+.adv-clickable { cursor: pointer; }
+.adv-clickable:hover { background: var(--bg-accent); }

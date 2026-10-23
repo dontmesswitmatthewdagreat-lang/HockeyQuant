@@ -1,7 +1,14 @@
 import { useState, useEffect, useMemo } from 'react';
-import { fetchTeams, fetchTeam } from '../api';
+import {
+  fetchTeams, fetchTeam, fetchAdvancedTeam, fetchTeamLines,
+  fetchAdvancedSkaters, fetchAdvancedGoalies, fetchLeaguePulses,
+} from '../api';
 import { getTeamLogo, getTeamName } from '../utils/teamLogos';
 import LoadingSpinner from '../components/LoadingSpinner';
+import DecompositionCard from '../components/DecompositionCard';
+import LuckMeter from '../components/LuckMeter';
+import LineChemistry from '../components/LineChemistry';
+import PlayerImpactModal from '../components/PlayerImpactModal';
 import './Teams.css';
 
 const DIVISIONS = ['All', 'Atlantic', 'Metropolitan', 'Central', 'Pacific'];
@@ -16,6 +23,14 @@ function Teams() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedDivision, setSelectedDivision] = useState('All');
   const [activeTab, setActiveTab] = useState('overview');
+  // Advanced surfaces load separately from the team payload and are allowed to
+  // fail on their own — a metrics outage should cost you a card, not the page.
+  const [advanced, setAdvanced] = useState(null);
+  const [lines, setLines] = useState(null);
+  const [skaters, setSkaters] = useState([]);
+  const [goalies, setGoalies] = useState([]);
+  const [luckPulse, setLuckPulse] = useState(null);
+  const [selectedPlayer, setSelectedPlayer] = useState(null);
 
   useEffect(() => {
     loadTeams();
@@ -36,6 +51,10 @@ function Teams() {
     setSelectedTeam(abbrev);
     setActiveTab('overview');
     setDetailsLoading(true);
+    setAdvanced(null);
+    setLines(null);
+    setSkaters([]);
+    setGoalies([]);
     try {
       const data = await fetchTeam(abbrev);
       setTeamDetails(data);
@@ -44,11 +63,23 @@ function Teams() {
     } finally {
       setDetailsLoading(false);
     }
+
+    // Best-effort, in parallel, after the page is already usable.
+    fetchAdvancedTeam(abbrev).then(setAdvanced).catch(() => {});
+    fetchTeamLines(abbrev).then(setLines).catch(() => {});
+    fetchAdvancedSkaters(abbrev).then((d) => setSkaters(d.skaters || [])).catch(() => {});
+    fetchAdvancedGoalies(abbrev).then((d) => setGoalies(d.goalies || [])).catch(() => {});
+    if (!luckPulse) {
+      fetchLeaguePulses()
+        .then((d) => setLuckPulse((d.pulses || []).find((p) => p.id === 'luck') || null))
+        .catch(() => {});
+    }
   }
 
   function closeDetails() {
     setSelectedTeam(null);
     setTeamDetails(null);
+    setSelectedPlayer(null);
   }
 
   // Filter and sort teams
@@ -262,6 +293,12 @@ function Teams() {
                     Advanced Stats
                   </button>
                   <button
+                    className={`detail-tab ${activeTab === 'players' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('players')}
+                  >
+                    Player Impact
+                  </button>
+                  <button
                     className={`detail-tab ${activeTab === 'roster' ? 'active' : ''}`}
                     onClick={() => setActiveTab('roster')}
                   >
@@ -316,6 +353,11 @@ function Teams() {
                 {/* Advanced Stats Tab */}
                 {activeTab === 'advanced' && teamDetails.advanced_stats && (
                   <div className="advanced-stats-content">
+                    {/* Each of these renders nothing until its own fetch lands,
+                        so the possession numbers below are never held up. */}
+                    <DecompositionCard data={advanced} />
+                    <LuckMeter pulse={luckPulse} abbrev={selectedTeam} />
+                    <LineChemistry data={lines} />
                     <div className="advanced-section">
                       <h4 className="advanced-section-title">Possession</h4>
                       <div className="stats-grid three-col">
@@ -415,6 +457,96 @@ function Teams() {
                 )}
 
                 {/* Goalies & Injuries Tab */}
+                {/* Player Impact Tab — rows open a percentile card */}
+                {activeTab === 'players' && (
+                  <div className="advanced-stats-content">
+                    {skaters.length === 0 && goalies.length === 0 ? (
+                      <p className="adv-note">Loading player impact…</p>
+                    ) : (
+                      <>
+                        {skaters.length > 0 && (
+                          <div className="adv-card">
+                            <div className="adv-card-head"><h4>Skaters</h4></div>
+                            <p className="adv-note">
+                              Ranked by Game Score per 60. Tap a row for league percentiles.
+                            </p>
+                            <table className="adv-unit-table">
+                              <thead>
+                                <tr>
+                                  <th>Player</th>
+                                  <th>GP</th>
+                                  <th>P</th>
+                                  <th>GS/60</th>
+                                  <th>xGF%</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...skaters]
+                                  .sort((a, b) => (b.game_score_per60 ?? 0) - (a.game_score_per60 ?? 0))
+                                  .map((s) => (
+                                    <tr
+                                      key={s.player_id}
+                                      className="adv-clickable"
+                                      onClick={() => setSelectedPlayer({ id: s.player_id, goalie: false })}
+                                    >
+                                      <td>
+                                        {s.name}
+                                        <span className="adv-unit-sub"> {s.position}</span>
+                                      </td>
+                                      <td>{s.games_played}</td>
+                                      <td>{s.points ?? '—'}</td>
+                                      <td>{s.game_score_per60?.toFixed(2) ?? '—'}</td>
+                                      <td>{s.xgf_pct?.toFixed(1) ?? '—'}</td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {goalies.length > 0 && (
+                          <div className="adv-card">
+                            <div className="adv-card-head"><h4>Goalies</h4></div>
+                            <p className="adv-note">
+                              GSAx is goals saved above expected. Tap a row for percentiles.
+                            </p>
+                            <table className="adv-unit-table">
+                              <thead>
+                                <tr>
+                                  <th>Goalie</th>
+                                  <th>GP</th>
+                                  <th>SV%</th>
+                                  <th>GSAx</th>
+                                  <th>HD SV%</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {[...goalies]
+                                  .sort((a, b) => (b.gsax ?? 0) - (a.gsax ?? 0))
+                                  .map((g) => (
+                                    <tr
+                                      key={g.player_id}
+                                      className="adv-clickable"
+                                      onClick={() => setSelectedPlayer({ id: g.player_id, goalie: true })}
+                                    >
+                                      <td>{g.name}</td>
+                                      <td>{g.games_played}</td>
+                                      <td>{g.save_pct?.toFixed(2) ?? '—'}</td>
+                                      <td className={(g.gsax ?? 0) >= 0 ? 'adv-pos-text' : 'adv-neg-text'}>
+                                        {g.gsax > 0 ? '+' : ''}{g.gsax?.toFixed(2) ?? '—'}
+                                      </td>
+                                      <td>{g.hd_save_pct?.toFixed(2) ?? '—'}</td>
+                                    </tr>
+                                  ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {activeTab === 'roster' && (
                   <>
                     <h3 className="section-title">Goalies</h3>
@@ -453,6 +585,16 @@ function Teams() {
             ) : null}
           </div>
         </div>
+      )}
+
+      {/* Rendered after the team modal so it stacks above it. */}
+      {selectedPlayer && (
+        <PlayerImpactModal
+          key={selectedPlayer.id}
+          playerId={selectedPlayer.id}
+          isGoalie={selectedPlayer.goalie}
+          onClose={() => setSelectedPlayer(null)}
+        />
       )}
     </div>
   );

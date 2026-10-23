@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { fetchAccuracyStats, fetchParlayStats } from '../api';
+import { fetchAccuracyStats, fetchParlayStats, fetchCalibration } from '../api';
 import { getTeamLogo, getTeamName, TEAM_NAMES } from '../utils/teamLogos';
 import AccuracyChart from '../components/AccuracyChart';
 import LoadingSpinner from '../components/LoadingSpinner';
 import TeamLeaderboard from '../components/TeamLeaderboard';
+import CalibrationChart from '../components/CalibrationChart';
 import './Accuracy.css';
 
 const ALL_TEAMS = Object.entries(TEAM_NAMES)
@@ -77,6 +78,7 @@ function Accuracy() {
   const [showOuInfo, setShowOuInfo] = useState(false);
   const [parlayStats, setParlayStats] = useState(null);
   const [expandedParlayIdx, setExpandedParlayIdx] = useState(null);
+  const [calibration, setCalibration] = useState(null);
   const chartRef = useRef(null);
 
   function handleLeaderboardSelect(team) {
@@ -95,6 +97,14 @@ function Accuracy() {
   useEffect(() => {
     fetchParlayStats()
       .then(data => setParlayStats(data))
+      .catch(() => {});
+  }, []);
+
+  // Calibration is league-wide and unfiltered, so it loads once rather than
+  // re-running with the team filter above it.
+  useEffect(() => {
+    fetchCalibration()
+      .then(data => setCalibration(data))
       .catch(() => {});
   }, []);
 
@@ -413,6 +423,11 @@ function Accuracy() {
         <YesterdayCard recentPredictions={recentPredictions} />
       </div>
       <AccuracyChart predType={chartPredType} team={selectedTeam} />
+
+      {/* Accuracy says how often it's right; calibration asks whether a
+          stated 70% actually happens 70% of the time. Loaded on its own
+          so a miss here costs the card, not the page. */}
+      <CalibrationChart data={calibration} />
       </div>
 
       {/* Recent Predictions */}

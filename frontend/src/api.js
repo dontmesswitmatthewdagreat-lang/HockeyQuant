@@ -328,3 +328,77 @@ export async function fetchModelPredictions(token, modelId, date) {
   }
   return response.json();
 }
+
+// ---------------------------------------------------------------------------
+// Advanced metrics (/api/advanced/*)
+//
+// Every one of these is decoration on a page that already works, so callers
+// treat a failure as "no card" rather than an error state. Percentiles only
+// come back for players over the ice-time floor (300 min skaters, 500 goalies),
+// so early in a season these payloads carry raw numbers and no ranks.
+// ---------------------------------------------------------------------------
+
+export async function fetchAdvancedTeam(abbrev) {
+  const response = await fetch(`${API_BASE}/api/advanced/team/${abbrev}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch advanced team metrics');
+  }
+  return response.json();
+}
+
+export async function fetchAdvancedSkaters(abbrev) {
+  const response = await fetch(`${API_BASE}/api/advanced/skaters/${abbrev}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch skater impact');
+  }
+  return response.json();
+}
+
+export async function fetchAdvancedPlayer(playerId) {
+  const response = await fetch(`${API_BASE}/api/advanced/player/${playerId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch player card');
+  }
+  return response.json();
+}
+
+export async function fetchAdvancedGoalies(abbrev) {
+  const response = await fetch(`${API_BASE}/api/advanced/goalies/${abbrev}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch goalie impact');
+  }
+  return response.json();
+}
+
+export async function fetchAdvancedGoalie(playerId) {
+  const response = await fetch(`${API_BASE}/api/advanced/goalie/${playerId}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch goalie card');
+  }
+  return response.json();
+}
+
+export async function fetchTeamLines(abbrev) {
+  const response = await fetch(`${API_BASE}/api/advanced/lines/${abbrev}`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch line chemistry');
+  }
+  return response.json();
+}
+
+/** `GET /api/pulse/league` — the dial reads, including the per-team luck rows. */
+export async function fetchLeaguePulses() {
+  const response = await fetch(`${API_BASE}/api/pulse/league`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch league pulses');
+  }
+  return response.json();
+}
+
+export async function fetchCalibration() {
+  const response = await fetch(`${API_BASE}/api/accuracy/calibration`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch calibration');
+  }
+  return response.json();
+}
