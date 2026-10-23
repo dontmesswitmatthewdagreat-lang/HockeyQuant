@@ -7,10 +7,16 @@ import WireFeed from '../components/WireFeed';
 import PulseDial from '../components/PulseDial';
 import NewsAssistant from '../components/NewsAssistant';
 import ArticleSummary from '../components/ArticleSummary';
+import Reveal from '../components/Reveal';
 import '../components/Dashboard.css';
 
 /**
  * The front door: a news and statistics dashboard.
+ *
+ * Two reading columns — the day's edition on the left, the live wire on the
+ * right — so the thing rewritten hourly and the thing written once a day are
+ * legible at the same time rather than stacked a screen apart. League vitals
+ * sit in a row beneath, where they don't compete with either.
  *
  * Every section loads independently and renders nothing until its own fetch
  * lands. The backend is on a free tier that cold-starts, and one slow or
@@ -43,7 +49,7 @@ function Dashboard() {
   // how bouncy the whole league is doesn't tell a reader anything they can
   // act on. Per-team PDO, which does, lives on the team page instead. The
   // seasonal pulses still appear, but only once they're actually live —
-  // a row of "back soon" placeholders is worse than an empty sidebar.
+  // a row of "back soon" placeholders is worse than an empty rail.
   const livePulses = pulses.filter((p) => p.id !== 'luck' && p.active);
 
   // Standings leaders, by points then points-percentage so a team with games
@@ -55,82 +61,105 @@ function Dashboard() {
 
   return (
     <div className="dash-page">
-      <header className="dash-masthead">
-        <div>
-          <h1 className="dash-title">The Rink Report</h1>
-          <p className="dash-sub">NHL news, numbers and what they actually mean</p>
-        </div>
-        <span className="dash-today">
-          {new Date().toLocaleDateString(undefined, {
-            weekday: 'long', month: 'long', day: 'numeric',
-          })}
-        </span>
-      </header>
+      <Reveal className="dash-masthead-wrap">
+        <header className="dash-masthead">
+          <div>
+            <h1 className="dash-title">The Rink Report</h1>
+            <p className="dash-sub">NHL news, numbers and what they actually mean</p>
+          </div>
+          <span className="dash-today">
+            {new Date().toLocaleDateString(undefined, {
+              weekday: 'long', month: 'long', day: 'numeric',
+            })}
+          </span>
+        </header>
+      </Reveal>
 
       <div className="dash-grid">
-        <main className="dash-main">
+        {/* Left: the day's edition. */}
+        <section className="dash-col dash-col-lead">
           {digests === null && <p className="dash-note">Loading the latest edition…</p>}
           {digests !== null && !lead && (
             <p className="dash-note">No edition published yet today.</p>
           )}
-          <DigestCard digest={lead} onSummarize={setSummaryArticle} />
-          <WireFeed onSummarize={setSummaryArticle} />
-        </main>
+          <Reveal delay={80}>
+            <DigestCard digest={lead} onSummarize={setSummaryArticle} />
+          </Reveal>
+        </section>
 
-        <aside className="dash-side">
+        {/* Middle: the live wire, scrolling alongside the edition. */}
+        <section className="dash-col dash-col-wire">
+          <Reveal delay={160}>
+            <WireFeed onSummarize={setSummaryArticle} />
+          </Reveal>
+        </section>
+
+      </div>
+
+      {/* Beneath: league vitals, as a row. */}
+      <aside className="dash-rail">
           {games.length > 0 && (
-            // The whole card is the link — a card that opens the games page
-            // shouldn't need you to find the one phrase inside it that does.
-            <Link className="dash-panel dash-slate-card" to="/games">
-              <header className="dash-section-head">
-                <h2 className="dash-section-title">Tonight</h2>
-                <span className="dash-link">{games.length} games →</span>
-              </header>
-              <ul className="dash-slate">
-                {games.slice(0, 8).map((g) => (
-                  <li key={`${g.away}-${g.home}`}>
-                    {/* The away block is mirrored — abbreviation then crest —
-                        so both crests sit against the @ and it reads as
-                        centred between them rather than between the columns. */}
-                    <span className="dash-slate-team dash-slate-away">
-                      <img src={getTeamLogo(g.away)} alt="" />
-                      {g.away}
-                    </span>
-                    <span className="dash-slate-at">@</span>
-                    <span className="dash-slate-team dash-slate-home">
-                      <img src={getTeamLogo(g.home)} alt="" />
-                      {g.home}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            </Link>
+            <Reveal delay={240}>
+              {/* The whole card is the link — a card that opens the games page
+                  shouldn't need you to find the one phrase inside it that does. */}
+              <Link className="dash-panel dash-slate-card" to="/games">
+                <header className="dash-section-head">
+                  <h2 className="dash-section-title">Tonight</h2>
+                  <span className="dash-link">{games.length} games →</span>
+                </header>
+                <ul className="dash-slate">
+                  {games.slice(0, 8).map((g) => (
+                    <li key={`${g.away}-${g.home}`}>
+                      {/* The away block is mirrored — abbreviation then crest —
+                          so both crests sit against the @ and it reads as
+                          centred between them rather than between the columns. */}
+                      <span className="dash-slate-team dash-slate-away">
+                        <img src={getTeamLogo(g.away)} alt="" />
+                        {g.away}
+                      </span>
+                      <span className="dash-slate-at">@</span>
+                      <span className="dash-slate-team dash-slate-home">
+                        <img src={getTeamLogo(g.home)} alt="" />
+                        {g.home}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </Link>
+            </Reveal>
           )}
 
-          <NewsAssistant />
+          <Reveal delay={320}>
+            <NewsAssistant />
+          </Reveal>
 
           {leaders.length > 0 && (
-            <Link className="dash-panel dash-leaders-card" to="/teams">
-              <header className="dash-section-head">
-                <h2 className="dash-section-title">League leaders</h2>
-                <span className="dash-link">Standings →</span>
-              </header>
-              <ol className="dash-leaders">
-                {leaders.map((t, i) => (
-                  <li key={t.abbrev}>
-                    <span className="dash-leader-rank">{i + 1}</span>
-                    <img src={getTeamLogo(t.abbrev)} alt="" />
-                    <span className="dash-leader-name">{getTeamName(t.abbrev) || t.abbrev}</span>
-                    <span className="dash-leader-pts">{t.points}</span>
-                  </li>
-                ))}
-              </ol>
-            </Link>
+            <Reveal delay={400}>
+              <Link className="dash-panel dash-leaders-card" to="/teams">
+                <header className="dash-section-head">
+                  <h2 className="dash-section-title">League leaders</h2>
+                  <span className="dash-link">Standings →</span>
+                </header>
+                <ol className="dash-leaders">
+                  {leaders.map((t, i) => (
+                    <li key={t.abbrev}>
+                      <span className="dash-leader-rank">{i + 1}</span>
+                      <img src={getTeamLogo(t.abbrev)} alt="" />
+                      <span className="dash-leader-name">{getTeamName(t.abbrev) || t.abbrev}</span>
+                      <span className="dash-leader-pts">{t.points}</span>
+                    </li>
+                  ))}
+                </ol>
+              </Link>
+            </Reveal>
           )}
 
-          {livePulses.map((p) => <PulseDial key={p.id} pulse={p} />)}
-        </aside>
-      </div>
+        {livePulses.map((p, i) => (
+          <Reveal key={p.id} delay={480 + i * 80}>
+            <PulseDial pulse={p} />
+          </Reveal>
+        ))}
+      </aside>
 
       {summaryArticle && (
         <ArticleSummary

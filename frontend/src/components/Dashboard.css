@@ -3,7 +3,7 @@
    components so the whole surface reads as one publication. */
 
 .dash-page {
-  max-width: 1280px;
+  max-width: 1560px;
   margin: 0 auto;
   padding: 1.5rem 1rem 3rem;
 }
@@ -45,15 +45,17 @@
 
 /* --- Layout ------------------------------------------------------------- */
 
+/* Two reading columns: the day's edition left, the live wire right. They sit
+   side by side on purpose — the thing rewritten hourly and the thing written
+   once a day should be readable together rather than a screen apart. */
 .dash-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 1.5rem;
   align-items: start;
 }
 
-.dash-main,
-.dash-side {
+.dash-col {
   display: flex;
   flex-direction: column;
   gap: 1.5rem;
@@ -488,9 +490,19 @@
 
 /* --- Narrow ------------------------------------------------------------- */
 
+/* The rail is the first thing to give: below three columns it becomes a row
+   of panels under the two reading columns. */
+/* League vitals, beneath the two columns. */
+.dash-rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+
 @media (max-width: 900px) {
   .dash-grid { grid-template-columns: minmax(0, 1fr); }
-  .dash-side { order: 2; }
 }
 
 /* --- Cards that are themselves links ------------------------------------ */
@@ -892,4 +904,77 @@
   }
 
   .dash-caret { opacity: 1; }
+}
+
+/* ========================================================================
+   Entrance
+   Blocks fade and rise as they enter the viewport, staggered down the page.
+   easeOutExpo decelerates hard at the end, which is what makes it settle
+   rather than arrive — the quality the Apple pages get from the same curve.
+   ======================================================================== */
+
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+}
+
+.reveal.is-revealed {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.75s cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0ms),
+    transform 0.75s cubic-bezier(0.16, 1, 0.3, 1) var(--reveal-delay, 0ms);
+}
+
+/* Reveal wraps a grid child, so it has to not become one itself. */
+.dash-col > .reveal { min-width: 0; }
+
+/* Stories cascade inside the digest once it lands.
+   Animating `translate` rather than `transform` on purpose: the press-and-hold
+   scale lives on `transform`, and the two compose independently — using
+   transform here with fill `both` would freeze the card and kill the press. */
+.dash-stories .dash-story {
+  animation: story-rise 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.dash-stories .dash-story:nth-child(1) { animation-delay: 0.04s; }
+.dash-stories .dash-story:nth-child(2) { animation-delay: 0.11s; }
+.dash-stories .dash-story:nth-child(3) { animation-delay: 0.18s; }
+.dash-stories .dash-story:nth-child(4) { animation-delay: 0.25s; }
+.dash-stories .dash-story:nth-child(5) { animation-delay: 0.32s; }
+.dash-stories .dash-story:nth-child(n + 6) { animation-delay: 0.39s; }
+
+@keyframes story-rise {
+  from { opacity: 0; translate: 0 14px; }
+  to { opacity: 1; translate: 0 0; }
+}
+
+/* --- The wire as a live rail -------------------------------------------- */
+/* Wide enough for two reading columns, the wire sticks and scrolls inside
+   itself, so it stays beside the edition instead of running the page to
+   several screens and defeating the point of the split. */
+
+@media (min-width: 1100px) {
+  .dash-col-wire {
+    position: sticky;
+    top: 1rem;
+  }
+
+  .dash-col-wire .dash-wire-list {
+    max-height: calc(100vh - 15rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.is-revealed {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+
+  .dash-stories .dash-story { animation: none; }
 }
