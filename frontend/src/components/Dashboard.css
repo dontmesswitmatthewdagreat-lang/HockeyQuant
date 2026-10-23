@@ -433,6 +433,17 @@
 
 .dash-slate-team img { width: 30px; height: 30px; object-fit: contain; }
 
+/* Mirrored away block: crest ends up adjacent to the @, so the @ is
+   equidistant from both crests instead of hugging the home one. */
+.dash-slate-away {
+  flex-direction: row-reverse;
+  justify-self: end;
+}
+
+.dash-slate-home {
+  justify-self: start;
+}
+
 .dash-slate-at {
   font-size: 1rem;
   font-weight: 700;
@@ -696,4 +707,189 @@
   font-size: 0.625rem;
   font-weight: 600;
   color: var(--text-muted);
+}
+
+/* ========================================================================
+   Hold-to-summarize motion
+   Ported from the iOS HoldToSummarize modifier: the card shrinks to 0.965
+   and a gradient ring lights up, on spring(response: 0.35, damping: 0.8).
+   --spring approximates that curve; it settles without visible overshoot,
+   which is what a press wants (a bounce would read as a release).
+   ======================================================================== */
+
+:root {
+  --spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --hold-ms: 600ms;
+}
+
+/* The angle has to be a registered property or the conic gradient can't be
+   animated — browsers interpolate unregistered custom properties as strings
+   and the ring would simply snap. */
+@property --hold-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+.dash-story,
+.dash-wire-item {
+  position: relative;
+  transform-origin: center;
+  transition: transform 0.35s var(--spring), box-shadow 0.35s var(--spring);
+}
+
+.dash-story.is-holding,
+.dash-wire-item.is-holding {
+  transform: scale(0.965);
+  box-shadow: 0 0 0 1px rgba(220, 38, 38, 0.35), 0 8px 26px rgba(220, 38, 38, 0.18);
+}
+
+/* Ring: a conic gradient clipped to a 2px border by two masks cancelling
+   each other out, so it traces the card's rounded edge exactly. */
+.dash-hold-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 2px;
+  pointer-events: none;
+  background: conic-gradient(
+    from var(--hold-angle),
+    transparent 0deg,
+    var(--accent-red) 70deg,
+    var(--accent-orange) 150deg,
+    transparent 230deg
+  );
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: hold-spin 1.1s linear infinite, hold-in 0.3s var(--spring) both;
+}
+
+@keyframes hold-spin {
+  to { --hold-angle: 360deg; }
+}
+
+@keyframes hold-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.dash-hold-chip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.35rem 0.7rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  white-space: nowrap;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  animation: chip-in 0.32s var(--spring) both;
+}
+
+@keyframes chip-in {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.82); }
+  to { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
+/* Breathing: a slow asymmetric in-out, never fully dimming. A linear pulse
+   reads mechanical; easing both ends is what makes it feel alive. */
+.dash-hold-spark,
+.dash-reading-spark {
+  display: inline-block;
+  color: var(--accent-orange);
+  animation: breathe 1.6s ease-in-out infinite;
+}
+
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(0.88); }
+  50% { opacity: 1; transform: scale(1.14); }
+}
+
+/* --- Reading state ------------------------------------------------------ */
+
+.dash-reading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-top: 1rem;
+}
+
+.dash-reading-head {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 0.15rem;
+}
+
+.dash-shimmer {
+  display: block;
+  height: 14px;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-secondary) 0%,
+    var(--border-color) 45%,
+    var(--bg-secondary) 90%
+  );
+  background-size: 220% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 140% 0; }
+  to { background-position: -60% 0; }
+}
+
+/* --- Typing ------------------------------------------------------------- */
+
+.dash-caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--accent-red);
+  animation: caret 0.9s steps(1, end) infinite;
+}
+
+@keyframes caret {
+  0%, 55% { opacity: 1; }
+  56%, 100% { opacity: 0; }
+}
+
+/* Decoration only — none of it may withhold content or move the page for a
+   reader who asked for stillness. The typewriter hook returns the full string
+   immediately under the same preference. */
+@media (prefers-reduced-motion: reduce) {
+  .dash-story,
+  .dash-wire-item,
+  .dash-story.is-holding,
+  .dash-wire-item.is-holding {
+    transform: none;
+    transition: none;
+  }
+
+  .dash-hold-ring,
+  .dash-hold-chip,
+  .dash-hold-spark,
+  .dash-reading-spark,
+  .dash-shimmer,
+  .dash-caret {
+    animation: none;
+  }
+
+  .dash-caret { opacity: 1; }
 }

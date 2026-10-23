@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchNewsFeed } from '../api';
 import useLongPress from './useLongPress';
+import HoldAffordance from './HoldAffordance';
 import './Dashboard.css';
 
 /**
@@ -32,17 +33,18 @@ const FILTERS = [
 ];
 
 function WireItem({ item, onSummarize }) {
-  const press = useLongPress(() => onSummarize(item));
+  const { holding, handlers } = useLongPress(() => onSummarize(item));
   return (
     <li>
       <a
-        className="dash-wire-item"
+        className={`dash-wire-item ${holding ? 'is-holding' : ''}`}
         href={item.url}
         target="_blank"
         rel="noopener noreferrer"
         title="Hold to summarize"
-        {...press}
+        {...handlers}
       >
+        {holding && <HoldAffordance />}
         <div className="dash-wire-main">
           <div className="dash-story-meta">
             {item.tag && <span className="dash-tag">{item.tag}</span>}

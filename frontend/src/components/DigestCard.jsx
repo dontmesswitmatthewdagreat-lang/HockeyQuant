@@ -1,4 +1,5 @@
 import useLongPress from './useLongPress';
+import HoldAffordance from './HoldAffordance';
 import './Dashboard.css';
 
 /**
@@ -42,16 +43,17 @@ function timeAgo(iso) {
 
 /** Own component per story so each can hold its own press-and-hold timer. */
 function StoryCard({ item, onSummarize }) {
-  const press = useLongPress(() => onSummarize(item));
+  const { holding, handlers } = useLongPress(() => onSummarize(item));
   return (
     <a
-      className="dash-story"
+      className={`dash-story ${holding ? 'is-holding' : ''}`}
       href={item.url}
       target="_blank"
       rel="noopener noreferrer"
       title="Hold to summarize"
-      {...press}
+      {...handlers}
     >
+      {holding && <HoldAffordance />}
       {item.image_url && item.image_url !== 'None' && (
         <div className="dash-story-media">
           <img src={item.image_url} alt="" loading="lazy" draggable="false" />

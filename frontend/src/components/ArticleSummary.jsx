@@ -1,6 +1,32 @@
 import { useEffect, useState } from 'react';
 import { summarizeArticle } from '../api';
+import useTypewriter from './useTypewriter';
 import './Dashboard.css';
+
+/**
+ * What the sheet shows while the model reads: a breathing spark and four
+ * shimmer bars, the same shape as the summary that replaces them so the
+ * layout doesn't jump when it lands. Ported from the iOS sheet's pulsing
+ * `sparkles` symbol over `LoadingShimmer` rows.
+ */
+function SummarySkeleton() {
+  return (
+    <div className="dash-reading">
+      <div className="dash-reading-head">
+        <span className="dash-reading-spark">✦</span>
+        <span>Reading the article…</span>
+      </div>
+      {/* The short last bar is what makes it read as a paragraph. */}
+      {['100%', '100%', '100%', '62%'].map((w, i) => (
+        <span
+          key={w + i}
+          className="dash-shimmer"
+          style={{ width: w, animationDelay: `${i * 0.12}s` }}
+        />
+      ))}
+    </div>
+  );
+}
 
 /**
  * The sheet a press-and-hold opens: an AI summary of one article, so you can
@@ -13,6 +39,9 @@ import './Dashboard.css';
 function ArticleSummary({ article, onClose }) {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState(null);
+  // A cached summary returns almost instantly, so the typing is what gives the
+  // answer a sense of being produced rather than simply appearing.
+  const { shown: typed, done } = useTypewriter(summary?.summary || '');
 
   useEffect(() => {
     let cancelled = false;
@@ -44,11 +73,14 @@ function ArticleSummary({ article, onClose }) {
           {summary?.cached && <span className="dash-tag">cached</span>}
         </div>
 
-        {!summary && !error && (
-          <p className="dash-summary-body dash-summary-loading">Reading the article…</p>
-        )}
+        {!summary && !error && <SummarySkeleton />}
         {error && <p className="dash-note">{error}</p>}
-        {summary && <p className="dash-summary-body">{summary.summary}</p>}
+        {summary && (
+          <p className="dash-summary-body">
+            {typed}
+            {!done && <span className="dash-caret" aria-hidden="true" />}
+          </p>
+        )}
 
         <a
           className="dash-summary-link"

@@ -89,12 +89,15 @@ function Dashboard() {
               <ul className="dash-slate">
                 {games.slice(0, 8).map((g) => (
                   <li key={`${g.away}-${g.home}`}>
-                    <span className="dash-slate-team">
+                    {/* The away block is mirrored — abbreviation then crest —
+                        so both crests sit against the @ and it reads as
+                        centred between them rather than between the columns. */}
+                    <span className="dash-slate-team dash-slate-away">
                       <img src={getTeamLogo(g.away)} alt="" />
                       {g.away}
                     </span>
                     <span className="dash-slate-at">@</span>
-                    <span className="dash-slate-team">
+                    <span className="dash-slate-team dash-slate-home">
                       <img src={getTeamLogo(g.home)} alt="" />
                       {g.home}
                     </span>

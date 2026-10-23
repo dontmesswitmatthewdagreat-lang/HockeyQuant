@@ -1,7 +1,9 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 /**
- * Press-and-hold on a news card to summarize it, ported from the iOS gesture.
+ * Press-and-hold on a news card to summarize it, ported from the iOS gesture
+ * (`HoldToSummarize`): the card shrinks slightly, a gradient ring lights up,
+ * and after the delay it fires.
  *
  * The awkward part on the web is that the thing being held is a link. A hold
  * has to open the summary *without* also following the href when the finger
@@ -9,19 +11,25 @@ import { useCallback, useRef } from 'react';
  * long-press menu. So the hook tracks whether the hold actually fired and
  * swallows exactly one subsequent click.
  *
- * Returns props to spread onto the element. `delay` is 450ms: long enough not
- * to fire on a normal click, short enough not to feel broken.
+ * Returns `{ holding, handlers }` — `holding` drives the press animation,
+ * `handlers` spread onto the element.
+ *
+ * HOLD_MS matches iOS's 0.6s minimumDuration so the two feel the same.
  */
-export default function useLongPress(onLongPress, { delay = 450 } = {}) {
+export const HOLD_MS = 600;
+
+export default function useLongPress(onLongPress, { delay = HOLD_MS } = {}) {
   const timer = useRef(null);
   const fired = useRef(false);
   const origin = useRef({ x: 0, y: 0 });
+  const [holding, setHolding] = useState(false);
 
   const clear = useCallback(() => {
     if (timer.current) {
       clearTimeout(timer.current);
       timer.current = null;
     }
+    setHolding(false);
   }, []);
 
   const start = useCallback((e) => {
@@ -29,12 +37,15 @@ export default function useLongPress(onLongPress, { delay = 450 } = {}) {
     if (e.button !== undefined && e.button !== 0) return;
     origin.current = { x: e.clientX, y: e.clientY };
     fired.current = false;
-    clear();
+    if (timer.current) clearTimeout(timer.current);
+    setHolding(true);
     timer.current = setTimeout(() => {
       fired.current = true;
+      timer.current = null;
+      setHolding(false);
       onLongPress();
     }, delay);
-  }, [onLongPress, delay, clear]);
+  }, [onLongPress, delay]);
 
   // A drag is a scroll, not a hold — bail once the pointer has really moved.
   const move = useCallback((e) => {
@@ -60,12 +71,15 @@ export default function useLongPress(onLongPress, { delay = 450 } = {}) {
   }, []);
 
   return {
-    onPointerDown: start,
-    onPointerUp: clear,
-    onPointerLeave: clear,
-    onPointerCancel: clear,
-    onPointerMove: move,
-    onClick: click,
-    onContextMenu: contextMenu,
+    holding,
+    handlers: {
+      onPointerDown: start,
+      onPointerUp: clear,
+      onPointerLeave: clear,
+      onPointerCancel: clear,
+      onPointerMove: move,
+      onClick: click,
+      onContextMenu: contextMenu,
+    },
   };
 }
