@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchNewsFeed } from '../api';
+import useLongPress from './useLongPress';
 import './Dashboard.css';
 
 /**
@@ -30,7 +31,36 @@ const FILTERS = [
   { id: 'blurb', label: 'Blurbs' },
 ];
 
-function WireFeed() {
+function WireItem({ item, onSummarize }) {
+  const press = useLongPress(() => onSummarize(item));
+  return (
+    <li>
+      <a
+        className="dash-wire-item"
+        href={item.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        title="Hold to summarize"
+        {...press}
+      >
+        <div className="dash-wire-main">
+          <div className="dash-story-meta">
+            {item.tag && <span className="dash-tag">{item.tag}</span>}
+            <span className="dash-story-source">{item.source}</span>
+            {item.team && item.team !== 'None' && (
+              <span className="dash-wire-team">{item.team}</span>
+            )}
+          </div>
+          <h4 className="dash-wire-headline">{item.headline}</h4>
+          {item.blurb && <p className="dash-wire-blurb">{item.blurb}</p>}
+        </div>
+        <span className="dash-wire-time">{timeAgo(item.published_at)}</span>
+      </a>
+    </li>
+  );
+}
+
+function WireFeed({ onSummarize }) {
   const [items, setItems] = useState([]);
   const [cursor, setCursor] = useState(null);
   const [kind, setKind] = useState(null);
@@ -102,27 +132,7 @@ function WireFeed() {
 
       <ul className="dash-wire-list">
         {items.map((item) => (
-          <li key={item.id}>
-            <a
-              className="dash-wire-item"
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              <div className="dash-wire-main">
-                <div className="dash-story-meta">
-                  {item.tag && <span className="dash-tag">{item.tag}</span>}
-                  <span className="dash-story-source">{item.source}</span>
-                  {item.team && item.team !== 'None' && (
-                    <span className="dash-wire-team">{item.team}</span>
-                  )}
-                </div>
-                <h4 className="dash-wire-headline">{item.headline}</h4>
-                {item.blurb && <p className="dash-wire-blurb">{item.blurb}</p>}
-              </div>
-              <span className="dash-wire-time">{timeAgo(item.published_at)}</span>
-            </a>
-          </li>
+          <WireItem key={item.id} item={item} onSummarize={onSummarize} />
         ))}
       </ul>
 

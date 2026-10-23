@@ -93,7 +93,7 @@
   position: relative;
   height: 10px;
   border-radius: 5px;
-  background: var(--bg-accent);
+  background: var(--border-color);
   overflow: hidden;
 }
 
@@ -127,7 +127,7 @@
   cursor: pointer;
 }
 
-.adv-toggle:hover { background: var(--bg-accent); }
+.adv-toggle:hover { background: var(--bg-secondary); }
 
 .adv-split-table,
 .adv-unit-table {
@@ -177,7 +177,7 @@
   padding: 0.15rem 0.45rem;
   border-radius: 999px;
   color: var(--text-secondary);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
 }
 
 .adv-pill-good {
@@ -224,7 +224,7 @@
   right: 0;
   height: 6px;
   border-radius: 3px;
-  background: var(--bg-accent);
+  background: var(--border-color);
 }
 
 .adv-luck-avg {
@@ -280,7 +280,7 @@
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
   border: 1px solid transparent;
   border-radius: 6px;
   cursor: pointer;
@@ -398,7 +398,7 @@
   height: 8px;
   margin: 0.25rem 0 0.15rem;
   border-radius: 4px;
-  background: var(--bg-accent);
+  background: var(--border-color);
   overflow: hidden;
 }
 
@@ -462,4 +462,4 @@
 }
 
 .adv-clickable { cursor: pointer; }
-.adv-clickable:hover { background: var(--bg-accent); }
+.adv-clickable:hover { background: var(--bg-secondary); }

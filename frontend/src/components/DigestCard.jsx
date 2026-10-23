@@ -1,3 +1,4 @@
+import useLongPress from './useLongPress';
 import './Dashboard.css';
 
 /**
@@ -39,7 +40,41 @@ function timeAgo(iso) {
   return `${Math.round(hrs / 24)}d ago`;
 }
 
-function DigestCard({ digest }) {
+/** Own component per story so each can hold its own press-and-hold timer. */
+function StoryCard({ item, onSummarize }) {
+  const press = useLongPress(() => onSummarize(item));
+  return (
+    <a
+      className="dash-story"
+      href={item.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="Hold to summarize"
+      {...press}
+    >
+      {item.image_url && item.image_url !== 'None' && (
+        <div className="dash-story-media">
+          <img src={item.image_url} alt="" loading="lazy" draggable="false" />
+        </div>
+      )}
+      <div className="dash-story-body">
+        <div className="dash-story-meta">
+          {item.tag && (
+            <span className={`dash-tag ${TAG_TONE[item.tag] || ''}`}>{item.tag}</span>
+          )}
+          <span className="dash-story-source">{item.source}</span>
+          {timeAgo(item.published_at) && (
+            <span className="dash-story-time">· {timeAgo(item.published_at)}</span>
+          )}
+        </div>
+        <h3 className="dash-story-headline">{item.headline}</h3>
+        {item.blurb && <p className="dash-story-blurb">{item.blurb}</p>}
+      </div>
+    </a>
+  );
+}
+
+function DigestCard({ digest, onSummarize }) {
   if (!digest) return null;
   const items = digest.items || [];
   const keyPoints = digest.key_points || [];
@@ -53,7 +88,19 @@ function DigestCard({ digest }) {
           </span>
           <h2 className="dash-digest-title">{digest.title}</h2>
         </div>
-        <span className="dash-digest-date">{digest.digest_date}</span>
+        <div className="dash-digest-stamp">
+          <span className="dash-digest-date">{digest.digest_date}</span>
+          {/* Editions are rewritten through the day, so "which edition" isn't
+              enough — when it last ran is what tells you if it's stale. */}
+          {digest.created_at && (
+            <span className="dash-digest-updated" title={new Date(digest.created_at).toLocaleString()}>
+              Updated {timeAgo(digest.created_at)} ·{' '}
+              {new Date(digest.created_at).toLocaleTimeString([], {
+                hour: 'numeric', minute: '2-digit',
+              })}
+            </span>
+          )}
+        </div>
       </header>
 
       {digest.intro && <p className="dash-digest-intro">{digest.intro}</p>}
@@ -75,32 +122,7 @@ function DigestCard({ digest }) {
       {items.length > 0 && (
         <div className="dash-stories">
           {items.map((item) => (
-            <a
-              key={item.url}
-              className="dash-story"
-              href={item.url}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              {item.image_url && item.image_url !== 'None' && (
-                <div className="dash-story-media">
-                  <img src={item.image_url} alt="" loading="lazy" />
-                </div>
-              )}
-              <div className="dash-story-body">
-                <div className="dash-story-meta">
-                  {item.tag && (
-                    <span className={`dash-tag ${TAG_TONE[item.tag] || ''}`}>{item.tag}</span>
-                  )}
-                  <span className="dash-story-source">{item.source}</span>
-                  {timeAgo(item.published_at) && (
-                    <span className="dash-story-time">· {timeAgo(item.published_at)}</span>
-                  )}
-                </div>
-                <h3 className="dash-story-headline">{item.headline}</h3>
-                {item.blurb && <p className="dash-story-blurb">{item.blurb}</p>}
-              </div>
-            </a>
+            <StoryCard key={item.url} item={item} onSummarize={onSummarize} />
           ))}
         </div>
       )}

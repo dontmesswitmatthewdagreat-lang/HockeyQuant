@@ -445,3 +445,25 @@ export async function searchNews(q) {
   }
   return response.json();
 }
+
+/**
+ * `POST /api/news/summarize` — 3-4 sentence AI summary of one article.
+ * Cached per URL server-side. The headline and blurb are sent as a fallback:
+ * when a site blocks the scraper, the model summarizes those instead of
+ * failing outright.
+ */
+export async function summarizeArticle({ url, headline = '', blurb = '' }) {
+  const response = await fetch(`${API_BASE}/api/news/summarize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, headline, blurb }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      response.status === 422
+        ? "This article couldn't be read."
+        : 'Could not summarize this article.',
+    );
+  }
+  return response.json();
+}

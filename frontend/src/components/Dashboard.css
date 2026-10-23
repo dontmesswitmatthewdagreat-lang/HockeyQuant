@@ -146,7 +146,7 @@
   margin-top: 1rem;
   padding: 0.85rem 1rem;
   border-left: 3px solid var(--accent-red);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
   border-radius: 0 8px 8px 0;
 }
 
@@ -190,7 +190,7 @@
 .dash-story-media {
   aspect-ratio: 16 / 9;
   overflow: hidden;
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
 }
 
 .dash-story-media img {
@@ -220,7 +220,7 @@
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
   color: var(--text-secondary);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
 }
 
 .tag-injury { color: var(--accent-red); background: var(--accent-red-light); }
@@ -259,7 +259,7 @@
   font-size: 0.6875rem;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -329,7 +329,7 @@
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-accent);
+  background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
@@ -415,7 +415,7 @@
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  padding: 0.4rem 0;
+  padding: 0.5rem 0;
   font-size: 0.8125rem;
   font-weight: 600;
   color: var(--text-primary);
@@ -430,7 +430,7 @@
   flex: 1;
 }
 
-.dash-slate-team img { width: 20px; height: 20px; object-fit: contain; }
+.dash-slate-team img { width: 30px; height: 30px; object-fit: contain; }
 
 .dash-slate-at {
   font-size: 0.6875rem;
@@ -475,4 +475,220 @@
 @media (max-width: 900px) {
   .dash-grid { grid-template-columns: minmax(0, 1fr); }
   .dash-side { order: 2; }
+}
+
+/* --- Cards that are themselves links ------------------------------------ */
+
+.dash-slate-card,
+.dash-leaders-card {
+  display: block;
+  text-decoration: none;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.dash-slate-card:hover,
+.dash-leaders-card:hover {
+  border-color: var(--accent-red);
+  transform: translateY(-2px);
+}
+
+/* The affordance sits in the header, but the whole card is the target. */
+.dash-slate-card:hover .dash-link,
+.dash-leaders-card:hover .dash-link {
+  text-decoration: underline;
+}
+
+/* --- Rapid digest ------------------------------------------------------- */
+/* Kept as a recessed panel with a red rule rather than a red fill: the body
+   is five lines of text that have to be read, not a banner. */
+
+.dash-rapid-list li::marker { color: var(--accent-red); }
+
+/* --- Article summary sheet (press and hold) ----------------------------- */
+
+.dash-summary {
+  max-width: 520px;
+  padding: 1.4rem;
+  position: relative;
+}
+
+.dash-close {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.8rem;
+  font-size: 1.6rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.dash-summary-headline {
+  margin: 0.3rem 0 0.4rem;
+  font-size: 1.1rem;
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.dash-summary-body {
+  margin: 0.9rem 0 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.dash-summary-loading {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.dash-summary-link {
+  display: inline-block;
+  margin-top: 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--accent-red);
+  text-decoration: none;
+}
+
+.dash-summary-link:hover { text-decoration: underline; }
+
+/* Press-and-hold targets: stop the browser's own text/image drag from
+   competing with the gesture. */
+.dash-story,
+.dash-wire-item {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* --- Ask the archive ---------------------------------------------------- */
+
+.dash-assistant-blurb { margin-bottom: 0.75rem; }
+
+.dash-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+
+.dash-suggestion {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.6875rem;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.dash-suggestion:hover {
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.dash-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-height: 340px;
+  overflow-y: auto;
+}
+
+.dash-thread:not(:empty) { margin-bottom: 0.75rem; }
+
+.dash-turn-q {
+  margin: 0 0 0.3rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.dash-turn-a {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--text-secondary);
+}
+
+.dash-turn-error { color: var(--accent-red); }
+
+.dash-turn-sources {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dash-turn-sources a {
+  font-size: 0.6875rem;
+  color: var(--accent-blue);
+  text-decoration: none;
+}
+
+.dash-turn-sources a:hover { text-decoration: underline; }
+
+.dash-turn-src {
+  margin-left: 0.3rem;
+  font-size: 0.625rem;
+  color: var(--text-muted);
+}
+
+.dash-ask {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.dash-ask input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.45rem 0.6rem;
+  font-size: 0.8125rem;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.dash-ask input:focus {
+  outline: none;
+  border-color: var(--accent-red);
+}
+
+.dash-ask button {
+  padding: 0.45rem 0.8rem;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--text-on-red);
+  background: var(--accent-red);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.dash-ask button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* --- Edition timestamp -------------------------------------------------- */
+
+.dash-digest-stamp {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
+  white-space: nowrap;
+}
+
+.dash-digest-updated {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: var(--text-muted);
 }
